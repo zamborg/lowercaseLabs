@@ -3,3 +3,6 @@ __pycache__
 notesExport
 .DS_store
 *.pyc
+.ipynb_checkpoints
+.python-version
+*.jpeg
