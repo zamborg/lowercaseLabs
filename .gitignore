@@ -6,3 +6,4 @@ notesExport
 .ipynb_checkpoints
 .python-version
 *.jpeg
+*.env

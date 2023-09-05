@@ -8,6 +8,10 @@ import cv2
 import json
 import re
 
+import os
+import psycopg2
+from dotenv import load_dotenv
+
 class Preprocess:
     default = {
         "resize": {
@@ -98,16 +102,25 @@ class Preprocess:
             im = getattr(Preprocess, op)(im, **d)
             
         return im
+   
+
+class CALLABLE:
+    def exec(self, **kwargs):
+        raise NotImplementedError("Must override `exec` method")
     
+    def __call__(self, **kwargs):
+        return self.exec(**kwargs)
 
 class Clothing: 
-    # TODO: define preprocessing as a list of functors
-    def __init__(self, image, preprocessing) -> None:
-        self.image = Preprocess.apply(image, preprocessing)
-        self.vec = None
+    def __init__(self, color, category, description, material, season, fp, preprocessing = []) -> None:
+        self.color, self.category, self.material = color, category, material
+        self.description, self.season = season, description
+        self.image = Preprocess.apply(Image.open(fp), preprocessing)
 
-    # def _vectorize(embed_engine):
-    #     return embed_engine(self.image)
+    @staticmethod
+    def _from_DB(db_tuple, pre=[]):
+        _, col, cat, desc, mat, sea, fp = db_tuple
+        return Clothing(col,cat,desc,mat,sea,fp,pre)
 
     @cached_property
     def bytes(self):
@@ -117,14 +130,24 @@ class Clothing:
 
 
 class AllClothes:
-    def __init__(self) -> None:
-        self.clothes = []
-        self.embeddings = []
+    def __init__(self, clothes = []) -> None:
+        self.clothes = clothes
 
     def __getitem__(self, index):
         return self.clothes[index]
     
-class ImageCaptioner():
+    @staticmethod
+    def _from_DB(pre=[]):
+        load_dotenv()
+        db = psycopg2.connect(os.environ['DBURL'])
+        with db.cursor() as cur:
+            data = cur.execute("SELECT * FROM clothing")
+            data = cur.fetchall()
+        db.close()
+        return AllClothes(clothes=[Clothing._from_DB(d, pre) for d in data])
+    
+
+class ImageCaptioner(CALLABLE):
     # we are going to use: https://github.com/dsdanielpark/Bard-API
     def __init__(self, cookie_dict) -> None:
         self.bard = BardCookies(cookie_dict=cookie_dict)
@@ -150,6 +173,24 @@ class ImageCaptioner():
             return self.extract(response['content'])
         except:
             return response['content']
+        
 
-    def __call__(self, clothing: Clothing) -> Any:
-        return self.exec(clothing)
+class DB(CALLABLE):
+    def __init__(self) -> None:
+        load_dotenv()
+        self.DB = psycopg2.connect(os.environ['DBURL'])
+        self.DB.set_session(autocommit=True)
+        self.count = 0
+
+    def _reconnect(self):
+        del self.DB
+        self.DB = psycopg2.connect(os.environ['DBURL'])
+        self.count = 0
+
+    def exec(self, sql: str):
+        if self.count == 5:
+            self._reconnect()
+        with self.DB.cursor() as cursor:
+            self.count += 1
+            return cursor.execute(sql)
+        
