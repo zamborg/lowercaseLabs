@@ -1,5 +1,5 @@
+from typing import Any, List, Dict, Iterable
 from bardapi import BardCookies
-from typing import Any, List
 from io import BytesIO
 from functools import cached_property
 import numpy as np
@@ -7,10 +7,15 @@ from PIL import Image
 import cv2
 import json
 import re
+from collections import OrderedDict
 
 import os
 import psycopg2
 from dotenv import load_dotenv
+from typing import Callable
+from transformers import AutoTokenizer, AutoModel
+import torch
+import torch.nn.functional as F
 
 class Preprocess:
     default = {
@@ -112,10 +117,12 @@ class CALLABLE:
         return self.exec(**kwargs)
 
 class Clothing: 
-    def __init__(self, color, category, description, material, season, fp, preprocessing = []) -> None:
+    def __init__(self, color, category, description, material, season, fp, preprocessing = [], vector = None, **kwargs) -> None:
         self.color, self.category, self.material = color, category, material
-        self.description, self.season = season, description
+        self.description, self.season = description, season
         self.image = Preprocess.apply(Image.open(fp), preprocessing)
+        self.vector = vector
+        self.json = kwargs.get("json", False) #return all content as a json in __str__
 
     @staticmethod
     def _from_DB(db_tuple, pre=[]):
@@ -128,6 +135,18 @@ class Clothing:
             self.image.save(b, format="PNG")
             return b.getvalue()
 
+    def __str__(self) -> str:
+        if self.json:
+            data = {
+                "color": self.color,
+                "category": self.category,
+                "material": self.material,
+                "description": self.description,
+                "season": self.season
+            }
+            return json.dumps(data)
+        return self.description
+
 
 class AllClothes:
     def __init__(self, clothes = []) -> None:
@@ -136,6 +155,15 @@ class AllClothes:
     def __getitem__(self, index):
         return self.clothes[index]
     
+    def apply(self, func: callable):
+        """
+        applies func on all clothes in self.clothes
+        func should be inplace if mutating
+        """
+        for c in self.clothes:
+            func(c)
+        return
+    
     @staticmethod
     def _from_DB(pre=[]):
         load_dotenv()
@@ -143,6 +171,7 @@ class AllClothes:
         with db.cursor() as cur:
             data = cur.execute("SELECT * FROM clothing")
             data = cur.fetchall()
+            cur.close()
         db.close()
         return AllClothes(clothes=[Clothing._from_DB(d, pre) for d in data])
     
@@ -194,3 +223,92 @@ class DB(CALLABLE):
             self.count += 1
             return cursor.execute(sql)
         
+class VectorDB():
+    def __init__(self, unit_vectors=True) -> None:
+        """
+        Custom implementation of a vectorDB for search.
+        ## TODO: maybe change this to use the .vector property of Clothing?
+        ## TODO: consider 
+        """
+        self.tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+        self.tokenizer_kwargs = {"padding":True, "truncation":True, "return_tensors":'pt'}
+        self.model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+        self.embeddings = np.zeros((0,384))# zero array to vstack
+        self.itoo = dict() # empty dict for index to object lookup
+        self.unit_vectors = unit_vectors
+
+    def insert(self, obj, access_func: Callable = lambda x : str(x)):
+        """
+        This function vectorizes the object using access_func 
+            stores the object's index in the self.itoo lookup dictionary
+        INPUT:
+            object: the object to insert
+            access_func: method to get a string from the object for vectorization (default __str__)
+        """
+        vector = self.embed(obj, access_func)
+        self.itoo[len(self.embeddings)] = obj
+        self.embeddings = np.vstack([self.embeddings, vector.numpy()])
+        return
+    
+    def batch_insert(self, obj: Iterable, access_func: Callable = lambda x : str(x)):
+        """
+        Just a vectorized pass of the objects.callable to the model for vectorization
+        exact same as insert
+        
+        Accepts A SINGLE ACCESS FUNC -- no heterogeneous access.
+
+        inserts ALL objects into self
+        """
+        tokens = []
+        for o in obj:
+            # insert all objects
+            self.itoo[len(self.itoo)] = o
+            tokens.append(access_func(o))
+        tokens = self.tokenizer(tokens, **self.tokenizer_kwargs)
+
+        with torch.no_grad():
+            vectors = self.model(**tokens).last_hidden_state
+        vectors = vectors.mean(dim=1)# NxD
+        if self.unit_vectors:
+            vectors = F.normalize(vectors, 2, dim=1)
+        self.embeddings = np.vstack([self.embeddings, vectors.numpy()])
+        return
+
+    def embed(self, obj, access_func: Callable = lambda x : str(x)):
+        """
+        returns vector embedding of object
+        callable takes object as input and returns a string -- default: str(object)
+
+        returns torch tensor vector with avg pooling
+        """
+        string = access_func(obj)
+        with torch.no_grad():
+            vector = self.model(**self.tokenizer(string, **self.tokenizer_kwargs)).last_hidden_state # model is a transformer so just pass the entire input unrolled
+
+        vector = vector.mean(dim=1).squeeze() # this is avg pooling -- maybe should be max_pooling?
+        if self.unit_vectors:
+            vector = F.normalize(vector, 2, 0)
+        return vector
+    
+    def knn(self, obj, access_func: Callable = lambda x : str(x), k=1):
+        """
+        returns the k nearest neighbors to obj using access_func to extract a string
+        searches against the vector db
+        returns an ordered list of [(obj, score)]
+        """
+        vector = self.embed(obj, access_func).numpy() # D dimensional vector
+        dot_products = np.dot(self.embeddings, vector)
+        sorted_indices = np.argsort(dot_products)[::-1][:k]
+        sorted_scores = dot_products[sorted_indices][:k]
+        ordered_list = [(self.itoo[idx], score) for idx, score in zip(sorted_indices, sorted_scores)]
+        return ordered_list
+        
+    def __getitem__(self, index):
+        return self.itoo[index]
+    def __setitem__(self, index, item):
+        self.itoo[index] = item
+    def __len__(self):
+        return len(self.itoo)
+    def pop(self, index):
+        self.itoo.pop(index)
+        self.embeddings = np.delete(self.embeddings, index, 0) # delete the index elemtent in the 0th embedding 
