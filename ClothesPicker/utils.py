@@ -1,4 +1,4 @@
-from typing import Any, List, Dict, Iterable
+from typing import Any, List, Union, Iterable
 from bardapi import BardCookies
 from io import BytesIO
 from functools import cached_property
@@ -175,31 +175,54 @@ class AllClothes:
         db.close()
         return AllClothes(clothes=[Clothing._from_DB(d, pre) for d in data])
     
+    def __str__(self) -> str:
+        return "\n".join([f"{str(d)}," for d in self.clothes])
+    
+
+class JSONAgent:
+    d = r"(\{.*?\})"
+    l = r"(\[.*?\])"
+
+    def __init__(self, pattern: Union[dict, list]):
+        self.pattern = pattern
+
+    @staticmethod
+    def dict():
+        return JSONAgent(JSONAgent.d)
+    @staticmethod
+    def list():
+        return JSONAgent(JSONAgent.l)
+
+    @staticmethod
+    def extract(content, pattern):
+        return json.loads(re.findall(pattern, content, re.DOTALL)[0])
+    
+    def __call__(self, content) -> Any:
+        return JSONAgent.extract(content, self.pattern)
+    
+    
 
 class ImageCaptioner(CALLABLE):
     # we are going to use: https://github.com/dsdanielpark/Bard-API
     def __init__(self, cookie_dict) -> None:
         self.bard = BardCookies(cookie_dict=cookie_dict)
+        self.extractor = JSONAgent.dict()
         self.prompt = """Describe this article of clothing. You should describe the article of categories in a json format using the example below:
 ```
 {
     color: COLOR,
     category: Pants, Tshirt, Jacket, Polo Shirt, ...,
-    description: SHORT DESCRIPTION,
+    description: DETAILED DESCRIPTION,
     material: MATERIAL,
     season, WINTER, SUMMER, FALL, SPRING, ALL
     
 }
 ```
 """
-        self.pattern = r"\{(.*?)\}"
-    def extract(self, content):
-        return json.loads(f"{{\n{re.findall(self.pattern, content, re.DOTALL)[0]}\n}}") # the fstring here just adds {} to the string cuz the regex removes it
-    
     def exec(self, clothing: Clothing):
         response = self.bard.ask_about_image(self.prompt, clothing.bytes)
         try:
-            return self.extract(response['content'])
+            return self.extractor(response['content'])
         except:
             return response['content']
         
@@ -302,6 +325,12 @@ class VectorDB():
         sorted_scores = dot_products[sorted_indices][:k]
         ordered_list = [(self.itoo[idx], score) for idx, score in zip(sorted_indices, sorted_scores)]
         return ordered_list
+    
+    def knn_with_content(self, content, k=1):
+        """
+        calls knn but with search_content that is self.embed() able
+        """
+        return self.knn(content, lambda x : x, k=k)
         
     def __getitem__(self, index):
         return self.itoo[index]
@@ -312,3 +341,69 @@ class VectorDB():
     def pop(self, index):
         self.itoo.pop(index)
         self.embeddings = np.delete(self.embeddings, index, 0) # delete the index elemtent in the 0th embedding 
+
+
+class OutfitPlanner():
+    def __init__(self, 
+                 cookie_dict, 
+                 instruction_prompt = "./CLOTHES_INSTRUCTION.prompt",
+                 list_prompt = "./CLOTHES_LIST.prompt",
+                 clothes_json = False
+                 ) -> None:
+        """
+        OutfitPlanner does several things:
+        instantiation:
+            builds an all_clothes object
+            creates a VectorDB with all the clothes in all_clothes
+            uses cookie_dict to create a bard agent
+            clothes_json: (false) if true return json content of clothing item instead of just description string
+            
+        """
+        self.clothes = AllClothes._from_DB(
+            [
+                ("resize", {"size":500}),
+            ]
+        )
+        if clothes_json:
+            def f(x):
+                x.json=True
+            self.clothes.apply(f) # set json=true for all clothes
+
+        self.vectorDB = VectorDB()
+        self.vectorDB.batch_insert(self.clothes.clothes)
+
+        self.instr_prompt_fp, self.list_prompt_fp = instruction_prompt, list_prompt
+
+        self.bard = BardCookies(cookie_dict=cookie_dict)
+        self.extractor = JSONAgent.list()
+
+    def instruction(self, reload=False):
+        if reload or hasattr(self, "_instruction") is False:
+            with open(self.instr_prompt_fp, "r") as f:
+                self._instruction = f.read()
+                self._instruction += "\n"
+        return self._instruction
+    
+    def list_prompt(self, reload=False):
+        if reload or hasattr(self, "_list_prompt") is False:
+            with open(self.list_prompt_fp, "r") as f:
+                self._list_prompt = f.read()
+                self._list_prompt = self._list_prompt.format(str(self.clothes))
+        return self._list_prompt
+    
+    def gt_clothing(self, clothing_content):
+        """
+        uses clothing_content, finds knn in vectorDB with k=1
+        returns tuple
+        """
+        return self.vectorDB.knn_with_content(clothing_content, k=1)[0]
+        
+    def outfit_query(self, prompt):
+        # there is no chat history so we'll just pass in a massive prompt:
+        payload = self.instruction() + "\n" + self.list_prompt() + "\n" + prompt +\
+              "Plan a coherent outfit involving multiple clothing items in the format requested using the context provided. Provide only one outfit option."
+        result = self.bard.get_answer(payload)
+        try:
+            return self.extractor(result['content'])
+        except Exception as e:
+             raise Exception(f"Extractor failed with error:\n{e}")
