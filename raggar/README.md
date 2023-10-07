@@ -45,3 +45,18 @@ Our goal with the `GAR` agent is to learn a mapping of queries such that that ov
 Now you've read about RAGGAR. Any code that is not in this project that causes it to break is because I moved it to some non-public repo. Sorry! 
 
 I like writing code but I'm busy so hopefully whatever is here is useful.
+
+
+### GAR from Claude?
+
+Does `Claude` know about `GAR`? No:
+
+>Generation-Augmented Retrieval (GAR) is a technique in Natural Language Processing (NLP) that combines the strengths of retrieval-based models with the benefits of generation-based models. GAR is designed to improve the accuracy of open-domain question answering by using a retriever to retrieve relevant documents or passages and a generator to generate the answer based on the retrieved information. GAR has been shown to be effective in improving the performance of retrieval augmented generation (RAG) models for open-domain question answering[1][3]. Some sources to learn more about GAR include ResearchGate[3][4], LinkedIn[5], and arXiv[6].
+
+>Citations:
+[1] https://arxiv.org/pdf/2101.00774.pdf
+[2] https://aclanthology.org/2023.findings-acl.46.pdf
+[3] https://www.researchgate.net/publication/353484995_Generation-Augmented_Retrieval_for_Open-Domain_Question_Answering
+[4] https://www.researchgate.net/publication/366497844_Generation-Augmented_Query_Expansion_For_Code_Retrieval
+[5] https://www.linkedin.com/posts/sudheer-kolachina-21a53127_linguistics-languageai-naturallanguageprocessing-activity-7088813142218006528-h0J_
+[6] https://www.arxiv-vanity.com/papers/2101.00774/
