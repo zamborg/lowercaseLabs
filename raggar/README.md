@@ -24,7 +24,7 @@ There are ways around this of course. NLP has had BERT similarity rankings using
 
 ## Why RAGGAR?
 
-I mean I texted some friends about calling it GARRAG because thats more similar to the order of operations, but `RAGGAR` seemed like the name of a creature from Star Wars. RAGGAR also lives within my vision of the future where segmented "mini-intelligence-machines" (that one might call AI agents) ingest information, perform tasks, and trigger eachother, all to accomplish a unified goal.
+I mean I texted some friends (thx Olivia) about calling it GARRAG because thats more similar to the order of operations, but `RAGGAR` seemed like the name of a creature from Star Wars. RAGGAR also lives within my vision of the future where segmented "mini-intelligence-machines" (that one might call AI agents) ingest information, perform tasks, and trigger eachother, all to accomplish a unified goal.
 
 You can imagine that RAGGAR is a system of two agents. A generation agent, and a retrival agent. The generation agent's job is to ingest queries and return document search terms. The retrieval agent's job is to ingest documents and return some result (TBD... you would make this obv).
 
@@ -49,7 +49,8 @@ I like writing code but I'm busy so hopefully whatever is here is useful.
 
 ### GAR from Claude?
 
-Does `Claude` know about `GAR`? No:
+Does `Claude` know about `GAR`? 
+**No**:
 
 >Generation-Augmented Retrieval (GAR) is a technique in Natural Language Processing (NLP) that combines the strengths of retrieval-based models with the benefits of generation-based models. GAR is designed to improve the accuracy of open-domain question answering by using a retriever to retrieve relevant documents or passages and a generator to generate the answer based on the retrieved information. GAR has been shown to be effective in improving the performance of retrieval augmented generation (RAG) models for open-domain question answering[1][3]. Some sources to learn more about GAR include ResearchGate[3][4], LinkedIn[5], and arXiv[6].
 
