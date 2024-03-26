@@ -1,5 +1,5 @@
 # lowercaseLabs
-lowercase Labs 
+lowercaseLabs 
 
 
 ## gpt.sh
