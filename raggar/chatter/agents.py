@@ -141,6 +141,7 @@ class SearchAgent(Agent):
         results = self.search(query, k)
         
         return [SearchResult(r) for r in results]
+    
 
     # Use the duckduckgo_search library
     def search(self, query, k):
