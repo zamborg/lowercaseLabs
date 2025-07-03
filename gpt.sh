@@ -15,21 +15,21 @@ gpt() {
   local start_time end_time rtt
   start_time=$(date +%s.%3N)
   local response
+  local json_payload
+  json_payload=$(jq -n \
+    --arg model "$model" \
+    --arg system_prompt "$system_prompt" \
+    --arg prompt "$prompt" \
+    '{model: $model, messages: [{role: "system", content: $system_prompt}, {role: "user", content: $prompt}]}')
   response=$(curl https://api.openai.com/v1/chat/completions \
     -sS \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $api_key" \
-    -d '{
-      "model": "'$model'",
-      "messages": [
-        {"role": "system", "content": "'$system_prompt'"},
-        {"role": "user", "content": "'$prompt'"}
-      ]
-    }')
+    -d "$json_payload")
   end_time=$(date +%s.%3N)
   rtt=$(awk -v start="$start_time" -v end="$end_time" 'BEGIN {printf "%.3f", end-start}')
   local content
-  content=$(echo "$response" | jq -r '.choices[0].message.content')
+  content=$(printf "%s" "$response" | jq -r '.choices[0].message.content')
   echo "\n$content"
   if [ "$GPT_DEBUG_MODE" = true ]; then
     # Extract token usage, model
@@ -37,10 +37,10 @@ gpt() {
     local completion_tokens
     local total_tokens
     local model_name
-    prompt_tokens=$(echo "$response" | jq -r '.usage.prompt_tokens // empty')
-    completion_tokens=$(echo "$response" | jq -r '.usage.completion_tokens // empty')
-    total_tokens=$(echo "$response" | jq -r '.usage.total_tokens // empty')
-    model_name=$(echo "$response" | jq -r '.model // empty')
+    prompt_tokens=$(printf "%s" "$response" | jq -r '.usage.prompt_tokens // empty')
+    completion_tokens=$(printf "%s" "$response" | jq -r '.usage.completion_tokens // empty')
+    total_tokens=$(printf "%s" "$response" | jq -r '.usage.total_tokens // empty')
+    model_name=$(printf "%s" "$response" | jq -r '.model // empty')
     # Estimate cost (4.1-mini: $0.0005/1K input, $0.0015/1K output)
     local cost="?"
     if [ -n "$prompt_tokens" ] && [ -n "$completion_tokens" ]; then
