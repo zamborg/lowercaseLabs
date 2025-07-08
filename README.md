@@ -1,6 +1,9 @@
 # lowercaseLabs
 lowercaseLabs 
 
+## On Update Frequency:
+
+I push code much more frequently than I push readme's. I attempt to maintain decent README into this repo by using AI_README.md --> an AI generated readme. 
 
 ## gpt.sh
 use `$gpt XXX` to use OpenAI's gpt3.5 for chat completion with a question. Nice to have in the commandline for debugging!

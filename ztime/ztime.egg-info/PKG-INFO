@@ -1,0 +1,39 @@
+Metadata-Version: 2.4
+Name: ztime
+Version: 0.1.0
+Summary: A simple decorator for timing functions.
+Author-email: Zay Sola <zay@lowercaselabs.io>
+Project-URL: Homepage, https://github.com/zaysola/ztime
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.7
+Description-Content-Type: text/markdown
+
+# ztime
+
+A simple decorator for timing functions.
+
+## Installation
+
+```bash
+pip install ztime
+```
+
+## Usage
+
+```python
+from ztime import ztime
+import time
+
+@ztime
+def my_function():
+    time.sleep(1)
+
+@ztime(repeats=3)
+def another_function():
+    time.sleep(0.5)
+
+my_function()
+another_function()
+```

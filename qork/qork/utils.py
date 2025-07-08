@@ -1,4 +1,5 @@
 import litellm
+import tiktoken
 
 def get_completion(model, prompt, api_key, stream=False):
     messages = [
@@ -22,3 +23,6 @@ def get_completion(model, prompt, api_key, stream=False):
         return response
     except Exception as e:
         return f"Error: {e}"
+
+def get_token_count(content: str, encoding_name: str = "o200k_base") -> int:
+    return len(tiktoken.get_encoding(encoding_name).encode(content))

@@ -6,8 +6,10 @@ from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.live import Live
 from rich.text import Text
-from .config import get_api_key, get_model
-from .utils import get_completion
+
+from qork.models import TokenCount
+from qork.config import get_api_key, get_model
+from qork.utils import get_completion, get_token_count
 
 def main():
     parser = argparse.ArgumentParser(
@@ -26,9 +28,9 @@ def main():
         help=f"The model to use for the completion. Defaults to QORK_MODEL env var or '{get_model()}'."
     )
     parser.add_argument(
-        "-s", "--stream",
+        "-ns", "--no-stream",
         action="store_true",
-        help="Stream the response from the model."
+        help="Disable streaming response from the model."
     )
     parser.add_argument(
         "-d", "--debug",
@@ -52,28 +54,36 @@ def main():
     model_to_use = args.model if args.model else get_model()
     debug_mode = args.debug or os.environ.get("GPT_DEBUG_MODE", "false").lower() == "true"
 
-    if args.stream and debug_mode:
-        console.print("[bold yellow]Warning: Debug mode is not supported with streaming. The -d flag will be ignored.[/bold yellow]")
-
-    if args.stream:
-        stream_response(model_to_use, args.prompt, api_key, console)
+    if not args.no_stream:
+        stream_response(model_to_use, args.prompt, api_key, console, debug_mode)
     else:
         standard_response(model_to_use, args.prompt, api_key, console, debug_mode)
 
-def stream_response(model, prompt, api_key, console):
+def stream_response(model, prompt, api_key, console, debug_mode):
+    if debug_mode:
+        console.print("[yellow]Warning: Streaming token counts are estimated using the 'o200k_base' encoding and may not be exact.[/yellow]")
+        input_tokens = get_token_count(prompt)
+        token_count = TokenCount(prompt_tokens=input_tokens)
+
     with Live(Panel("[bold green]Querying...[/bold green]", title="Status", border_style="green"), console=console, screen=False, vertical_overflow="visible") as live:
         response = get_completion(model, prompt, api_key, stream=True)
         
         if isinstance(response, str) and response.startswith("Error:"):
             live.update(Panel(f"[bold red]{response}[/bold red]", title="Error", border_style="red"))
+            if debug_mode:
+                console.print(Text(f"ErrorTokens: {token_count}", style="dim"))
             return
 
         full_response = ""
         for chunk in response:
-            chunk_content = chunk.choices[0].delta.content
+            chunk_content: str = chunk.choices[0].delta.content # 99% sure chunk_content is a string
             if chunk_content:
                 full_response += chunk_content
                 live.update(Panel(Markdown(full_response), title=f"[bold cyan]{model}[/bold cyan]", border_style="cyan", padding=(1, 2)))
+                if debug_mode:
+                    # guaranteed token_count exists here, and is a TokenCount object
+                    token_count.completion_tokens += get_token_count(chunk_content)
+        console.print(Text(f"Tokens: {token_count}", style="dim"))
 
 def standard_response(model, prompt, api_key, console, debug_mode):
     response = None
