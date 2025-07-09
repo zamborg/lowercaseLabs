@@ -1,11 +1,11 @@
 [project]
-name = "ztime"
+name = "zimer"
 version = "0.1.0"
 description = "A simple decorator for timing functions."
 readme = "README.md"
 requires-python = ">=3.7"
 authors = [
-    {name = "Zay Sola", email = "zay@lowercaselabs.io"},
+    {name = "Zubin Aysola", email = "zubin-email@email.com"},
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
