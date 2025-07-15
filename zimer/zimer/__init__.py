@@ -2,7 +2,7 @@ import time
 import asyncio
 from functools import wraps
 
-def ztime(func=None, *, repeats=1):
+def zimer(func=None, *, repeats=1):
     """
     A decorator to time the execution of a function.
 
@@ -54,3 +54,28 @@ def ztime(func=None, *, repeats=1):
     else:
         # Called without arguments, e.g., @ztime
         return decorator(func)
+    
+def with_retry(num_retries=5, backoff=0, backoff_exponent=1):
+    """
+    Decorator to retry a function on exception.
+    Args:
+        num_retries (int): Number of retries. Default 5.
+        backoff (float): Initial backoff in seconds. Default 0.
+        backoff_exponent (float): Exponent for exponential backoff. Default 1 (linear).
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            last_exc = None
+            for attempt in range(num_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exc = e
+                    if attempt < num_retries - 1:
+                        sleep_time = backoff * ((attempt + 1) ** backoff_exponent)
+                        if sleep_time > 0:
+                            time.sleep(sleep_time)
+                    else:
+                        raise last_exc
+        return wrapper
+    return decorator
