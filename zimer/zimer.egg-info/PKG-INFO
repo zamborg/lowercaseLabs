@@ -17,20 +17,20 @@ A simple decorator for timing functions.
 ## Installation
 
 ```bash
-pip install ztime
+pip install zimer
 ```
 
 ## Usage
 
 ```python
-from ztime import ztime
+from zimer import zimer
 import time
 
-@ztime
+@zimer
 def my_function():
     time.sleep(1)
 
-@ztime(repeats=3)
+@zimer(repeats=3)
 def another_function():
     time.sleep(0.5)
 

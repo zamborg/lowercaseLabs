@@ -1,6 +1,11 @@
-# ztime
+# zimer
 
-A simple decorator for timing functions.
+A lightweight utility package that ships two decorators that make everyday Python development a bit easier:
+
+* **`zimer`** – measure the execution time of synchronous and asynchronous functions, optionally repeating them and printing the average runtime.
+* **`with_retry`** – automatically retry a function when it raises an exception, with optional exponential back-off. Works with both sync and async callables.
+
+---
 
 ## Installation
 
@@ -8,20 +13,73 @@ A simple decorator for timing functions.
 pip install zimer
 ```
 
-## Usage
+---
+
+## `zimer` – timing decorator
 
 ```python
 from zimer import zimer
-import time
+import time, asyncio
 
-@zimer
-def my_function():
+@zimer                      # one run, prints elapsed time
+def slow_sync():
     time.sleep(1)
 
-@zimer(repeats=3)
-def another_function():
-    time.sleep(0.5)
+@zimer(repeats=3)           # three runs, prints average
+async def slow_async():
+    await asyncio.sleep(0.5)
 
-my_function()
-another_function()
+slow_sync()
+asyncio.run(slow_async())
 ```
+
+---
+
+## `with_retry` – retry decorator
+
+```python
+from zimer import with_retry
+import random, asyncio
+
+# --- synchronous example -----------------------------------------
+@with_retry(num_retries=3, backoff=1, backoff_exponent=2)  # 1s, 4s between tries
+def flaky_sync():
+    if random.random() < 0.7:
+        raise ValueError("Still broken …")
+    return "✓ finally worked"
+
+# --- asynchronous example ----------------------------------------
+@with_retry                # default: 5 retries, no back-off
+async def flaky_async():
+    if random.random() < 0.5:
+        raise RuntimeError("Try again …")
+    return "✓ async worked"
+
+print(flaky_sync())
+print(asyncio.run(flaky_async()))
+```
+
+Arguments:
+* `num_retries` – total attempts (initial call + retries). Must be ≥ 1.
+* `backoff` – initial pause between retries (seconds). Must be ≥ 0.
+* `backoff_exponent` – growth factor applied to the retry count to compute the
+  wait time: `sleep = backoff * ((attempt + 1) ** backoff_exponent)`.
+
+---
+
+## Testing
+
+Clone the repo and run:
+
+```bash
+pip install -r requirements-dev.txt  # pytest, etc.
+pytest -q
+```
+
+All unit tests live under `tests/` and cover both decorators.
+
+---
+
+## License
+
+MIT © 2024 Zubin Aysola

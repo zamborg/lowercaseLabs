@@ -55,27 +55,76 @@ def zimer(func=None, *, repeats=1):
         # Called without arguments, e.g., @ztime
         return decorator(func)
     
-def with_retry(num_retries=5, backoff=0, backoff_exponent=1):
+def with_retry(func=None, *, num_retries=5, backoff=0, backoff_exponent=1):
     """
     Decorator to retry a function on exception.
+
+    Can be used with or without arguments:
+
+    @with_retry
+    def my_func():
+        ...
+
+    @with_retry(num_retries=3, backoff=1)
+    def another_func():
+        ...
+
     Args:
-        num_retries (int): Number of retries. Default 5.
-        backoff (float): Initial backoff in seconds. Default 0.
-        backoff_exponent (float): Exponent for exponential backoff. Default 1 (linear).
+        num_retries (int): Number of retries. Must be positive.
+        backoff (float): Initial backoff in seconds. Must be >= 0.
+        backoff_exponent (float): Exponent for exponential backoff. Must be >= 0.
     """
-    def decorator(func):
-        def wrapper(*args, **kwargs):
+    # When the decorator is invoked with arguments (i.e. @with_retry(...))
+    if func is None:
+        def decorator(fn):
+            return with_retry(
+                fn,
+                num_retries=num_retries,
+                backoff=backoff,
+                backoff_exponent=backoff_exponent,
+            )
+        return decorator
+
+    # Basic validation of parameters
+    if not isinstance(num_retries, int) or num_retries < 1:
+        raise ValueError("num_retries must be a positive integer")
+    if backoff < 0:
+        raise ValueError("backoff must be non-negative")
+    if backoff_exponent < 0:
+        raise ValueError("backoff_exponent must be non-negative")
+
+    # Async variant
+    if asyncio.iscoroutinefunction(func):
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs):
             last_exc = None
             for attempt in range(num_retries):
                 try:
-                    return func(*args, **kwargs)
+                    return await func(*args, **kwargs)
                 except Exception as e:
                     last_exc = e
                     if attempt < num_retries - 1:
                         sleep_time = backoff * ((attempt + 1) ** backoff_exponent)
                         if sleep_time > 0:
-                            time.sleep(sleep_time)
-                    else:
-                        raise last_exc
-        return wrapper
-    return decorator
+                            await asyncio.sleep(sleep_time)
+            # Exhausted retries – re-raise the last exception
+            raise last_exc
+        return async_wrapper
+
+    # Sync variant
+    @wraps(func)
+    def sync_wrapper(*args, **kwargs):
+        last_exc = None
+        for attempt in range(num_retries):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                last_exc = e
+                if attempt < num_retries - 1:
+                    sleep_time = backoff * ((attempt + 1) ** backoff_exponent)
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+        # Exhausted retries – re-raise the last exception
+        raise last_exc
+
+    return sync_wrapper

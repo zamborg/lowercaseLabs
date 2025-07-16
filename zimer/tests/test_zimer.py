@@ -3,7 +3,7 @@ import time
 import asyncio
 from zimer import zimer
 
-class TestZTime(unittest.TestCase):
+class TestZimer(unittest.TestCase):
 
     def test_sync_function(self):
         @zimer
