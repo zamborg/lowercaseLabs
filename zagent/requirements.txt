@@ -1,0 +1,7 @@
+torch
+whisper
+pyannote.audio
+ffmpeg-python
+litellm
+rich
+pydantic 

@@ -1,5 +1,6 @@
 README.md
 pyproject.toml
+tests/test_with_retry.py
 tests/test_zimer.py
 zimer/__init__.py
 zimer.egg-info/PKG-INFO
