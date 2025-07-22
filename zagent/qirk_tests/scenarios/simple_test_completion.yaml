@@ -1,0 +1,94 @@
+environment:
+  metadata:
+    name: "Simple Test Completion"
+    description: "Complete a simple unit test for a hello world function"
+    difficulty: "easy"
+    tags: ["testing", "feature"]
+    expected_duration_minutes: 2
+  
+  initial_state:
+    project_root: "./test_project"
+    
+    files:
+      - path: "src/greeting.py"
+        content: |
+          def say_hello(name=None):
+              """Return a greeting message."""
+              if name:
+                  return f"Hello, {name}!"
+              return "Hello, World!"
+          
+          def say_goodbye(name=None):
+              """Return a farewell message."""
+              if name:
+                  return f"Goodbye, {name}!"
+              return "Goodbye!"
+      
+      - path: "tests/test_greeting.py"
+        content: |
+          import pytest
+          from src.greeting import say_hello, say_goodbye
+          
+          def test_say_hello_without_name():
+              # TODO: Implement this test
+              pass
+          
+          def test_say_hello_with_name():
+              # TODO: Implement this test
+              pass
+          
+          def test_say_goodbye():
+              # TODO: Test both cases for say_goodbye
+              pass
+    
+    state:
+      pending_tasks: [
+        "Complete the unit tests in tests/test_greeting.py",
+        "Make sure all tests pass",
+        "Ensure good test coverage for both functions"
+      ]
+      test_command: "pytest tests/"
+      auto_test: true
+  
+  expectations:
+    files_should_exist:
+      - "src/greeting.py"
+      - "tests/test_greeting.py"
+    
+    files_should_contain:
+      - path: "tests/test_greeting.py"
+        contains:
+          - "assert say_hello() == \"Hello, World!\""
+          - "assert say_hello(\"Alice\") == \"Hello, Alice!\""
+          - "assert say_goodbye"
+          - "!="  # Should have negative test cases
+    
+    files_should_not_contain:
+      - path: "tests/test_greeting.py"
+        not_contains:
+          - "TODO"
+          - "pass"  # No empty test functions
+    
+    tests_should_pass: true
+    
+    custom_checks:
+      - name: "All test functions have assertions"
+        expression: "all('assert' in func for func in open('tests/test_greeting.py').read().split('def test_') if func)"
+      
+      - name: "At least 4 test cases"
+        expression: "open('tests/test_greeting.py').read().count('def test_') >= 4"
+  
+  evaluation:
+    success_criteria:
+      - "all_files_exist"
+      - "content_checks_pass"
+      - "tests_pass"
+      - "no_forbidden_content"
+      - "custom_checks_pass"
+    
+    scoring:
+      all_files_exist: 10
+      content_checks_pass: 30
+      tests_pass: 40
+      no_forbidden_content: 10
+      custom_checks_pass: 10
