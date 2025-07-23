@@ -1,0 +1,205 @@
+environment:
+  metadata:
+    name: "Implement Search Feature"
+    description: "Add search functionality to a simple note-taking application"
+    difficulty: "medium"
+    tags: ["feature", "search"]
+    expected_duration_minutes: 5
+  
+  initial_state:
+    project_root: "./test_project"
+    
+    files:
+      - path: "notes.py"
+        content: |
+          from datetime import datetime
+          from typing import List, Dict, Optional
+          
+          class Note:
+              def __init__(self, title: str, content: str, tags: List[str] = None):
+                  self.id = None  # Will be set by NoteManager
+                  self.title = title
+                  self.content = content
+                  self.tags = tags or []
+                  self.created_at = datetime.now()
+                  self.updated_at = datetime.now()
+              
+              def to_dict(self) -> Dict:
+                  return {
+                      'id': self.id,
+                      'title': self.title,
+                      'content': self.content,
+                      'tags': self.tags,
+                      'created_at': self.created_at.isoformat(),
+                      'updated_at': self.updated_at.isoformat()
+                  }
+          
+          class NoteManager:
+              def __init__(self):
+                  self.notes: Dict[int, Note] = {}
+                  self._next_id = 1
+              
+              def create_note(self, title: str, content: str, tags: List[str] = None) -> Note:
+                  note = Note(title, content, tags)
+                  note.id = self._next_id
+                  self.notes[self._next_id] = note
+                  self._next_id += 1
+                  return note
+              
+              def get_note(self, note_id: int) -> Optional[Note]:
+                  return self.notes.get(note_id)
+              
+              def update_note(self, note_id: int, title: str = None, content: str = None, tags: List[str] = None) -> Optional[Note]:
+                  note = self.notes.get(note_id)
+                  if not note:
+                      return None
+                  
+                  if title is not None:
+                      note.title = title
+                  if content is not None:
+                      note.content = content
+                  if tags is not None:
+                      note.tags = tags
+                  note.updated_at = datetime.now()
+                  return note
+              
+              def delete_note(self, note_id: int) -> bool:
+                  if note_id in self.notes:
+                      del self.notes[note_id]
+                      return True
+                  return False
+              
+              def list_notes(self) -> List[Note]:
+                  return list(self.notes.values())
+              
+              # TODO: Implement search functionality
+              def search_notes(self, query: str) -> List[Note]:
+                  """
+                  Search notes by title, content, or tags.
+                  Should be case-insensitive and support partial matches.
+                  """
+                  raise NotImplementedError("Search functionality not implemented yet")
+              
+              def search_by_tag(self, tag: str) -> List[Note]:
+                  """
+                  Find all notes that have a specific tag.
+                  Should be case-insensitive.
+                  """
+                  raise NotImplementedError("Tag search not implemented yet")
+              
+              def search_by_date_range(self, start_date: datetime, end_date: datetime) -> List[Note]:
+                  """
+                  Find all notes created within a date range.
+                  """
+                  raise NotImplementedError("Date range search not implemented yet")
+      
+      - path: "test_search.py"
+        content: |
+          from datetime import datetime, timedelta
+          from notes import NoteManager
+          
+          def test_search_functionality():
+              manager = NoteManager()
+              
+              # Create test notes
+              note1 = manager.create_note(
+                  "Python Tips",
+                  "Use list comprehensions for cleaner code",
+                  ["python", "programming", "tips"]
+              )
+              
+              note2 = manager.create_note(
+                  "Meeting Notes",
+                  "Discussed Python project timeline",
+                  ["meeting", "project"]
+              )
+              
+              note3 = manager.create_note(
+                  "Shopping List",
+                  "Buy milk, eggs, and bread",
+                  ["personal", "todo"]
+              )
+              
+              # Test general search
+              results = manager.search_notes("python")
+              assert len(results) == 2, f"Expected 2 results for 'python', got {len(results)}"
+              
+              # Test case-insensitive search
+              results = manager.search_notes("PYTHON")
+              assert len(results) == 2, "Search should be case-insensitive"
+              
+              # Test content search
+              results = manager.search_notes("milk")
+              assert len(results) == 1, "Should find notes by content"
+              assert results[0].id == note3.id
+              
+              # Test tag search
+              results = manager.search_by_tag("programming")
+              assert len(results) == 1, "Should find notes by tag"
+              
+              # Test tag search case-insensitive
+              results = manager.search_by_tag("MEETING")
+              assert len(results) == 1, "Tag search should be case-insensitive"
+              
+              # Test date range search
+              yesterday = datetime.now() - timedelta(days=1)
+              tomorrow = datetime.now() + timedelta(days=1)
+              results = manager.search_by_date_range(yesterday, tomorrow)
+              assert len(results) == 3, "Should find all notes in date range"
+              
+              print("All search tests passed!")
+          
+          if __name__ == "__main__":
+              test_search_functionality()
+    
+    state:
+      test_command: "python test_search.py"
+      auto_test: true
+  
+  expectations:
+    files_should_exist:
+      - "notes.py"
+      - "test_search.py"
+    
+    files_should_contain:
+      - path: "notes.py"
+        contains:
+          - "query.lower()"  # Case-insensitive search
+          - "in note.title.lower()"  # Search in title
+          - "in note.content.lower()"  # Search in content
+          - "for tag in note.tags"  # Search in tags
+          - "note.created_at >="  # Date comparison
+          - "return"  # Should return results, not raise
+    
+    files_should_not_contain:
+      - path: "notes.py"
+        not_contains:
+          - "raise NotImplementedError"  # Should implement all methods
+          - "TODO"  # Should complete the TODO
+    
+    tests_should_pass: true
+    
+    custom_checks:
+      - name: "All search methods implemented"
+        expression: "open('notes.py').read().count('raise NotImplementedError') == 0"
+      
+      - name: "Search is case-insensitive"
+        expression: "'.lower()' in open('notes.py').read()"
+      
+      - name: "Searches multiple fields"
+        expression: "all(field in open('notes.py').read() for field in ['title', 'content', 'tags'])"
+  
+  evaluation:
+    success_criteria:
+      - "all_files_exist"
+      - "content_checks_pass"
+      - "tests_pass"
+      - "no_forbidden_content"
+      - "custom_checks_pass"
+    
+    scoring:
+      all_files_exist: 10
+      content_checks_pass: 30
+      tests_pass: 40
+      no_forbidden_content: 10
+      custom_checks_pass: 10

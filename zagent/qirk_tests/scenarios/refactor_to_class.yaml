@@ -1,0 +1,154 @@
+environment:
+  metadata:
+    name: "Refactor Functions to Class"
+    description: "Refactor procedural code into a well-structured class"
+    difficulty: "medium"
+    tags: ["refactoring", "design"]
+    expected_duration_minutes: 5
+  
+  initial_state:
+    project_root: "./test_project"
+    
+    files:
+      - path: "user_management.py"
+        content: |
+          # Global storage - not ideal
+          users_db = {}
+          user_id_counter = 1
+          
+          def create_user(name, email, age):
+              global user_id_counter
+              # No validation
+              user_id = user_id_counter
+              users_db[user_id] = {
+                  'id': user_id,
+                  'name': name,
+                  'email': email,
+                  'age': age
+              }
+              user_id_counter += 1
+              return user_id
+          
+          def get_user(user_id):
+              # No error handling
+              return users_db[user_id]
+          
+          def update_user(user_id, **kwargs):
+              # No validation
+              user = users_db[user_id]
+              for key, value in kwargs.items():
+                  user[key] = value
+              return user
+          
+          def delete_user(user_id):
+              # No error handling
+              del users_db[user_id]
+              return True
+          
+          def list_users():
+              return list(users_db.values())
+          
+          def find_users_by_age(min_age, max_age):
+              results = []
+              for user in users_db.values():
+                  if min_age <= user['age'] <= max_age:
+                      results.append(user)
+              return results
+      
+      - path: "test_user_management.py"
+        content: |
+          from user_management import *
+          
+          def test_user_operations():
+              # Create users
+              user1_id = create_user("Alice", "alice@example.com", 25)
+              user2_id = create_user("Bob", "bob@example.com", 30)
+              
+              # Get user
+              user1 = get_user(user1_id)
+              assert user1['name'] == "Alice"
+              
+              # Update user
+              update_user(user1_id, age=26)
+              user1 = get_user(user1_id)
+              assert user1['age'] == 26
+              
+              # List users
+              all_users = list_users()
+              assert len(all_users) >= 2
+              
+              # Find by age
+              young_users = find_users_by_age(20, 27)
+              assert len(young_users) >= 1
+              
+              print("All tests passed!")
+          
+          if __name__ == "__main__":
+              test_user_operations()
+    
+    state:
+      pending_tasks: [
+        "Refactor the user_management.py code into a proper UserManager class",
+        "Add input validation (email format, age > 0, required fields)",
+        "Add proper error handling for missing users",
+        "Use type hints throughout",
+        "Make the tests work with the new class-based approach",
+        "Consider using dataclasses or similar for the User model"
+      ]
+      test_command: "python test_user_management.py"
+      auto_test: true
+  
+  expectations:
+    files_should_exist:
+      - "user_management.py"
+      - "test_user_management.py"
+    
+    files_should_contain:
+      - path: "user_management.py"
+        contains:
+          - "class UserManager"
+          - "def __init__"
+          - "self."
+          - "raise"  # Should have error handling
+          - "@"  # Should use properties or validation
+          - "str"  # Type hints
+          - "int"  # Type hints
+          - "Dict"  # Type hints
+      
+      - path: "test_user_management.py"
+        contains:
+          - "UserManager()"  # Should instantiate the class
+          - "assert"
+    
+    files_should_not_contain:
+      - path: "user_management.py"
+        not_contains:
+          - "global"  # No more global variables
+          - "users_db = {}"  # No module-level state
+    
+    tests_should_pass: true
+    
+    custom_checks:
+      - name: "Uses proper class structure"
+        expression: "'class UserManager' in open('user_management.py').read() and 'def __init__' in open('user_management.py').read()"
+      
+      - name: "Has error handling"
+        expression: "open('user_management.py').read().count('raise') >= 2"
+      
+      - name: "Uses type hints"
+        expression: "open('user_management.py').read().count('->') >= 3"
+  
+  evaluation:
+    success_criteria:
+      - "all_files_exist"
+      - "content_checks_pass"
+      - "tests_pass"
+      - "no_forbidden_content"
+      - "custom_checks_pass"
+    
+    scoring:
+      all_files_exist: 10
+      content_checks_pass: 25
+      tests_pass: 35
+      no_forbidden_content: 15
+      custom_checks_pass: 15

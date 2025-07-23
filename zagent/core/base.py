@@ -5,10 +5,11 @@ This module contains the core base classes for the agentic framework.
 import inspect
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import litellm
 from pydantic import create_model
+from .environment import Environment, SharedEnvironment
 
 def tool(func: Callable) -> Callable:
     """
@@ -58,20 +59,40 @@ class Agent(ABC):
     """
     Base class for all agents. An Agent has an environment (its state),
     an LM (its brain), and a set of tools (its methods).
+    
+    The agent follows a step-based execution model:
+    1. Ingest state from environment
+    2. Call LM with current state and history
+    3. Execute tools against the environment
     """
 
-    def __init__(self, lm: LM):
-        self._environment = {}
+    def __init__(self, lm: LM, environment: Optional[Environment] = None):
+        self.environment = environment or SharedEnvironment()
+        self.environment.register_agent(self)
         self.lm = lm
         self.tools = self._discover_tools()
         self.is_finished = False
-
-    @property
-    def environment(self) -> Dict[str, Any]:
+        self._internal_state = {}  # Agent's private state
+        self._history = []  # Conversation history
+    
+    @abstractmethod
+    def step(self, environment: Environment) -> Dict[str, Any]:
         """
-        The environment of the agent.
+        Execute one step of the agent's logic.
+        This is where the agent:
+        1. Reads state from the environment
+        2. Decides what to do
+        3. Updates its internal state
+        4. Returns the result of the step
         """
-        return self._environment
+        pass
+    
+    def ingest_state(self, environment: Environment) -> Dict[str, Any]:
+        """
+        Read and process state from the environment.
+        Subclasses can override to customize state ingestion.
+        """
+        return environment.get_state(self)
 
     def _discover_tools(self) -> Dict[str, Callable]:
         """Finds all methods decorated with @tool."""
@@ -120,14 +141,29 @@ class Agent(ABC):
 
     def invoke(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        The main entry point for the agent.
-        It uses its LM to decide which tool to call based on the provided
-        message history, then executes it.
-        Now also returns token usage if available.
+        The main entry point for the agent following the pattern:
+        1. Ingest state from environment
+        2. Call LM with state context
+        3. Execute tools against environment
         """
+        # Step 1: Ingest state from environment
+        current_state = self.ingest_state(self.environment)
+        
+        # Add state context to messages if needed
+        state_context = self._format_state_for_lm(current_state)
+        if state_context:
+            # Inject state context as a system message
+            messages_with_state = [
+                {"role": "system", "content": f"Current environment state: {state_context}"}
+            ] + messages
+        else:
+            messages_with_state = messages
+        
+        # Step 2: Call LM with tools
         tool_defs = self._generate_tool_definitions()
-        lm_result = self.lm.invoke(messages, tool_defs)
-        # Support both old and new LM return types
+        lm_result = self.lm.invoke(messages_with_state, tool_defs)
+        
+        # Handle response
         if isinstance(lm_result, dict) and "response" in lm_result:
             response = lm_result["response"]
             usage = lm_result.get("usage", None)
@@ -140,6 +176,7 @@ class Agent(ABC):
         if usage is not None:
             result["token_usage"] = usage
 
+        # Step 3: Execute tools against environment
         if response_message.tool_calls:
             tool_call = response_message.tool_calls[0]
             observation = self._execute_tool_call(tool_call)
@@ -149,7 +186,21 @@ class Agent(ABC):
                 "name": tool_call.function.name,
                 "content": str(observation),
             }
+        
+        # Update history
+        self._history.append(messages[-1])  # User message
+        self._history.append(response_message)  # Assistant response
+        
         return result
+    
+    def _format_state_for_lm(self, state: Dict[str, Any]) -> str:
+        """
+        Format environment state for LM context.
+        Override in subclasses for custom formatting.
+        """
+        if not state:
+            return ""
+        return str(state)
 
     @tool
     def exit(self):
