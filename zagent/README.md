@@ -1,53 +1,63 @@
-# ZAgent - Advanced Agent Framework
+# zagent
 
-ZAgent is a sophisticated, step-based agent framework designed for building intelligent, collaborative agents with shared environments. The framework emphasizes clean separation of concerns, flexible execution strategies, and extensible architecture.
+An agentic framework for building AI agents with LLM integration.
 
-## 🚀 Quick Start
+## Features
+
+- **Abstract base classes** for creating AI agents
+- **LLM integration** with function calling support  
+- **Tool discovery and execution** - automatically discover methods decorated with `@tool`
+- **Multi-provider support** - built on top of LiteLLM for compatibility with OpenAI, Anthropic, and more
+- **Token usage tracking** - monitor API usage and costs
+- **Rich integration** - beautiful console output support
+
+## Installation
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the demo
-python demo_new_framework.py
-
-# Test QirkTheCoder
-python demo_qirk_coder.py
-
-# Run specific evaluations
-python qirk_tests/test_runner.py
+pip install zagent
 ```
 
-## 📁 Project Structure
+## Quick Start
 
+```python
+from zagent import Agent, LiteLLM, tool
+
+class MyAgent(Agent):
+    @tool
+    def greet(self, name: str) -> str:
+        """Greet someone by name"""
+        return f"Hello, {name}!"
+    
+    @tool
+    def calculate(self, a: int, b: int, operation: str) -> int:
+        """Perform basic math operations"""
+        if operation == "add":
+            return a + b
+        elif operation == "multiply":
+            return a * b
+        else:
+            return 0
+
+# Create an agent with an LLM
+lm = LiteLLM(model="gpt-4")
+agent = MyAgent(lm)
+
+# Use the agent
+messages = [{"role": "user", "content": "Please greet Alice and then calculate 5 + 3"}]
+result = agent.invoke(messages)
+print(result)
 ```
-zagent/
-├── core/                    # Framework core components
-│   ├── base.py             # Agent and LM base classes
-│   ├── environment.py      # Environment management
-│   └── template_loader.py  # Configuration loading
-├── agents/                 # Implemented agents
-│   ├── example_agents.py   # Basic demo agents
-│   ├── qirk_coder.py      # Advanced coding agent
-│   ├── code_editor.py     # File editing agent
-│   └── preference_mapper.py # User preference agent
-├── environments/           # Specialized environments
-│   └── coding_environment.py # Code-aware environment
-├── handler/                # Execution orchestration
-│   ├── handler.py         # Basic handler
-│   └── step_handler.py    # Step-based execution
-├── config/                 # Agent configurations
-│   └── qirkCode.yaml      # QirkTheCoder config
-├── qirk_tests/            # Testing framework
-│   ├── scenarios/         # Test scenarios
-│   ├── test_runner.py     # Test execution
-│   └── README.md          # Testing docs
-├── grepAgent/             # Function finding agent
-│   ├── grep_agent.py      # Implementation
-│   ├── grep_environment.py # File system environment
-│   └── README.md          # Agent-specific docs
-└── demo_*.py              # Demo scripts
-```
+
+## Architecture
+
+The framework consists of:
+
+- **`Agent`** - Base class for all agents with tool discovery and execution
+- **`LM`** - Abstract base class for language models
+- **`LiteLLM`** - Concrete LM implementation using LiteLLM
+- **`@tool`** - Decorator to mark methods as agent tools
+- **`Handler`** - Request handling utilities
+
 
 ## 🏗️ Core Architecture
 
@@ -497,4 +507,41 @@ if "token_usage" in result:
 
 ---
 
-**ZAgent Framework** - Building intelligent, collaborative agents with clear separation of concerns and extensible architecture.
+
+## Development
+
+### Building and Publishing
+
+This package uses a Makefile for easy development workflow:
+
+```bash
+# Show available commands
+make help
+
+# Clean up build artifacts
+make cleanup
+
+# Build the package
+make build
+
+# Check the built package
+make check
+
+# Full release process (build, check, and publish to PyPI)
+make release
+```
+
+### Requirements
+
+The package depends on:
+- `torch` - For ML model support
+- `whisper` - For audio processing
+- `pyannote.audio` - For audio analysis
+- `ffmpeg-python` - For media processing
+- `litellm` - For LLM provider abstraction
+- `rich` - For beautiful console output
+- `pydantic` - For data validation
+
+## License
+
+MIT License

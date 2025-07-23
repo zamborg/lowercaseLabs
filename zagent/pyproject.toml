@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zagent"
+version = "0.1.0"
+description = "An agentic framework for building AI agents with LLM integration"
+readme = "README.md"
+authors = [
+    {name = "LowerCase Labs", email = "contact@lowercaselabs.com"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "torch",
+    "whisper",
+    "pyannote.audio",
+    "ffmpeg-python",
+    "litellm",
+    "rich",
+    "pydantic"
+]
+
+[project.urls]
+Homepage = "https://github.com/lowercaselabs/zagent"
+Repository = "https://github.com/lowercaselabs/zagent"
+Issues = "https://github.com/lowercaselabs/zagent/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["zagent*"]
+exclude = ["tests*"]
