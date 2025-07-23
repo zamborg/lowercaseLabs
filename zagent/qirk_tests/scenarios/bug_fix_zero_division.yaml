@@ -1,0 +1,102 @@
+environment:
+  metadata:
+    name: "Fix Zero Division Bug"
+    description: "Find and fix a zero division error in calculator code"
+    difficulty: "easy"
+    tags: ["bug-fix", "error-handling"]
+    expected_duration_minutes: 3
+  
+  initial_state:
+    project_root: "./test_project"
+    
+    files:
+      - path: "calculator.py"
+        content: |
+          class Calculator:
+              """A simple calculator with basic operations."""
+              
+              def add(self, a, b):
+                  return a + b
+              
+              def subtract(self, a, b):
+                  return a - b
+              
+              def multiply(self, a, b):
+                  return a * b
+              
+              def divide(self, a, b):
+                  # Bug: No zero division check
+                  return a / b
+              
+              def average(self, numbers):
+                  """Calculate the average of a list of numbers."""
+                  if not numbers:
+                      return 0
+                  total = sum(numbers)
+                  # Bug: This will crash if numbers is empty (already checked above, but divide uses len)
+                  return self.divide(total, len(numbers))
+              
+              def percentage(self, value, total):
+                  """Calculate what percentage value is of total."""
+                  # Bug: No check if total is zero
+                  return (value / total) * 100
+      
+      - path: "test_calculator.py"
+        content: |
+          import pytest
+          from calculator import Calculator
+          
+          def test_divide_by_zero():
+              calc = Calculator()
+              # This test currently fails
+              result = calc.divide(10, 0)
+              assert result is None  # Should handle gracefully
+          
+          def test_percentage_with_zero_total():
+              calc = Calculator()
+              # This test currently fails
+              result = calc.percentage(50, 0)
+              assert result == 0  # Should return 0 or handle gracefully
+    
+    state:
+      test_command: "pytest test_calculator.py"
+      auto_test: true
+  
+  expectations:
+    files_should_exist:
+      - "calculator.py"
+      - "test_calculator.py"
+    
+    files_should_contain:
+      - path: "calculator.py"
+        contains:
+          - "if b == 0"  # Check for zero in divide
+          - "if total == 0"  # Check for zero in percentage
+          - "return"  # Should have proper return statements
+    
+    files_should_not_contain:
+      - path: "calculator.py"
+        not_contains:
+          - "# Bug:"  # Should remove bug comments after fixing
+    
+    tests_should_pass: true
+    
+    custom_checks:
+      - name: "Divide method handles zero division"
+        expression: "'if b == 0' in open('calculator.py').read() or 'if b != 0' in open('calculator.py').read()"
+      
+      - name: "All methods have error handling"
+        expression: "open('calculator.py').read().count('if') >= 3"
+  
+  evaluation:
+    success_criteria:
+      - "all_files_exist"
+      - "content_checks_pass"
+      - "tests_pass"
+      - "custom_checks_pass"
+    
+    scoring:
+      all_files_exist: 10
+      content_checks_pass: 30
+      tests_pass: 50
+      custom_checks_pass: 10

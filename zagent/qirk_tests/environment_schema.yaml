@@ -1,0 +1,103 @@
+# Environment Schema for QirkTheCoder Testing
+# This schema defines how to set up test environments from YAML
+
+schema_version: "1.0"
+
+# Example environment configuration:
+environment:
+  # Metadata about the test scenario
+  metadata:
+    name: "Test Scenario Name"
+    description: "What this test scenario evaluates"
+    difficulty: "easy|medium|hard"
+    tags: ["bug-fix", "feature", "refactoring"]
+    expected_duration_minutes: 5
+  
+  # Initial state of the environment
+  initial_state:
+    # Project configuration
+    project_root: "./test_project"  # Relative to qirk_tests
+    
+    # Files to create before test starts
+    files:
+      - path: "src/main.py"
+        content: |
+          def hello():
+              print("Hello, World!")
+      
+      - path: "tests/test_main.py"
+        content: |
+          from src.main import hello
+          
+          def test_hello():
+              # Test not implemented yet
+              pass
+    
+    # Initial environment state variables
+    state:
+      pending_tasks: []  # Can be set by test runner
+      test_command: "pytest"
+      auto_test: true
+      modified_files: []
+      test_status: "unknown"
+      
+    # Git setup (optional)
+    git:
+      initialize: true
+      initial_commit: true
+      commit_message: "Initial test setup"
+  
+  # Expected outcomes
+  expectations:
+    # Files that should exist after completion
+    files_should_exist:
+      - "src/main.py"
+      - "tests/test_main.py"
+    
+    # Files that should contain specific content
+    files_should_contain:
+      - path: "tests/test_main.py"
+        contains: ["assert", "hello()"]
+    
+    # Files that should NOT contain specific content
+    files_should_not_contain:
+      - path: "src/main.py"
+        not_contains: ["TODO", "FIXME"]
+    
+    # Test results
+    tests_should_pass: true
+    
+    # State checks
+    final_state:
+      test_status: "passed"
+      
+    # Custom evaluation functions (Python expressions)
+    custom_checks:
+      - name: "Check function exists"
+        expression: "'def hello' in open('src/main.py').read()"
+      
+      - name: "Check test coverage"
+        expression: "len(open('tests/test_main.py').read().split('\\n')) > 5"
+  
+  # Evaluation criteria
+  evaluation:
+    # Success criteria (all must pass)
+    success_criteria:
+      - "all_files_exist"
+      - "content_checks_pass"
+      - "tests_pass"
+      - "custom_checks_pass"
+    
+    # Scoring (optional)
+    scoring:
+      all_files_exist: 20
+      content_checks_pass: 30
+      tests_pass: 40
+      custom_checks_pass: 10
+      
+    # Performance metrics to track
+    metrics:
+      - "total_steps"
+      - "files_modified"
+      - "tests_run"
+      - "errors_encountered"

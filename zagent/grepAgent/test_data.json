@@ -1,0 +1,8 @@
+[
+    {
+        "function_name": "redact_pii",
+        "git_hash": "ee462a5b585f702ee122e0ab95bc0f948d465b65",
+        "git_repo": "git@github.com:wandb/weave.git",
+        "filepath": "weave/trace/pii_redaction.py"
+    }
+]
