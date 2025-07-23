@@ -26,6 +26,7 @@ class GrepTaskRunner:
         self.model = model
         self.results = []
     
+    @weave.op()
     def run_single_task(self, 
                        function_name: str,
                        repo_url: str = None,
