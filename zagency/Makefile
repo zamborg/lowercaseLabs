@@ -40,11 +40,6 @@ release: check
 	@echo "📤 Ready to upload to PyPI..."
 	@echo "Note: You'll need to have your PyPI credentials configured"
 	@echo "Use 'twine configure' or set TWINE_USERNAME and TWINE_PASSWORD environment variables"
-	@read -p "Do you want to upload to PyPI now? (y/N): " confirm && \
-	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
-		python -m twine upload dist/* && \
-		echo "✅ Package uploaded successfully!"; \
-	else \
-		echo "📋 Package built successfully. You can upload later with:"; \
-		echo "   python -m twine upload dist/*"; \
-	fi
+	python -m  twine upload dist/*
+	@echo "✅ Package uploaded successfully!";
+	make cleanup

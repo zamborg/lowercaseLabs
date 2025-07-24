@@ -40,14 +40,6 @@ class TemplateLoader:
         # 4. Validate and instantiate the template
         return cls.Template(**merged)
 
-# Example usage:
-# class MyTemplateLoader(TemplateLoader):
-#     class Template(BaseModel):
-#         foo: str = "defaultfoo"
-#         bar: int = 42
-#
-# config = MyTemplateLoader.load("config.yaml")
-
 
 class QirkPromptTemplate(TemplateLoader):
     class Template(BaseModel):
@@ -55,9 +47,3 @@ class QirkPromptTemplate(TemplateLoader):
         memory_prompt: str
         trajectory_compression_prompt: str # this gets fed to a *smaller* model to compress the trajectory
         task_template_prompt: str # This is a prompt that contains fstring references to the task and the trajectory
-        
-
-
-    @classmethod
-    def load(cls, yaml_path: str = None, **overrides) -> BaseModel:
-        return super().load(yaml_path, **overrides)

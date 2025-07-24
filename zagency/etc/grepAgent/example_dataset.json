@@ -1,21 +1,21 @@
 [
   {
     "function_name": "step",
-    "git_repo": "https://github.com/lowercaseLabs/zagent.git",
+    "git_repo": "https://github.com/lowercaseLabs/zagency.git",
     "git_hash": "HEAD",
     "filepath": "core/base.py",
     "description": "Find the abstract step method in the Agent base class"
   },
   {
     "function_name": "load_scenario",
-    "git_repo": "https://github.com/lowercaseLabs/zagent.git", 
+    "git_repo": "https://github.com/lowercaseLabs/zagency.git", 
     "git_hash": "HEAD",
     "filepath": "qirk_tests/environment_loader.py",
     "description": "Find the static method that loads test scenarios from YAML"
   },
   {
     "function_name": "apply_patch",
-    "git_repo": "https://github.com/lowercaseLabs/zagent.git",
+    "git_repo": "https://github.com/lowercaseLabs/zagency.git",
     "git_hash": "HEAD", 
     "filepath": "environments/coding_environment.py",
     "description": "Find the method that applies patches to files"

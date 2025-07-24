@@ -8,8 +8,8 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
-from core.base import Agent
-from core.environment import Environment, SharedEnvironment
+from zagency.core.base import Agent
+from zagency.core.environment import Environment, SharedEnvironment
 
 
 class StepHandler:

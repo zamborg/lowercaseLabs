@@ -1,5 +1,6 @@
 """
 Environment base class for shared state management across agents.
+TODO: @zamborg clean up
 """
 
 from abc import ABC, abstractmethod
@@ -63,39 +64,3 @@ class SharedEnvironment(Environment):
     def update_state(self, updates: Dict[str, Any], agent: Optional["Agent"] = None):
         """Update the state with the provided updates."""
         self._state.update(updates)
-
-
-class IsolatedEnvironment(Environment):
-    """
-    An environment where each agent has its own isolated state namespace.
-    """
-    
-    def __init__(self):
-        super().__init__()
-        self._agent_states: Dict[str, Dict[str, Any]] = {}
-        self._shared_state: Dict[str, Any] = {}
-    
-    def register_agent(self, agent: "Agent"):
-        """Register an agent and create its state namespace."""
-        super().register_agent(agent)
-        agent_id = id(agent)
-        if agent_id not in self._agent_states:
-            self._agent_states[agent_id] = {}
-    
-    def get_state(self, agent: Optional["Agent"] = None) -> Dict[str, Any]:
-        """Get combined shared state and agent-specific state."""
-        state = self._shared_state.copy()
-        if agent:
-            agent_id = id(agent)
-            if agent_id in self._agent_states:
-                state.update(self._agent_states[agent_id])
-        return state
-    
-    def update_state(self, updates: Dict[str, Any], agent: Optional["Agent"] = None):
-        """Update agent-specific state or shared state."""
-        if agent:
-            agent_id = id(agent)
-            if agent_id in self._agent_states:
-                self._agent_states[agent_id].update(updates)
-        else:
-            self._shared_state.update(updates)

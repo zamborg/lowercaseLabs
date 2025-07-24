@@ -1,4 +1,4 @@
-# The Zagent Thesis: Towards Environment-Centric Agent Evaluation
+# The zagency Thesis: Towards Environment-Centric Agent Evaluation
 
 ## Abstract
 
@@ -33,7 +33,7 @@ Current metrics focus on final outcomes (task completion rate, accuracy) while i
 - How robust is the solution to perturbations?
 - Could another agent continue from this state?
 
-## The Zagent Framework: A New Paradigm
+## The zagency Framework: A New Paradigm
 
 ### Core Principle: Environment as First-Class Citizen
 
@@ -119,7 +119,7 @@ Evaluation scenarios as YAML enable:
 ### 1. State-Diff Evaluation
 
 Traditional: "Did the agent complete the task?"
-Zagent: "How did the environment state evolve?"
+zagency: "How did the environment state evolve?"
 
 ```python
 def evaluate_trajectory(states: List[EnvironmentState]) -> Metrics:
@@ -193,7 +193,7 @@ This creates an ever-expanding evaluation suite that:
 
 ### 1. Development Becomes Experimentation
 
-With Zagent, agent development shifts from "implement features" to "evolve behaviors":
+With zagency, agent development shifts from "implement features" to "evolve behaviors":
 - Run agent against scenario suite
 - Identify failure patterns
 - Modify agent architecture
@@ -245,7 +245,7 @@ Evaluate the evaluation framework itself:
 
 ## Conclusion: A Call to Action
 
-The future of AI agents depends on our ability to meaningfully evaluate their capabilities. The Zagent framework offers a path forward:
+The future of AI agents depends on our ability to meaningfully evaluate their capabilities. The zagency framework offers a path forward:
 
 1. **Embrace environments** as the primary abstraction for agent interaction
 2. **Adopt step-based execution** for fine-grained observability
@@ -285,4 +285,59 @@ The code is written. The framework is ready. The question now is: How will you e
 
 ---
 
-*The Zagent Framework is open source and available at [github.com/lowercaseLabs/zagent](https://github.com/lowercaseLabs/zagent)*
+*The zagency Framework is open source and available at [github.com/lowercaseLabs/zagency](https://github.com/lowercaseLabs/zagency)*
+
+# Zubin Addendums:
+
+The tight philosophy of evaluations and agent-interactions is as follows:
+
+### Primitives:
+- Agents
+- Environments
+- Runners (aka: handlers)
+- LMs
+  - this doesn't have its own section but they are implemented as some baseLM that has an invoke method. 
+  - A litellm wrapper is implemented for ease.
+  - Implements marshaling/unmarshalling helper functions (eg: litellm.Message -> openai_message)
+
+### Environments
+Environments offer a substrate upon which agents run. Agents are distinct from LM's with Tool-Calling *because* they run ontop of an environment. In our topology, Agent's contain an `environment` object with which they interact with through `tools`. 
+It is the responsibility of the environment to expose an API for which agents can interact with it. For example, a simple file-system environment might have three functions:
+### `FileSystemEnvironment`
+- `read_file`
+- `write_file`
+- `list_files`
+
+This would serve the basis for an agent being able to interact with some underlying filesystem. Where these commands are run, how they are executed in the undelrying environment, and all other idiosynchracies of specific methods are masked by this API. 
+
+Environments also have a fundamental `loading` method that instantiates them from a given *state*. This is to say that an environment has a `_state: Dict[str, Any]` object that models the internal environment. *NOTE*: this means that an environment that exposes some `bash` like interface is not, in and of itself, the `bash` interface. Rather it is the *exposure* layer for the agent <> `bash` interaction. As such, there is stil some fundamental *fabric* on which the `Environment` runs. 
+
+The `state` for an environment is useful as it allows the `agent` to *percieve* it's surroundings. Furthermore, for evaluation, the environment is provided some *initial* state (consider a :seed:) and this provides the basis for the `agent`. EG: In `SWEBench` the `state` is a checkout of a git repo: `git_repo, git_hash` + some `gh-issue-text: [issue, helper_text]`. The environment might offer helper functions like `execute_pytest` ... but the initial conditions can be read from a single dictionary and instantiated. It is the responsibility of the `Environment` to instantiate the repo, and the responsibility of the `Agent` to grab it's task from the `Environment`.
+
+### Agents
+
+Agents are *monoliths* in our universe. The design of this system is an `Agent` class that implements a `step` fuction as well as a variety of tools. Developers can mutate the `step` function however they see fit, as well as implement a `StepRunner` in whatever order they care about, but ultimately the natural use case is as follows: `percieve(env)` -> `invoke_lm(perception + agent_state)` -> `?(execute tool calls)` -> `update(agent_state + actions)`
+
+Agent's interact with an `environment` that they have access to on construction, the `environment` exposes an API for them to interact with, and the `agent` implements `tools` that can be executed by the agent's `LM`. By default, the agent has access to all tools on every invocation with the decorator `@tool` for any given function. 
+
+Creating a new agent involves three things:
+
+1. Writing a series of self-functions decorated with `@tool` and these can use the `self.environment` class of the Agent
+2. Writing an `invoke` method, or using the default (that uses `self._history` as a message dictionary alongside all tools). By default, state is encoded in `_history` and overriding the `get_history()` method can enable complicated interactions. `_history` (if left for default) is an OAI style message list
+3. Writing a `step` method. This is what the `StepRunner` will sequence until `exit()` is called by the agent, triggering an end to the `step-runner's` loop.
+
+This might seem like a lot of code to write, but the goal of this framework is to induce *solidity* and *observability*, not to reduce code writing. This framework is also very clear, leading LM's like Claude-Code to operate really effectively when building subclasses, increasing experimentation velocity. 
+
+### Runners
+
+This is the simplest primative of this framework. This is disambiguated from the agent just for code clarity. Runners can be as complicated as necessary, but they expose the final API between an agent and environment + starting conditions. 
+
+The job of a runner is to take an environment and agent pair (composable) and execute until a certain condition is reached. Functors can be written to measure the state of the environment and the agent and inform stopping conditions. By default the agent maintains `is_complete` as a member variable, and stopping on `is_complete` happens when the agent calls it's `exit()` tool. 
+
+Runner's don't store information or offer multiple state interactions, they only execute agents in a for loop, or in parallel as designed. This interface is (ex)portable such that it can interface with `weave.Evaluation` objects and adapters are written to map a `dataset` into a runner invocation. Runner's also operate on `single-env<agent>` pairs, which is to say that a runner is offered a starting condition for an env and kicks off `<agents>` in said environment. This can then be mapped to a full dataset of evaluation calls etc.
+
+
+## Okay so why do we care about this?
+
+We want to build the primitives and infrastrucutre to enable the development and experimentation of self-improving agents. To do so we must formalize a methedology of *evaluation*
+

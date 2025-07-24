@@ -1,4 +1,4 @@
-# zagent
+# zagency
 
 An agentic framework for building AI agents with LLM integration.
 
@@ -14,13 +14,13 @@ An agentic framework for building AI agents with LLM integration.
 ## Installation
 
 ```bash
-pip install zagent
+pip install zagency
 ```
 
 ## Quick Start
 
 ```python
-from zagent import Agent, LiteLLM, tool
+from zagency import Agent, LiteLLM, tool
 
 class MyAgent(Agent):
     @tool
