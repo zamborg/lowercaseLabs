@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
 import inspect
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Callable
+from pydantic import create_model
 from zagency.core.lm import LM
 from zagency.core.environment import Environment
+from zagency.core.base import tool
 
 class Agent(ABC):
     """
@@ -78,7 +80,7 @@ class Agent(ABC):
             result = {'role':'assistant', 'content': str(tc_results)} # TODO: this is a hack to get the tool calls into the history
         else:
             result = {'role':'assistant', 'content': str(response_message)}
-        self._history.append(result)  # Assistant response
+        self.history.append(result)  # Assistant response
         
         return result
 

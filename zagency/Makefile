@@ -1,4 +1,4 @@
-.PHONY: cleanup release build check install-deps help
+.PHONY: cleanup release build check install-deps test help
 
 # Default target
 help:
@@ -8,6 +8,7 @@ help:
 	@echo "  check        - Check the built package"
 	@echo "  release      - Build and publish to PyPI (interactive)"
 	@echo "  install-deps - Install build dependencies"
+	@echo "  test         - Run the test suite with pytest"
 
 # Clean up build artifacts
 cleanup:
@@ -26,7 +27,7 @@ install-deps:
 	pip install --upgrade build twine
 
 # Build the package
-build: cleanup install-deps
+build: cleanup install-deps test
 	@echo "🔨 Building package..."
 	python -m build
 
@@ -34,6 +35,11 @@ build: cleanup install-deps
 check: build
 	@echo "🔍 Checking built package..."
 	python -m twine check dist/*
+
+# Run tests
+test:
+	@echo "🧪 Running tests with pytest..."
+	python -m pytest tests/ -v --tb=short
 
 # Release target - build, check, and publish
 release: check

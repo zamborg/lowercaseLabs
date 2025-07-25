@@ -4,4 +4,5 @@ pyannote.audio
 ffmpeg-python
 litellm
 rich
-pydantic 
+pydantic
+pytest>=7.0.0 

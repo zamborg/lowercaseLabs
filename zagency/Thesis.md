@@ -299,6 +299,8 @@ The tight philosophy of evaluations and agent-interactions is as follows:
   - this doesn't have its own section but they are implemented as some baseLM that has an invoke method. 
   - A litellm wrapper is implemented for ease.
   - Implements marshaling/unmarshalling helper functions (eg: litellm.Message -> openai_message)
+- Scorers
+- Evaluations
 
 ### Environments
 Environments offer a substrate upon which agents run. Agents are distinct from LM's with Tool-Calling *because* they run ontop of an environment. In our topology, Agent's contain an `environment` object with which they interact with through `tools`. 
@@ -336,8 +338,41 @@ The job of a runner is to take an environment and agent pair (composable) and ex
 
 Runner's don't store information or offer multiple state interactions, they only execute agents in a for loop, or in parallel as designed. This interface is (ex)portable such that it can interface with `weave.Evaluation` objects and adapters are written to map a `dataset` into a runner invocation. Runner's also operate on `single-env<agent>` pairs, which is to say that a runner is offered a starting condition for an env and kicks off `<agents>` in said environment. This can then be mapped to a full dataset of evaluation calls etc.
 
+### Scorers
+Stealing terminology from `wandb:weave` Scorers are how we determine *what* happened in an evaluation. `zagency` takes a lax but principled view towards scorers. By default `Scorers` run at the end of the `Runner.invoke` step (that runs an agent to completion on a given env-state) and can be written to do ANYTHING. However, since scorers are designed to read the *state* of an entity, they can run inter-step with the agents. We bucket scorers into three categories, supporting two styles of evaluations:
+- AgentScorers
+- EnvironmentScorers
+- TraceScorers
+
+`AgentScorers` evaluate the *agent* intimiately. These scorer's *know* the API the agent implements and read their contents directly (thank you python) and inspect for qualities desired. For example, an `Agent` that keeps track of its `thinking-tokens` used might expose that to an `AgentScorer` that calculates the `thinking-token` efficiency of tasks.
+
+`EnvironmentScorers` are analogous to the `AgentScorers` except that they focus on the `Environment` objects. EG: An `EnvironmentScorer` might inspect to see the number of distinct times the `read_file` method of a coding-environment was called to compute *blast-radius* of a given query. 
+
+`TraceScorers` are the ugly-duckling of the Scorer trio. `TraceScorers` evaluate the *entire* rollout or trace of an env/agent, usually using the history store of each respective object. These are designed to be run *after* a full `agent <> environment` interaction, but can be run at any time. Smart readers will note that `TraceScorers` can be replaced by better state-management/tracking in the `Agent` or `Environment` respectively, and as such they are left largely undiscussed. 
+
+### Evaluations
+Evaluations are important, and as such we treat evaluations as a first-party citizen here. Evaluations, in our instance, are a set of results from $\Upsilon_{ijk}(A_i, D_j, E_k)$ where $A_i \in \set{A}$ is the agent we would like to evaluate, $D_j \in \set{D}$ is the datapoint we are evaluating on, and $E_k \in \set{E}$ is the environment in which that agent is evaluated. 
+In this framework, evaluation happens as follows:
+
+$ \text{let } \Upsilon \text{ be some evaluation function. We can construct an evaluation } \Upsilon_{i,k,j}(A_i, E_k, D_j) = \sum_{u=0}^{|D_j|} \upsilon(A_i, E_j(d_u)) \text{ where } d_u \in D_j \text{ and } \upsilon \subset \Upsilon$
+
+Now we don't have to have a summation be our aggregation function, nor do we need to make $\upsilon \subset \Upsilon$ but I describe it as such as it is illustrative of the fact that we have some distinction between a row-wise evaluation and a full-evaluation result. 
+
+In the `zagency` framework if we have some runner $R$ and some set of scorers $\set{S}$, and WLOG we can say that the aggregation of our scorers is a sum. This becomes:
+
+$$\upsilon_{i,j,k,u} = \sum_{s \in S} s(R(A_i, E_j(d_{uj})))$$
+
+This feels nice, because we just define our runner, scorers, environment, agent, and a set of datum to seed the environment and we have a fully extensible evaluation. Adding on aggregation levels is easy too, but as we mentioned in the `Scorer` variant, you can likely just do so at the end, and don't need anything complicated.
+
+We believe this is an extensible pattern and offer the following examples to make it more concrete:
+
+- For a coding benchmark, our environment might have `read_file` `write_file` `run_command` and our agent might have a variety of functions that map into the environment's methods. Our scorer might be a singular unit test we would like to see pass. Our Runner is just a `while true` loop, exiting if we hit a maximimum number of steps or if the agent terminates. 
+
+- For our grepBench example, we have another simple step runner, a scorer that is levenshtien distance for our metric, and an environment that allows *only* for the running of code that is `grep {command}`. 
 
 ## Okay so why do we care about this?
 
-We want to build the primitives and infrastrucutre to enable the development and experimentation of self-improving agents. To do so we must formalize a methedology of *evaluation*
+I like it -zubin
+
+But seriously @zubin add more.
 

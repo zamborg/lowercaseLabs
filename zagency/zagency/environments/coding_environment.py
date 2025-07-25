@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 
-from core.environment import Environment
+from zagency.core.environment import Environment
 
 
 class FileState:
@@ -49,12 +49,12 @@ class FileState:
     
     def rollback(self, steps: int = 1):
         """Rollback to a previous state."""
-        if steps <= len(self.history):
-            for _ in range(steps):
-                if self.history:
-                    prev_state = self.history.pop()
-                    self.current_content = prev_state["previous_content"]
-            self.last_modified = datetime.now()
+        actual_steps = min(steps, len(self.history))
+        for _ in range(actual_steps):
+            if self.history:
+                prev_state = self.history.pop()
+                self.current_content = prev_state["previous_content"]
+        self.last_modified = datetime.now()
 
 
 class CodingEnvironment(Environment):

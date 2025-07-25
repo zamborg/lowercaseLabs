@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
-from zagency.core.base import Agent
+from zagency.core.agent import Agent
 from zagency.core.environment import Environment, SharedEnvironment
 
 

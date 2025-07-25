@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zagency"
-version = "0.5.1"
+version = "0.6.1"
 description = "An agentic framework for building AI agents with LLM integration"
 readme = "README.md"
 authors = [
