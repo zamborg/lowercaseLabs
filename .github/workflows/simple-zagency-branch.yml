@@ -26,12 +26,28 @@ jobs:
     
     - name: Update zagency branch
       run: |
+        # Create temporary directory with only zagency content
+        mkdir -p /tmp/zagency-content
+        
+        # Copy all zagency content including hidden files
+        shopt -s dotglob
+        cp -r zagency/* /tmp/zagency-content/ 2>/dev/null || true
+        shopt -u dotglob
+        
         # Create/checkout zagency branch
-        git checkout -B zagency-simple
+        git checkout -B zagency
         
-        # Add only the zagency folder
-        git add zagency/
+        # Remove all current content except .git
+        find . -maxdepth 1 ! -name '.git' ! -name '.' ! -name '..' -exec rm -rf {} +
         
-        # Commit and force push
+        # Copy zagency content to root
+        shopt -s dotglob
+        cp -r /tmp/zagency-content/* . 2>/dev/null || true
+        shopt -u dotglob
+        
+        # Add all files and commit
+        git add .
         git commit -m "Update zagency branch from main" || git commit --allow-empty -m "Update zagency branch from main"
-        git push origin zagency-simple --force 
+        
+        # Push the branch
+        git push origin zagency --force 
