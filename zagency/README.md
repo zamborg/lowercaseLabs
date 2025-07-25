@@ -7,6 +7,8 @@ An agentic framework for building AI agents with LLM integration.
 - **Abstract base classes** for creating AI agents
 - **LLM integration** with function calling support  
 - **Tool discovery and execution** - automatically discover methods decorated with `@tool`
+- **Environment system** - shared state management between agents
+- **Evaluation framework** - comprehensive scoring and evaluation system
 - **Multi-provider support** - built on top of LiteLLM for compatibility with OpenAI, Anthropic, and more
 - **Token usage tracking** - monitor API usage and costs
 - **Rich integration** - beautiful console output support
@@ -53,10 +55,13 @@ print(result)
 The framework consists of:
 
 - **`Agent`** - Base class for all agents with tool discovery and execution
+- **`Environment`** - State management system for agent interactions
 - **`LM`** - Abstract base class for language models
 - **`LiteLLM`** - Concrete LM implementation using LiteLLM
 - **`@tool`** - Decorator to mark methods as agent tools
 - **`Handler`** - Request handling utilities
+- **`Scorer`** - Base classes for evaluating agent/environment behavior
+- **`Evaluation`** - Framework for running agents on datasets with scoring
 
 
 ## 🏗️ Core Architecture
@@ -122,6 +127,63 @@ handler = StepHandler(environment)
 handler.add_agent(agent1)
 handler.add_agent(agent2)
 handler.run(max_steps=50)
+```
+
+### 4. Scorers (`core/scorer.py`)
+
+Scorers evaluate agent and environment behavior:
+
+```python
+# Agent scorer - evaluates agent internals
+class ThinkingTokenScorer(AgentScorer):
+    def score(self, agent: Agent, step_result=None):
+        thinking_tokens = agent._internal_state.get("thinking_tokens", 0)
+        total_tokens = agent._internal_state.get("total_tokens", 1)
+        efficiency = 1.0 - (thinking_tokens / total_tokens)
+        return {"score": efficiency, "thinking_tokens": thinking_tokens}
+
+# Environment scorer - evaluates environment state
+class FileAccessScorer(EnvironmentScorer):
+    def score(self, environment: Environment, agent=None):
+        file_accesses = environment.get_state().get("file_accesses", [])
+        unique_files = set(file_accesses)
+        redundancy_score = len(unique_files) / len(file_accesses)
+        return {"score": redundancy_score, "blast_radius": len(unique_files)}
+
+# Trace scorer - evaluates complete interactions
+class CompletionTimeScorer(TraceScorer):
+    def score(self, agent: Agent, environment: Environment, trace=None):
+        num_steps = len(agent.history)
+        efficiency = 1.0 / (1.0 + num_steps / 10.0) if agent.is_finished else 0.0
+        return {"score": efficiency, "completed": agent.is_finished}
+```
+
+### 5. Evaluations (`core/evaluation.py`)
+
+Run agents on datasets with scoring:
+
+```python
+# Create evaluation
+evaluation = Evaluation(
+    name="code_generation_eval",
+    scorers=[ThinkingTokenScorer(), FileAccessScorer(), CompletionTimeScorer()]
+)
+
+# Run on dataset
+dataset = [
+    {"task": "implement fibonacci", "test_file": "test_fib.py"},
+    {"task": "fix bug in parser", "test_file": "test_parser.py"}
+]
+
+results = evaluation.run(
+    agent=coding_agent,
+    environment_class=CodingEnvironment,
+    dataset=dataset,
+    max_steps_per_datum=50
+)
+
+print(f"Completion rate: {results['aggregate_scores']['completion_rate']:.2%}")
+print(f"Average efficiency: {results['aggregate_scores']['scorer_aggregates']['CompletionTimeScorer']['mean']:.3f}")
 ```
 
 ## 🔧 How to Add New Components
@@ -296,6 +358,113 @@ def send_notification(self, message: str, priority: str = "normal") -> str:
     return f"Notification sent: {message}"
 ```
 
+### Adding Custom Scorers
+
+Scorers measure specific aspects of agent/environment behavior:
+
+```python
+# scorer/my_custom_scorer.py
+from zagency.core.scorer import AgentScorer, EnvironmentScorer
+from typing import Dict, Any, Optional
+
+class CustomAgentScorer(AgentScorer):
+    """Scores agents based on custom metrics"""
+    
+    def score(self, agent: Agent, step_result: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        # Access agent internals
+        custom_metric = agent._internal_state.get("my_metric", 0)
+        
+        # Calculate score (0.0 to 1.0)
+        score = min(custom_metric / 100.0, 1.0)
+        
+        result = {
+            "score": score,
+            "custom_metric": custom_metric,
+            "scorer": self.name
+        }
+        
+        # Track for aggregation
+        self._scores.append(result)
+        return result
+
+class CustomEnvironmentScorer(EnvironmentScorer):
+    """Scores environment based on state changes"""
+    
+    def score(self, environment: Environment, agent: Optional[Agent] = None) -> Dict[str, Any]:
+        state = environment.get_state(agent)
+        
+        # Example: score based on task completion
+        completed_tasks = state.get("completed_tasks", [])
+        total_tasks = state.get("total_tasks", 1)
+        
+        score = len(completed_tasks) / total_tasks
+        
+        result = {
+            "score": score,
+            "completed": len(completed_tasks),
+            "total": total_tasks
+        }
+        
+        self._scores.append(result)
+        return result
+```
+
+### Creating Evaluations
+
+Build comprehensive evaluations with multiple scorers:
+
+```python
+# evaluations/my_evaluation.py
+from zagency.core.evaluation import Evaluation, EvaluationSuite
+from zagency.handler.step_handler import StepHandler
+
+def create_coding_evaluation():
+    """Create an evaluation for coding tasks"""
+    
+    # Define scorers
+    scorers = [
+        ThinkingTokenScorer(),
+        FileAccessScorer(),
+        CompletionTimeScorer(),
+        TestPassRateScorer()  # Custom scorer
+    ]
+    
+    # Create evaluation
+    evaluation = Evaluation(
+        name="coding_benchmark",
+        scorers=scorers,
+        aggregation_fn=lambda results: sum(r["completed"] for r in results)
+    )
+    
+    return evaluation
+
+# Run evaluation suite
+def run_evaluation_suite():
+    suite = EvaluationSuite("comprehensive_eval")
+    
+    # Add multiple evaluations
+    suite.add_evaluation(create_coding_evaluation())
+    suite.add_evaluation(create_debugging_evaluation())
+    
+    # Define agents and datasets
+    agents = [QirkTheCoder(lm), SimpleCoderAgent(lm)]
+    datasets = {
+        "easy_tasks": load_dataset("data/easy_tasks.json"),
+        "hard_tasks": load_dataset("data/hard_tasks.json")
+    }
+    
+    # Run suite
+    results = suite.run(
+        agents=agents,
+        environment_class=CodingEnvironment,
+        datasets=datasets,
+        max_steps_per_datum=100
+    )
+    
+    # Print summary
+    print(suite.summarize())
+```
+
 ### Creating Test Scenarios
 
 1. **Add scenario YAML file:**
@@ -373,7 +542,37 @@ agent = GrepAgent(lm, env)
 
 ## 📊 Testing & Evaluation
 
-The framework includes comprehensive testing capabilities:
+The framework includes comprehensive testing and evaluation capabilities:
+
+### Evaluation Framework (`core/evaluation.py`)
+- **Scorer System**: Modular scoring components for different aspects
+  - `AgentScorer`: Evaluates agent internals (tokens, decisions, etc.)
+  - `EnvironmentScorer`: Evaluates environment state changes
+  - `TraceScorer`: Evaluates complete interaction traces
+- **Evaluation Engine**: Run agents on datasets with multiple scorers
+- **Evaluation Suites**: Compare multiple agents across datasets
+- **Custom Aggregation**: Flexible result aggregation functions
+
+**Example evaluation:**
+```python
+from zagency.core import Evaluation, ThinkingTokenScorer, CompletionTimeScorer
+
+# Create evaluation with scorers
+eval = Evaluation(
+    name="performance_eval",
+    scorers=[ThinkingTokenScorer(), CompletionTimeScorer()]
+)
+
+# Run on dataset
+results = eval.run(
+    agent=my_agent,
+    environment_class=MyEnvironment,
+    dataset=test_cases,
+    max_steps_per_datum=50
+)
+
+print(f"Average completion rate: {results['aggregate_scores']['completion_rate']:.2%}")
+```
 
 ### QirkTheCoder Testing (`qirk_tests/`)
 - YAML-based scenario definitions
@@ -486,9 +685,14 @@ if "token_usage" in result:
 2. **State Management**: Use environments for all shared data
 3. **Tool Design**: Keep tools focused and well-documented
 4. **Testing**: Create scenarios for every new feature
-5. **Configuration**: Use YAML configs for agent behavior
-6. **Error Handling**: Implement robust error recovery
-7. **Step Granularity**: Keep steps atomic and observable
+5. **Evaluation**: Design scorers that measure meaningful metrics
+   - Use `AgentScorer` for internal agent metrics
+   - Use `EnvironmentScorer` for state change analysis
+   - Use `TraceScorer` for end-to-end performance
+6. **Configuration**: Use YAML configs for agent behavior
+7. **Error Handling**: Implement robust error recovery
+8. **Step Granularity**: Keep steps atomic and observable
+9. **Benchmarking**: Create evaluation suites to compare agent variants
 
 ## 🤝 Contributing
 
