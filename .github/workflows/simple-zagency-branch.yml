@@ -1,0 +1,33 @@
+name: Simple Zagency Branch Update
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  update-zagency:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout main
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Configure Git
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+    
+    - name: Update zagency branch
+      run: |
+        # Create/checkout zagency branch
+        git checkout -B zagency
+        
+        # Add only the zagency folder
+        git add zagency/
+        
+        # Commit and force push
+        git commit -m "Update zagency branch from main" || git commit --allow-empty -m "Update zagency branch from main"
+        git push origin zagency-simple --force 
