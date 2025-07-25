@@ -23,7 +23,7 @@ jobs:
     - name: Update zagency branch
       run: |
         # Create/checkout zagency branch
-        git checkout -B zagency
+        git checkout -B zagency-simple
         
         # Add only the zagency folder
         git add zagency/
