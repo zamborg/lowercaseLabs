@@ -1,3 +1,16 @@
+## High-priority: `run_bash` execution flow
+
+- Add CLI flag: `--run-bash` (alias: `-rb`). Default off.
+- Responses path behavior when `--run-bash` is set:
+  - Ask model for a single shell command (use the existing bash tool schema when available).
+  - Extract the command string. If multiple commands are returned, run them sequentially separated by newlines/`&&`.
+  - Execute with `subprocess.run(command, shell=True, capture_output=True, text=True)`.
+  - Print the command first as a runnable echo (e.g., `$ <command>`), then print stdout and stderr.
+  - Exit with the subprocess return code (surface non-zero exit cleanly).
+- Fallback parsing: if no tool call is present, try to extract the first fenced bash/code block or first single-line candidate.
+- Safety: no interactive prompts; add `--dry-run` to only print the command without executing.
+- Tests: add E2E cases using harmless commands (`echo hello`, `pwd`, `ls`) and assert non-empty stdout.
+
 ## Refactor and Extensibility Notes
 
 - zubin make sure that this is refactored in ways that is more extensible
