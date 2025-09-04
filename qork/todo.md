@@ -1,37 +1,44 @@
-Here’s the “ephemeral history‐file” pattern you can drop into your shell rc (bash/zsh/fish).  It:
+## Refactor and Extensibility Notes
 
-• Creates a temp file when your shell starts
-• Deletes it when your shell exits
-• Wraps the qork invocation so that every time you run qork some question:
-– it appends “some question” to the temp file
-– it calls the real qork passing that file as context
+- zubin make sure that this is refactored in ways that is more extensible
 
-––––––––––––––––––––––––––––––––––––––––––––
+Details and ideas:
 
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃                                                                                              bash / zsh example                                                                                               ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+- Core API layering
+  - Extract a thin core client module (transport + adapters) decoupled from CLI and notebook UX.
+  - Unify interfaces for Chat Completions vs Responses API via a small adapter layer.
+  - Centralize model/provider configuration (env, defaults, overrides) in one place.
 
-In your ~/.bashrc or ~/.zshrc add:
+- Output/printing abstraction
+  - Consolidate printing into a `Printer` interface (rich/plain), selectable via flag or parameter.
+  - Add a Markdown-to-plain converter that preserves code blocks for better copy/paste in plaintext mode.
+  - Consider a JSON output option for tooling (`--json` or `format="json"`).
 
+- Public Python API
+  - Keep `qork.ask()` minimal; move advanced options into typed dataclasses or kwargs object for future growth.
+  - Add sync/async variants (e.g., `ask_async`) for asyncio notebooks/servers.
+  - Provide result objects with `.text`, `.usage`, `.cost` to avoid reaching into response internals.
 
- # 1) make a per‐shell temp file
- export QORK_HISTORY=$(mktemp /tmp/qork.XXXXXX)
+- Streaming
+  - Normalize streaming chunk handling; push chunk parsing into a helper that tolerates provider differences.
+  - Optional callbacks/hooks: `on_token`, `on_error`, `on_finish` for UI integrations.
 
- # 2) ensure it’s removed when your shell dies
- trap 'rm -f "$QORK_HISTORY"' EXIT
+- Error handling
+  - Standardize exceptions (e.g., `QorkError`, `ProviderError`) and map provider errors to them.
+  - Provide `--verbose`/`debug` levels and structured logs when `QORK_DEBUG=1`.
 
- # 3) wrap the qork command
- qork() {
-   # append your query
-   echo "$*" >> "$QORK_HISTORY"
+- Configuration
+  - Add `pyproject.toml` config section or `qork.toml` for local defaults.
+  - Support per-project `.env` discovery and a `qork config` subcommand.
 
-   # call the real qork, passing the history
-   # (adjust --history-file or --context flags to whatever qork expects)
-   command qork --history-file "$QORK_HISTORY" "$@"
- }
+- Packaging/CLI
+  - Split CLI (`qork/main.py`) into subcommands if features grow (`qork chat`, `qork resp`, `qork run`).
+  - Keep CLI thin; delegate all logic to core modules.
 
+- Testing
+  - Add unit tests for `ask()` with mocked providers; snapshot streaming behavior.
+  - Integration test matrix for plaintext vs rich, streaming vs non-streaming, Responses vs Completions.
 
-Now every qork what’s up? will get “what’s up?” appended to /tmp/qork.xxxxxx, and that file is automatically passed back into qork on each run.  When you close the shell, the file vanishes.
-
-––––––––––––––––––––––––––––––––––––––––––––
+- Docs
+  - Update README with Python API examples and flags.
+  - Add examples notebook demonstrating streaming, debug, and Responses API.
