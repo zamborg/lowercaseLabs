@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qork"
-version = "0.0.10"
+version = "0.0.11"
 authors = [
   { name="Zubin Aysola", email="zubinpersonalemail@email.com" },
 ]
