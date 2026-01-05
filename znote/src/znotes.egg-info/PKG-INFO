@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: znotes
+Version: 0.1.0
+Summary: A multimodal notes management system with semantic search and automatic linking
+Requires-Python: >=3.13
+Requires-Dist: numpy>=2.0.0
+Requires-Dist: openai>=1.63.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: pytest>=9.0.2
+Requires-Dist: requests>=2.31.0
+Requires-Dist: ruff>=0.14.10
+Requires-Dist: ty>=0.0.7
+Requires-Dist: wbal>=0.3.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: black>=22.0.0; extra == "dev"

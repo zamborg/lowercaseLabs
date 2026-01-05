@@ -1,0 +1,3 @@
+[console_scripts]
+bh = notes.bh_cli:main
+znote = notes.cli:main
