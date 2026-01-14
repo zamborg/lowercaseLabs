@@ -1,243 +1,193 @@
-import os
-import sys
-import argparse
+from __future__ import annotations
+
+from typing import Optional
+
+import typer
 from rich.console import Console
-from rich.panel import Panel
-from rich.markdown import Markdown
 from rich.live import Live
+from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.text import Text
 
-from qork.models import TokenCount
 from qork.config import get_api_key, get_model
-import time
-from qork.utils import get_completion, get_token_count, get_response, QORK_ENV_KEY
-from qork.session import get_session_key, load_previous_response_id, save_previous_response_id
+from qork.session import (
+    load_thread_response_id,
+    save_thread_response_id,
+)
+from qork.utils import get_response, response_text, stream_response
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="A simple CLI for interacting with LLMs via litellm.",
-        epilog="Example: qork \"What is the meaning of life?\" --model gpt-4o"
-    )
-    parser.add_argument(
-        "prompt",
-        nargs="?",
-        default=None,
-        help="The prompt to send to the model."
-    )
-    parser.add_argument(
-        "-m", "--model",
-        default=None,
-        help=f"The model to use for the completion. Defaults to QORK_MODEL env var or '{get_model()}'."
-    )
-    parser.add_argument(
-        "-ns", "--no-stream",
-        action="store_true",
-        help="Disable streaming response from the model."
-    )
-    parser.add_argument(
-        "-d", "--debug",
-        action="store_true",
-        help="Enable debug mode. Overrides GPT_DEBUG_MODE environment variable."
-    )
-    parser.add_argument(
-        "-r", "--responses",
-        action="store_true",
-        default=True,
-        help="Use OpenAI Responses API backend (non-streaming)."
-    )
-    parser.add_argument(
-        "-pt", "--plaintext",
-        action="store_true",
-        help="Print plain text output without rich formatting. Easier to copy/paste."
-    )
-    parser.add_argument(
-        "--chat",
-        action="store_true",
-        help="Use Chat Completions backend (overrides --responses)."
-    )
+app = typer.Typer(add_completion=False)
 
-    args = parser.parse_args()
+MODEL_PROFILES: dict[str, dict] = {
+    "nano": {"model": "gpt-5-nano"},
+    "mini": {"model": "gpt-5-mini"},
+    "large": {"model": "gpt-5"},
+    "high": {"model": "gpt-5", "reasoning": {"effort": "high"}},
+}
 
+
+def _print_debug(console: Console, *, model: str, response, plaintext: bool) -> None:
+    usage = getattr(response, "usage", None)
+    if not usage:
+        msg = f"Model: {model} | Usage: N/A"
+    else:
+        total = getattr(usage, "total_tokens", None)
+        input_tokens = getattr(usage, "input_tokens", getattr(usage, "prompt_tokens", None))
+        output_tokens = getattr(usage, "output_tokens", None)
+        msg = (
+            f"Model: {model} | Total Tokens: {total if total is not None else 'N/A'}"
+            f" [ Input: {input_tokens if input_tokens is not None else 'N/A'} || Output: {output_tokens if output_tokens is not None else 'N/A'} ]"
+        )
+    if plaintext:
+        print(f"DEBUG: {msg}")
+    else:
+        console.print(Text(msg, style="dim"))
+
+
+@app.callback(invoke_without_command=True)
+def _cli(
+    ctx: typer.Context,
+    prompt: Optional[str] = typer.Argument(None, help="The prompt to send."),
+    thread: bool = typer.Option(
+        False,
+        "-t",
+        "--thread",
+        help="Continue a single global thread stored at ~/.qork/history/session.id (clobbers across shells).",
+    ),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        help="Model preset: nano|mini|large|high (high sets reasoning effort=high).",
+    ),
+    model: Optional[str] = typer.Option(None, "-m", "--model", help="Model name (default: QORK_MODEL or built-in default)."),
+    stream: bool = typer.Option(False, "--stream/--no-stream", help="Stream output tokens."),
+    plaintext: bool = typer.Option(False, "-pt", "--plaintext", help="Print plain text output (no Rich panels)."),
+    debug: bool = typer.Option(False, "-d", "--debug", help="Print token usage when available."),
+):
     console = Console()
 
-    if not args.prompt:
-        parser.print_help()
-        sys.exit(0)
+    if not prompt:
+        typer.echo(ctx.get_help())
+        raise typer.Exit(code=0)
 
     api_key = get_api_key()
     if not api_key:
-        console.print("[bold red]Error: OPENAI_API_KEY environment variable not set.[/bold red]")
-        sys.exit(1)
-
-    model_to_use = args.model if args.model else get_model()
-    debug_mode = args.debug or os.environ.get("GPT_DEBUG_MODE", "false").lower() == "true"
-
-    if args.chat:
-        if not args.no_stream:
-            stream_chat(model_to_use, args.prompt, api_key, console, debug_mode, args.plaintext)
+        if plaintext:
+            print("Error: OPENAI_API_KEY environment variable not set.")
         else:
-            standard_chat(model_to_use, args.prompt, api_key, console, debug_mode, args.plaintext)
+            console.print("[bold red]Error: OPENAI_API_KEY environment variable not set.[/bold red]")
+        raise typer.Exit(code=1)
+
+    if model and profile:
+        if plaintext:
+            print("Error: Use either --model or --profile, not both.")
+        else:
+            console.print("[bold red]Error:[/bold red] Use either --model or --profile, not both.")
+        raise typer.Exit(code=2)
+
+    reasoning = None
+    if profile:
+        cfg = MODEL_PROFILES.get(profile)
+        if not cfg:
+            allowed = ", ".join(MODEL_PROFILES.keys())
+            if plaintext:
+                print(f"Error: Unknown profile '{profile}'. Allowed: {allowed}")
+            else:
+                console.print(f"[bold red]Error:[/bold red] Unknown profile '{profile}'. Allowed: {allowed}")
+            raise typer.Exit(code=2)
+        model_to_use = cfg["model"]
+        reasoning = cfg.get("reasoning")
     else:
-        model_to_use = args.model if args.model else "gpt-5-mini"
-        responses_api_response(console, model_to_use, args.prompt, api_key, debug_mode, args.plaintext)
+        model_to_use = model or get_model()
 
-def stream_chat(model, prompt, api_key, console, debug_mode, plaintext=False):
-    if debug_mode:
-        if not plaintext:
-            console.print("[yellow]Warning: Streaming token counts are estimated using the 'o200k_base' encoding and may not be exact.[/yellow]")
-        else:
-            print("WARNING: Streaming token counts are estimated using the 'o200k_base' encoding and may not be exact.")
-        input_tokens = get_token_count(prompt)
-        token_count = TokenCount(prompt_tokens=input_tokens)
+    previous_response_id = load_thread_response_id() if thread else None
 
-    response = get_completion(model, prompt, api_key, stream=True)
-
-    if plaintext:
-        if isinstance(response, str) and response.startswith("Error:"):
-            print(f"Error: {response}")
-            if debug_mode:
-                print(f"DEBUG: ErrorTokens: {token_count}")
-            return
-        for chunk in response:
-            chunk_content: str = chunk.choices[0].delta.content
-            if chunk_content:
-                if debug_mode:
-                    token_count.completion_tokens += get_token_count(chunk_content)
-                print(chunk_content, end="", flush=True)
-        print()
-        if debug_mode:
-            print(f"DEBUG: Tokens: {token_count}")
-        return
-
-    # rich flow
-    with Live(Panel("[bold green]Querying...[/bold green]", title="Status", border_style="green"), console=console, screen=False, vertical_overflow="visible") as live:
-        if isinstance(response, str) and response.startswith("Error:"):
-            live.update(Panel(f"[bold red]{response}[/bold red]", title="Error", border_style="red"))
-            if debug_mode:
-                console.print(Text(f"ErrorTokens: {token_count}", style="dim"))
-            return
-
-        full_response = ""
-        for chunk in response:
-            chunk_content: str = chunk.choices[0].delta.content
-            if chunk_content:
-                full_response += chunk_content
-                live.update(Panel(Markdown(full_response), title=f"[bold cyan]{model}[/bold cyan]", border_style="cyan", padding=(1, 2)))
-                if debug_mode:
-                    token_count.completion_tokens += get_token_count(chunk_content)
-        if debug_mode:
-            console.print(Text(f"Tokens: {token_count}", style="dim"))
-
-def standard_chat(model, prompt, api_key, console, debug_mode, plaintext=False):
-    response = get_completion(model, prompt, api_key)
-
-    if plaintext:
-        if isinstance(response, str) and response.startswith("Error:"):
-            print(f"Error: {response}")
-            return
-        response_content = response.choices[0].message.content
-        print(response_content)
-        if debug_mode and response:
-            usage = response.usage
-            cost = response._hidden_params.get('response_cost', None)
-            cost_str = f"${cost:.6f}" if isinstance(cost, (int, float)) else "N/A"
-            debug_info = f"Model: {model} | Cost: {cost_str} | Total Tokens: {usage.total_tokens} [ Input: {usage.prompt_tokens} || Completion: {usage.completion_tokens} ]"
-            print(f"DEBUG: {debug_info}")
-        return
-
-    # rich flow
-    with Live(Panel("[bold green]Querying...[/bold green]", title="Status", border_style="green"), console=console, screen=False, vertical_overflow="visible") as live:
-        if isinstance(response, str) and response.startswith("Error:"):
-            live.update(Panel(f"[bold red]{response}[/bold red]", title="Error", border_style="red"))
-            return
-
-        response_content = response.choices[0].message.content
-        output_panel = Panel(
-            Markdown(response_content),
-            title=f"[bold cyan]{model}[/bold cyan]",
-            border_style="cyan",
-            padding=(1, 2)
-        )
-        live.update(output_panel)
-
-    if debug_mode and response:
-        usage = response.usage
-        cost = response._hidden_params.get('response_cost', None)
-        cost_str = f"${cost:.6f}" if isinstance(cost, (int, float)) else "N/A"
-        debug_info = f"Model: {model} | Cost: {cost_str} | Total Tokens: {usage.total_tokens} [ Input: {usage.prompt_tokens} || Completion: {usage.completion_tokens} ]"
-        console.print(Text(debug_info, style="dim"))
-
-def responses_api_response(console, model, prompt, api_key, debug_mode, plaintext=False):
     try:
-        # Per-shell session lookup: fetch a single previous_response_id
-        session_key = get_session_key()
-        previous_response_id = load_previous_response_id(session_key)
+        if stream:
+            full_text = ""
+            with stream_response(
+                model=model_to_use,
+                prompt=prompt,
+                api_key=api_key,
+                previous_response_id=previous_response_id,
+                reasoning=reasoning,
+            ) as s:
+                if plaintext:
+                    for event in s:
+                        if getattr(event, "type", None) == "response.output_text.delta":
+                            delta = getattr(event, "delta", "")
+                            if delta:
+                                full_text += delta
+                                print(delta, end="", flush=True)
+                    print()
+                else:
+                    with Live(
+                        Panel("[bold green]Querying...[/bold green]", title="Status", border_style="green"),
+                        console=console,
+                        screen=False,
+                        vertical_overflow="visible",
+                    ) as live:
+                        for event in s:
+                            if getattr(event, "type", None) == "response.output_text.delta":
+                                delta = getattr(event, "delta", "")
+                                if not delta:
+                                    continue
+                                full_text += delta
+                                live.update(
+                                    Panel(
+                                        Markdown(full_text),
+                                        title=f"[bold cyan]{model_to_use}[/bold cyan]",
+                                        border_style="cyan",
+                                        padding=(1, 2),
+                                    )
+                                )
 
-        response = get_response(
-            console=console,
-            model=model,
-            prompt=prompt,
-            api_key=api_key,
-            stream=False,
-            previous_response_id=previous_response_id,
-        )
+                response = s.get_final_response()
+                text = response_text(response)
+        else:
+            response = get_response(
+                model=model_to_use,
+                prompt=prompt,
+                api_key=api_key,
+                previous_response_id=previous_response_id,
+                reasoning=reasoning,
+            )
+            text = response_text(response)
+
+            if plaintext:
+                print(text)
+            else:
+                console.print(
+                    Panel(
+                        Markdown(text),
+                        title=f"[bold cyan]{model_to_use}[/bold cyan]",
+                        border_style="cyan",
+                        padding=(1, 2),
+                    )
+                )
     except Exception as e:
         if plaintext:
             print(f"Error: {e}")
         else:
             console.print(Panel(f"[bold red]Error: {e}[/bold red]", title="Error", border_style="red"))
-        return
+        raise typer.Exit(code=1)
 
-    # Extract best-effort text content from Responses API object
-    response_content = None
-    try:
-        response_content = getattr(response, "output_text", None)
-    except Exception:
-        response_content = None
-
-    if not response_content:
+    # Save session threading id (Responses API only)
+    if thread:
         try:
-            response_content = str(response)
+            resp_id = getattr(response, "id", None)
+            if isinstance(resp_id, str) and resp_id:
+                save_thread_response_id(resp_id)
         except Exception:
-            response_content = "(No content)"
+            pass
 
-    if plaintext:
-        print(response_content)
-    else:
-        output_panel = Panel(
-            Markdown(response_content),
-            title=f"[bold cyan]{model}[/bold cyan]",
-            border_style="cyan",
-            padding=(1, 2)
-        )
-        console.print(output_panel)
+    if debug:
+        _print_debug(console, model=model_to_use, response=response, plaintext=plaintext)
 
-    if debug_mode and response is not None:
-        # Best-effort usage display; fields differ from Chat Completions
-        usage = getattr(response, "usage", None)
-        if usage is not None:
-            total_tokens = getattr(usage, "total_tokens", None)
-            prompt_tokens = getattr(usage, "prompt_tokens", None)
-            output_tokens = getattr(usage, "output_tokens", None)
-            debug_info = (
-                f"Model: {model} | Total Tokens: {total_tokens if total_tokens is not None else 'N/A'}"
-                f" [ Input: {prompt_tokens if prompt_tokens is not None else 'N/A'} || Output: {output_tokens if output_tokens is not None else 'N/A'} ]"
-            )
-        else:
-            debug_info = f"Model: {model} | Usage: N/A"
-        if plaintext:
-            print(f"DEBUG: {debug_info}")
-        else:
-            console.print(Text(debug_info, style="dim"))
 
-    # Persist the new previous_response_id after successful response
-    try:
-        session_key = get_session_key()
-        conv_id = getattr(response, "id", None)
-        if conv_id:
-            save_previous_response_id(session_key, conv_id)
-    except Exception:
-        pass
+def main() -> None:
+    app()
+
 
 if __name__ == "__main__":
     main()

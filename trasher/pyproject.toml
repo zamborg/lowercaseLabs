@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trasher"
+version = "0.1.0"
+description = "A safer rm replacement for macOS that moves files to Trash."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "lowercaseLabs" }]
+dependencies = [
+  "rich>=13.7.0",
+  "typer>=0.12.0",
+]
+
+[project.scripts]
+trash = "trasher.cli:main"
+trasher = "trasher.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

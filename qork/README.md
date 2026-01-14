@@ -1,11 +1,11 @@
 # qork
 
-A simple, beautiful CLI for asking LLMs questions from your terminal. Fast defaults, clean output, and per-shell conversational context.
+A simple, beautiful CLI for asking LLMs questions from your terminal. Fast defaults, clean output, and optional conversational threading.
 
 ## Highlights
-- Default backend: OpenAI Responses API (non‑streaming), zero config beyond your API key
-- Optional Chat Completions path with streaming
-- Per‑shell state: remembers the last conversation id only for the current shell session
+- Backend: OpenAI Responses API
+- Optional streaming output (`--stream`)
+- Optional global thread mode (`--thread`) that stores a single `previous_response_id`
 - Plaintext or pretty Rich output
 
 ## Install
@@ -18,7 +18,7 @@ pip install qork
 - Models: you can pass `-m/--model` at call time; otherwise defaults apply (see below)
 
 ## Quick start
-- Default (Responses API):
+- Default (Responses API, non-streaming):
 ```bash
 qork "Say hello in one short sentence."
 ```
@@ -26,56 +26,41 @@ qork "Say hello in one short sentence."
 ```bash
 qork -m gpt-5-mini "Give me a five-word poem."
 ```
-- Chat Completions (streaming by default):
+- Presets:
 ```bash
-qork --chat "List 3 colors."
+qork --profile nano "Explain this in one sentence."
+qork --profile high "Think carefully and give the best answer."
 ```
-- Chat non‑streaming:
+- Streaming:
 ```bash
-qork --chat --no-stream "Summarize: qork is..."
+qork --stream "List 3 colors."
 ```
 - Plaintext output (easier to copy/paste):
 ```bash
 qork -pt "Plain output please."
-qork --chat -pt "Also works for chat."
 ```
 - Debug info (tokens/cost where available):
 ```bash
 qork -d "How many seconds in a day?"
-qork --chat -d --no-stream "Explain Big-O of binary search."
 ```
 
 ## Backends and defaults
-- Responses API (default)
-  - Selected unless you pass `--chat`
-  - Non‑streaming
-  - Default model if not specified: `gpt-5-mini`
-- Chat Completions (`--chat`)
-  - Streaming by default; use `--no-stream` to disable
-  - Model comes from `-m/--model` or from `QORK_MODEL` env var, else falls back to library default
+- Responses API (only backend)
+  - Non‑streaming by default; use `--stream` to enable streaming
+  - Default model if not specified: `QORK_MODEL` or `gpt-5-mini`
 
-## Per‑shell session behavior (simple and automatic)
-qork keeps only a single `previous_response_id` per shell session to thread your Responses API calls.
-- A shell session is identified by TTY when available, otherwise by parent PID
-- State file lives at: `~/.qork/sessions/<session_key>.json`
-- File format:
-```json
-{
-  "previous_response_id": "resp_abc123",
-  "updated_at": "2025-09-04T12:34:56Z"
-}
-```
-- New shell → new session file → no prior context
-- Each `qork -r` (default path) uses the stored id (if any) and overwrites it with the latest id
-- To reset: simply open a new shell, or delete the file in `~/.qork/sessions/`
-
-Note: Session state is only used for the Responses API path. The Chat Completions path does not maintain threads.
+## Thread mode (simple and explicit)
+qork can optionally reuse a single global `previous_response_id` to continue one thread across invocations.
+- Enable with `-t/--thread`
+- State file lives at: `~/.qork/history/session.id`
+- This is global and will clobber across shells (intentionally simple)
+- To reset: delete `~/.qork/history/session.id`
 
 ## CLI flags
 - `-m, --model`         Set model name
-- `-r, --responses`     Use Responses API (default)
-- `--chat`              Use Chat Completions backend
-- `-ns, --no-stream`    Disable streaming (chat only)
+- `--profile`           Preset: `nano|mini|large|high` (high sets `reasoning.effort=high`)
+- `--stream/--no-stream` Stream output tokens
+- `-t, --thread`        Continue a single global thread (stores `previous_response_id`)
 - `-pt, --plaintext`    Plain stdout (no rich panels/markdown)
 - `-d, --debug`         Show token usage/cost when available
 
@@ -84,34 +69,27 @@ Call from notebooks and scripts using the same behavior as the CLI.
 ```python
 from qork.ask import ask
 
-# Default pathway (Responses API)
-text = ask("One short sentence.", responses=True, plaintext=True, return_text=True)
+# Responses API (non-streaming)
+text = ask("One short sentence.", stream=False, plaintext=True, return_text=True)
 
-# Chat Completions (non-streaming)
-text = ask("Explain merge sort in one paragraph.", stream=False, responses=False, return_text=True)
-
-# Chat Completions (streaming)
-text = ask("Print three facts.", stream=True, responses=False, return_text=True)
+# Responses API (streaming)
+text = ask("Print three facts.", stream=True, plaintext=True, return_text=True)
 ```
 
 Parameters you’ll likely use:
 - `prompt: str` (required)
 - `model: Optional[str]`
-- `responses: bool` (True for Responses API; False for Chat)
-- `stream: Optional[bool]` (Chat only; default True)
+- `stream: bool`
 - `plaintext: bool` (stdout formatting)
 - `debug: bool` (token/cost info)
+- `previous_response_id: Optional[str]` (continue a thread)
 - `return_text: bool` (return text value in addition to printing)
 
 ## Examples
-- Continue a short thread in the same shell (Responses API is default):
+- Continue a single global thread:
 ```bash
-qork "Start a thread in one sentence."
-qork "Continue in one sentence."
-```
-- Switch to Chat Completions with streaming:
-```bash
-qork --chat "Stream five words only."
+qork -t "Start a thread in one sentence."
+qork -t "Continue in one sentence."
 ```
 
 ## Tests (end‑to‑end)
@@ -119,16 +97,16 @@ These tests hit live APIs (no mocks). Set your key first.
 ```bash
 export OPENAI_API_KEY=sk-...
 pytest -q tests/test_e2e_cli.py::test_cli_responses_session_persistence
-pytest -q tests/test_e2e_cli.py::test_cli_chat_non_stream_plaintext
-pytest -q tests/test_e2e_cli.py::test_cli_chat_stream_plaintext
+pytest -q tests/test_e2e_cli.py::test_cli_plaintext_non_stream
+pytest -q tests/test_e2e_cli.py::test_cli_plaintext_stream
 pytest -q tests/test_e2e_python_api.py
 ```
 You can select a model for tests with `QORK_E2E_MODEL` or rely on defaults.
 
 ## Troubleshooting
 - “API key not set”: ensure `OPENAI_API_KEY` is exported in your shell
-- No session carry‑over: you likely opened a new shell (that’s expected); check `~/.qork/sessions/`
-- Switch backends: `--chat` for Chat Completions, Responses is the default
+- No thread carry‑over: ensure you used `-t/--thread`; check `~/.qork/history/session.id` (delete it to reset)
+- Streaming: use `--stream` if you prefer incremental output
 
 ---
 Designed for fast, accurate answers from the terminal with minimal ceremony. 

@@ -11,6 +11,7 @@ src/notes/graph.py
 src/notes/providers_openai.py
 src/notes/search.py
 src/notes/storage.py
+src/notes/streams.py
 src/notes/transcription.py
 src/notes/bh/__init__.py
 src/notes/bh/app.py

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qork"
-version = "0.0.11"
+version = "0.1.0"
 authors = [
   { name="Zubin Aysola", email="zubinpersonalemail@email.com" },
 ]
@@ -17,9 +17,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "litellm",
-    "rich",
     "openai",
+    "rich",
+    "typer",
 ]
 
 [project.scripts]
