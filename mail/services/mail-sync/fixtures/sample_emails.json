@@ -1,0 +1,62 @@
+[
+  {
+    "message_id": "<recruiter-001@example.com>",
+    "thread_key": "thread-recruiter-1",
+    "from": [{"name": "Taylor", "email": "taylor@talentco.com"}],
+    "to": [{"name": "Dev", "email": "dev@local"}],
+    "cc": [],
+    "bcc": [],
+    "subject": "Interested in a quick chat?",
+    "date": "2025-01-10T15:04:00Z",
+    "snippet": "We have a senior role that aligns with your background...",
+    "body_text": "Hi there,\n\nWe have a senior role that aligns with your background. Are you open to a quick chat next week?\n\nThanks,\nTaylor",
+    "body_html": null,
+    "labels": {"inbox": true},
+    "is_read": false
+  },
+  {
+    "message_id": "<sched-002@example.com>",
+    "thread_key": "thread-schedule-1",
+    "from": [{"name": "Ari", "email": "ari@partner.io"}],
+    "to": [{"name": "Dev", "email": "dev@local"}],
+    "cc": [],
+    "bcc": [],
+    "subject": "Scheduling: Tues or Wed?",
+    "date": "2025-01-11T09:30:00Z",
+    "snippet": "Can you do Tuesday morning or Wednesday afternoon?",
+    "body_text": "Hi,\n\nCan you do Tuesday morning or Wednesday afternoon for a 30-minute sync?\n\nBest,\nAri",
+    "body_html": null,
+    "labels": {"inbox": true},
+    "is_read": false
+  },
+  {
+    "message_id": "<newsletter-003@example.com>",
+    "thread_key": "thread-newsletter-1",
+    "from": [{"name": "News", "email": "digest@newsletters.io"}],
+    "to": [{"name": "Dev", "email": "dev@local"}],
+    "cc": [],
+    "bcc": [],
+    "subject": "FYI: Weekly product digest",
+    "date": "2025-01-12T08:00:00Z",
+    "snippet": "This week in product: pricing experiments, roadmap patterns...",
+    "body_text": "FYI: Weekly product digest\n\nThis week in product: pricing experiments, roadmap patterns, hiring signals...",
+    "body_html": null,
+    "labels": {"inbox": true},
+    "is_read": false
+  },
+  {
+    "message_id": "<customer-004@example.com>",
+    "thread_key": "thread-customer-1",
+    "from": [{"name": "Jordan", "email": "jordan@client.com"}],
+    "to": [{"name": "Dev", "email": "dev@local"}],
+    "cc": [],
+    "bcc": [],
+    "subject": "Urgent: broken export",
+    "date": "2025-01-12T13:15:00Z",
+    "snippet": "The export is failing and we need a fix today.",
+    "body_text": "Hi,\n\nThe export is failing and we need a fix today. Please advise.\n\nThanks,\nJordan",
+    "body_html": null,
+    "labels": {"inbox": true},
+    "is_read": false
+  }
+]

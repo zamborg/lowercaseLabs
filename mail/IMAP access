@@ -1,0 +1,19 @@
+IMAP access:
+(access Gmail from other clients using IMAP)
+Learn more	
+When I mark a message in IMAP as deleted:
+	Auto-Expunge on - Immediately update the server. (default)
+	x	Auto-Expunge off - Wait for the client to update the server.
+
+When a message is marked as deleted and expunged from the last visible IMAP folder:
+    x	Archive the message (default)
+	Move the message to the Trash
+	Immediately delete the message forever
+
+Folder size limits
+    x	Do not limit the number of messages in an IMAP folder (default)
+	Limit IMAP folders to contain no more than this many messages 
+1,000
+
+Configure your email client (e.g. Outlook, Thunderbird, iPhone)
+Configuration instructions
