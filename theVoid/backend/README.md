@@ -164,7 +164,7 @@ fly mpg attach thevoid-db -a thevoid
 ```bash
 fly secrets set -a thevoid \\
   JWT_SECRET='<strong-random-secret>' \\
-  APPLE_ALLOWED_AUDIENCES='lowercaseLabs.theVoid' \\
+  APPLE_ALLOWED_AUDIENCES='com.lowercaseLabs.theVoid' \\
   OPENAI_API_KEY='<openai-key>' \\
   ADMIN_USERNAME='<admin-user>' \\
   ADMIN_PASSWORD='<admin-pass>'

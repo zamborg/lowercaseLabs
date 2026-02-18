@@ -1299,7 +1299,6 @@ struct MainTabView: View {
 
 struct OnboardingView: View {
     @EnvironmentObject private var model: AppModel
-    private let appleSignInEnabled = false
     
     private enum StartupBackend: String, CaseIterable, Identifiable {
         case prod
@@ -1338,6 +1337,10 @@ struct OnboardingView: View {
     @State private var devIdentityToken = ""
     @State private var currentAppleNonce: String?
     @State private var startupBackend: StartupBackend = .local
+
+    private var appleSignInEnabled: Bool {
+        startupBackend == .prod
+    }
 
     var body: some View {
         ScrollView {
@@ -1404,27 +1407,29 @@ struct OnboardingView: View {
                         .signInWithAppleButtonStyle(.white)
                         .frame(height: 48)
                     } else {
-                        Text("Apple Sign-In is disabled for Personal Team builds. Use Dev Sign-In below.")
+                        Text("Use Dev Sign-In for local testing. Switch backend to Prod for Apple Sign-In.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
 
-                    TextField("Dev identity token (optional)", text: $devIdentityToken)
-                        .textFieldStyle(.plain)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(Color.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                        )
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                    if !appleSignInEnabled {
+                        TextField("Dev identity token (optional)", text: $devIdentityToken)
+                            .textFieldStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(Color.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                            )
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
 
-                    Button("Use Dev Sign-In") {
-                        Task { await model.signInDev(identityToken: devIdentityToken) }
+                        Button("Use Dev Sign-In") {
+                            Task { await model.signInDev(identityToken: devIdentityToken) }
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
 
                     if !model.anonymousHandle.isEmpty {
                         Text("Signed in as @\(model.anonymousHandle)")
