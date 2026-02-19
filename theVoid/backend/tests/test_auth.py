@@ -47,6 +47,35 @@ def test_verify_apple_identity_token_validates_signature_claims_and_nonce(monkey
     assert captured["algorithms"] == ["RS256"]
 
 
+def test_verify_apple_identity_token_tries_multiple_allowed_audiences(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "apple_allowed_audiences", "wrong.aud,com.lowercaseLabs.theVoid")
+    monkeypatch.setattr(auth, "_resolve_apple_jwk", lambda kid: {"kid": kid})
+    monkeypatch.setattr(auth.jwt, "get_unverified_header", lambda _: {"kid": "kid-1", "alg": "RS256"})
+
+    seen_audiences: list[str] = []
+
+    def fake_decode(
+        token: str,
+        key: dict,
+        algorithms: list[str],
+        audience: str,
+        issuer: str,
+        options: dict,
+    ) -> dict:
+        del token, key, algorithms, issuer, options
+        seen_audiences.append(audience)
+        if audience == "wrong.aud":
+            raise auth.JWTError("invalid audience")
+        return {"sub": "apple-user-456"}
+
+    monkeypatch.setattr(auth.jwt, "decode", fake_decode)
+
+    subject = auth.verify_apple_identity_token("token-value", nonce=None)
+
+    assert subject == "apple-user-456"
+    assert seen_audiences == ["wrong.aud", "com.lowercaseLabs.theVoid"]
+
+
 def test_parse_apple_subject_allows_dev_tokens_in_non_production(monkeypatch) -> None:
     monkeypatch.setattr(settings, "environment", "development")
     monkeypatch.setattr(settings, "allow_dev_identity_tokens", True)

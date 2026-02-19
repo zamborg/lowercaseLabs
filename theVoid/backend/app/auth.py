@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db, now_utc
-from .models import User
+from .models import AccountDecommission, User
 
 bearer_scheme = HTTPBearer(auto_error=False)
 _apple_jwks_lock = threading.Lock()
@@ -126,23 +126,24 @@ def verify_apple_identity_token(identity_token: str, nonce: str | None = None) -
         raise AppleIdentityTokenError("Missing signing key id")
 
     key = _resolve_apple_jwk(kid.strip())
-    audience: str | list[str]
-    if len(settings.apple_audiences) == 1:
-        audience = settings.apple_audiences[0]
-    else:
-        audience = list(settings.apple_audiences)
+    claims: dict | None = None
+    last_exc: Exception | None = None
+    for audience in settings.apple_audiences:
+        try:
+            claims = jwt.decode(
+                identity_token,
+                key,
+                algorithms=["RS256"],
+                audience=audience,
+                issuer=settings.apple_issuer,
+                options={"verify_aud": True},
+            )
+            break
+        except JWTError as exc:
+            last_exc = exc
 
-    try:
-        claims = jwt.decode(
-            identity_token,
-            key,
-            algorithms=["RS256"],
-            audience=audience,
-            issuer=settings.apple_issuer,
-            options={"verify_aud": True},
-        )
-    except JWTError as exc:
-        raise AppleIdentityTokenError("Token signature or claims are invalid") from exc
+    if claims is None:
+        raise AppleIdentityTokenError("Token signature or claims are invalid") from last_exc
 
     _validate_apple_nonce(claims, nonce)
 
@@ -208,6 +209,16 @@ def issue_session_for_apple_token(
         db.commit()
         db.refresh(user)
     else:
+        decommissioned = (
+            db.query(AccountDecommission.user_id)
+            .filter(AccountDecommission.user_id == user.id)
+            .first()
+        )
+        if decommissioned is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is decommissioned. Ask an admin to recommission it.",
+            )
         if display_name is not None:
             user.display_name = display_name
         if daily_checkin_time_local is not None:
@@ -245,4 +256,14 @@ def get_current_user(
     user = db.query(User).filter(User.id == user_id).one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    decommissioned = (
+        db.query(AccountDecommission.user_id)
+        .filter(AccountDecommission.user_id == user.id)
+        .first()
+    )
+    if decommissioned is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is decommissioned. Ask an admin to recommission it.",
+        )
     return user

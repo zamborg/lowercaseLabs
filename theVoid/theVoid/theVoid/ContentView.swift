@@ -10,6 +10,7 @@ import AVFoundation
 import CryptoKit
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 import UserNotifications
 
 // MARK: - DTOs
@@ -204,6 +205,54 @@ enum RevealModeOption: String, CaseIterable, Identifiable, Codable {
             return "Friends"
         case .revealedToSpecific:
             return "Selected"
+        }
+    }
+}
+
+enum ReminderWeekday: Int, CaseIterable, Identifiable {
+    case monday
+    case tuesday
+    case wednesday
+    case thursday
+    case friday
+    case saturday
+    case sunday
+
+    var id: Int { rawValue }
+
+    var calendarWeekday: Int {
+        switch self {
+        case .monday: return 2
+        case .tuesday: return 3
+        case .wednesday: return 4
+        case .thursday: return 5
+        case .friday: return 6
+        case .saturday: return 7
+        case .sunday: return 1
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .monday: return "Mon"
+        case .tuesday: return "Tue"
+        case .wednesday: return "Wed"
+        case .thursday: return "Thu"
+        case .friday: return "Fri"
+        case .saturday: return "Sat"
+        case .sunday: return "Sun"
+        }
+    }
+
+    var fullTitle: String {
+        switch self {
+        case .monday: return "Monday"
+        case .tuesday: return "Tuesday"
+        case .wednesday: return "Wednesday"
+        case .thursday: return "Thursday"
+        case .friday: return "Friday"
+        case .saturday: return "Saturday"
+        case .sunday: return "Sunday"
         }
     }
 }
@@ -452,6 +501,14 @@ final class BackendClient {
         }
         let request = buildRequest(url: url, method: "GET", token: token)
         return try await send(request, decode: APIEntry.self)
+    }
+
+    func deleteEntry(entryID: String, token: String) async throws {
+        guard let url = URL(string: "/entries/\(entryID)", relativeTo: baseURL) else {
+            throw APIError.invalidURL
+        }
+        let request = buildRequest(url: url, method: "DELETE", token: token)
+        _ = try await send(request, decode: APIMessage.self)
     }
 
     func fetchAudio(entryID: String, token: String) async throws -> Data {
@@ -826,6 +883,14 @@ final class AudioPlaybackController: NSObject, ObservableObject, AVAudioPlayerDe
 // MARK: - Notification scheduler
 
 enum NotificationScheduler {
+    struct WeeklyReminder {
+        let weekday: Int
+        let time: Date
+    }
+
+    private static let legacyDailyIdentifier = "void.daily.checkin"
+    private static let weeklyIdentifierPrefix = "void.weekly.checkin."
+
     static func requestPermission() async -> Bool {
         await withCheckedContinuation { continuation in
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
@@ -835,25 +900,41 @@ enum NotificationScheduler {
     }
 
     static func scheduleDaily(at date: Date) async throws {
+        let reminders = ReminderWeekday.allCases.map { day in
+            WeeklyReminder(weekday: day.calendarWeekday, time: date)
+        }
+        try await scheduleWeekly(reminders: reminders)
+    }
+
+    static func scheduleWeekly(reminders: [WeeklyReminder]) async throws {
         let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(withIdentifiers: ["void.daily.checkin"])
+        let weekdayIdentifiers = ReminderWeekday.allCases.map { "\(weeklyIdentifierPrefix)\($0.calendarWeekday)" }
+        center.removePendingNotificationRequests(withIdentifiers: [legacyDailyIdentifier] + weekdayIdentifiers)
 
-        let content = UNMutableNotificationContent()
-        content.title = "Step Into the Void"
-        content.body = "Your one intentional check-in is ready."
-        content.sound = .default
+        for reminder in reminders {
+            let content = UNMutableNotificationContent()
+            content.title = "Step Into the Void"
+            content.body = "Your intentional check-in is ready."
+            content.sound = .default
 
-        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
-        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
-        let request = UNNotificationRequest(identifier: "void.daily.checkin", content: content, trigger: trigger)
+            var components = Calendar.current.dateComponents([.hour, .minute], from: reminder.time)
+            components.weekday = reminder.weekday
 
+            let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+            let identifier = "\(weeklyIdentifierPrefix)\(reminder.weekday)"
+            let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+            try await add(request, center: center)
+        }
+    }
+
+    private static func add(_ request: UNNotificationRequest, center: UNUserNotificationCenter) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             center.add(request) { error in
                 if let error {
                     continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
+                    return
                 }
+                continuation.resume(returning: ())
             }
         }
     }
@@ -877,6 +958,9 @@ final class AppModel: ObservableObject {
     @Published var displayName: String = ""
     @Published var anonymousHandle: String = ""
     @Published var dailyCheckin: Date = Date()
+    @Published var reminderWeekdays: Set<Int> = Set(ReminderWeekday.allCases.map(\.calendarWeekday))
+    @Published var reminderTimesByWeekday: [Int: Date] = [:]
+    @Published var reminderStatus: String?
     @Published var timezone: String = TimeZone.current.identifier
     @Published var notificationEnabled: Bool = false
     @Published var onboardingComplete: Bool = false
@@ -903,6 +987,8 @@ final class AppModel: ObservableObject {
         static let displayName = "thevoid.displayName"
         static let anonymousHandle = "thevoid.anonymousHandle"
         static let dailyCheckin = "thevoid.dailyCheckin"
+        static let reminderWeekdays = "thevoid.reminderWeekdays"
+        static let reminderTimesByWeekday = "thevoid.reminderTimesByWeekday"
         static let timezone = "thevoid.timezone"
         static let notificationEnabled = "thevoid.notificationEnabled"
         static let onboardingComplete = "thevoid.onboardingComplete"
@@ -944,6 +1030,25 @@ final class AppModel: ObservableObject {
             dailyCheckin = parsed
         }
 
+        if let savedWeekdays = defaults.array(forKey: Keys.reminderWeekdays) as? [Int] {
+            let valid = Set(savedWeekdays.filter { (1...7).contains($0) })
+            reminderWeekdays = valid.isEmpty ? Set(ReminderWeekday.allCases.map(\.calendarWeekday)) : valid
+        } else {
+            reminderWeekdays = Set(ReminderWeekday.allCases.map(\.calendarWeekday))
+        }
+
+        if let savedTimes = defaults.dictionary(forKey: Keys.reminderTimesByWeekday) as? [String: String] {
+            var parsedTimes: [Int: Date] = [:]
+            for (weekdayString, hhmm) in savedTimes {
+                guard let weekday = Int(weekdayString), (1...7).contains(weekday),
+                      let parsed = DateFormatter.hhmm.date(from: hhmm) else {
+                    continue
+                }
+                parsedTimes[weekday] = parsed
+            }
+            reminderTimesByWeekday = parsedTimes
+        }
+
         do {
             try client.updateBaseURL(apiBaseURL)
             apiBaseURL = client.baseURLString
@@ -960,6 +1065,11 @@ final class AppModel: ObservableObject {
         defaults.set(displayName, forKey: Keys.displayName)
         defaults.set(anonymousHandle, forKey: Keys.anonymousHandle)
         defaults.set(DateFormatter.hhmm.string(from: dailyCheckin), forKey: Keys.dailyCheckin)
+        defaults.set(reminderWeekdays.sorted(), forKey: Keys.reminderWeekdays)
+        let reminderTimesPayload = reminderTimesByWeekday.reduce(into: [String: String]()) { result, item in
+            result[String(item.key)] = DateFormatter.hhmm.string(from: item.value)
+        }
+        defaults.set(reminderTimesPayload, forKey: Keys.reminderTimesByWeekday)
         defaults.set(timezone, forKey: Keys.timezone)
         defaults.set(notificationEnabled, forKey: Keys.notificationEnabled)
         defaults.set(onboardingComplete, forKey: Keys.onboardingComplete)
@@ -1111,8 +1221,8 @@ final class AppModel: ObservableObject {
             activeEntryID = createResponse.entryId
             try await pollUntilReady(entryID: createResponse.entryId, token: sessionToken)
 
-            submissionState = .insightsReady
             await refreshAll()
+            submissionState = .insightsReady
         } catch {
             submissionState = .failed
             errorMessage = error.localizedDescription
@@ -1148,6 +1258,22 @@ final class AppModel: ObservableObject {
             throw APIError.server(401, "Session expired")
         }
         return try await client.fetchAudio(entryID: entryID, token: sessionToken)
+    }
+
+    func deleteEntry(entryID: String) async -> Bool {
+        guard let sessionToken else {
+            errorMessage = "Session expired"
+            return false
+        }
+        do {
+            try await client.deleteEntry(entryID: entryID, token: sessionToken)
+            entries.removeAll { $0.id == entryID }
+            await refreshSocialDots()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
     }
 
     func saveRevealMode(displayNameOverride: String?) async {
@@ -1242,6 +1368,55 @@ final class AppModel: ObservableObject {
             errorMessage = "\(error.localizedDescription)\nAPI: \(apiBaseURL)"
         }
     }
+
+    func isReminderWeekdaySelected(_ day: ReminderWeekday) -> Bool {
+        reminderWeekdays.contains(day.calendarWeekday)
+    }
+
+    func toggleReminderWeekday(_ day: ReminderWeekday) {
+        if reminderWeekdays.contains(day.calendarWeekday) {
+            reminderWeekdays.remove(day.calendarWeekday)
+        } else {
+            reminderWeekdays.insert(day.calendarWeekday)
+        }
+        persistState()
+    }
+
+    func reminderTime(for day: ReminderWeekday) -> Date {
+        reminderTimesByWeekday[day.calendarWeekday] ?? dailyCheckin
+    }
+
+    func setReminderTime(_ date: Date, for day: ReminderWeekday) {
+        reminderTimesByWeekday[day.calendarWeekday] = date
+        persistState()
+    }
+
+    func selectedReminderDays() -> [ReminderWeekday] {
+        ReminderWeekday.allCases.filter { reminderWeekdays.contains($0.calendarWeekday) }
+    }
+
+    func configureDailyReminder() async {
+        let granted = await NotificationScheduler.requestPermission()
+        notificationEnabled = granted
+        guard granted else {
+            reminderStatus = "Notifications denied."
+            persistState()
+            return
+        }
+
+        let reminders = selectedReminderDays().map { day in
+            NotificationScheduler.WeeklyReminder(weekday: day.calendarWeekday, time: reminderTime(for: day))
+        }
+
+        do {
+            try await NotificationScheduler.scheduleWeekly(reminders: reminders)
+            reminderStatus = reminders.isEmpty ? "No reminder days selected." : "Reminder schedule saved."
+            persistState()
+        } catch {
+            reminderStatus = "Could not schedule reminders."
+            errorMessage = error.localizedDescription
+        }
+    }
 }
 
 // MARK: - Root view
@@ -1258,6 +1433,7 @@ struct ContentView: View {
             }
         }
         .environmentObject(model)
+        .dismissKeyboardOnTap()
         .alert("Error", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }
@@ -1440,7 +1616,13 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Check-In")
                         .font(.headline)
-                    DatePicker("Daily time", selection: $model.dailyCheckin, displayedComponents: .hourAndMinute)
+                    DatePicker("Default time", selection: $model.dailyCheckin, displayedComponents: .hourAndMinute)
+                    ReminderScheduleEditor()
+                    if let reminderStatus = model.reminderStatus {
+                        Text(reminderStatus)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     TextField("Display name (optional)", text: $model.displayName)
                         .textFieldStyle(.plain)
                         .padding(.horizontal, 12)
@@ -1472,11 +1654,8 @@ struct OnboardingView: View {
                         Spacer()
                         Button(notificationGranted ? "Granted" : "Allow") {
                             Task {
-                                notificationGranted = await NotificationScheduler.requestPermission()
-                                model.notificationEnabled = notificationGranted
-                                if notificationGranted {
-                                    try? await NotificationScheduler.scheduleDaily(at: model.dailyCheckin)
-                                }
+                                await model.configureDailyReminder()
+                                notificationGranted = model.notificationEnabled
                             }
                         }
                         .disabled(notificationGranted)
@@ -1516,6 +1695,8 @@ struct OnboardingView: View {
 struct VoidExperienceView: View {
     @EnvironmentObject private var model: AppModel
     @StateObject private var recorder = RecorderEngine()
+    @State private var burstTrigger = 0
+    @State private var burstColor: Color = .teal
 
     var body: some View {
         NavigationStack {
@@ -1620,9 +1801,20 @@ struct VoidExperienceView: View {
                     }
                     .padding(.vertical, 24)
                 }
+
+                DotBurstOverlay(trigger: burstTrigger, color: burstColor)
+                    .frame(width: 260, height: 260)
+                    .allowsHitTesting(false)
             }
             .navigationTitle("The Void")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: model.submissionState) { oldValue, newValue in
+                guard oldValue != .insightsReady, newValue == .insightsReady else {
+                    return
+                }
+                burstColor = moodColor(for: model.entries.first?.insight?.moodScore)
+                burstTrigger += 1
+            }
             .onAppear {
                 recorder.onWarning = { _ in
                     UINotificationFeedbackGenerator().notificationOccurred(.warning)
@@ -1700,6 +1892,56 @@ struct AudioReactiveBars: View {
     }
 }
 
+struct DotBurstOverlay: View {
+    let trigger: Int
+    let color: Color
+
+    @State private var isAnimating = false
+    @State private var isVisible = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.24))
+                .frame(width: isAnimating ? 210 : 36, height: isAnimating ? 210 : 36)
+                .opacity(isAnimating ? 0 : 0.9)
+
+            Circle()
+                .fill(color.opacity(0.4))
+                .frame(width: isAnimating ? 120 : 24, height: isAnimating ? 120 : 24)
+                .opacity(isAnimating ? 0 : 1)
+
+            ForEach(0..<12, id: \.self) { index in
+                let angle = Double(index) / 12.0 * 2.0 * .pi
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+                    .offset(
+                        x: isAnimating ? CGFloat(cos(angle)) * 120 : 0,
+                        y: isAnimating ? CGFloat(sin(angle)) * 120 : 0
+                    )
+                    .opacity(isAnimating ? 0 : 1)
+            }
+        }
+        .opacity(isVisible ? 1 : 0)
+        .onChange(of: trigger) { _, _ in
+            play()
+        }
+    }
+
+    private func play() {
+        isVisible = true
+        isAnimating = false
+        withAnimation(.easeOut(duration: 0.75)) {
+            isAnimating = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.82) {
+            isVisible = false
+            isAnimating = false
+        }
+    }
+}
+
 // MARK: - Journal
 
 struct JournalView: View {
@@ -1759,25 +2001,12 @@ struct MoodHeatmap: View {
                 let key = DateFormatter.localDate.string(from: day)
                 let moodScore = lookup[key]?.insight?.moodScore
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(color(for: moodScore))
+                    .fill(moodColor(for: moodScore))
                     .frame(width: 14, height: 14)
             }
         }
         .padding(10)
         .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func color(for moodScore: Double?) -> Color {
-        guard let moodScore else {
-            return Color.gray.opacity(0.18)
-        }
-        switch moodScore {
-        case ..<(-1.0): return Color(red: 0.4, green: 0.12, blue: 0.2)
-        case ..<(-0.2): return Color(red: 0.6, green: 0.28, blue: 0.3)
-        case ..<0.3: return Color(red: 0.35, green: 0.36, blue: 0.38)
-        case ..<1.1: return Color(red: 0.28, green: 0.55, blue: 0.49)
-        default: return Color(red: 0.13, green: 0.65, blue: 0.58)
-        }
     }
 }
 
@@ -1828,15 +2057,48 @@ struct EntryCard: View {
 
 struct EntryDetailView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
     let entry: APIEntry
 
     @StateObject private var audioPlayback = AudioPlaybackController()
+    @State private var isDeleteConfirmPresented = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text(entry.localDate)
-                    .font(.title2.bold())
+                HStack(alignment: .center, spacing: 16) {
+                    Circle()
+                        .fill(moodColor(for: entry.insight?.moodScore))
+                        .frame(width: 110, height: 110)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(entry.localDate)
+                            .font(.title2.bold())
+                        Text(formattedRecordedTime(entry.createdAt))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text(entry.status.capitalized)
+                            .font(.caption)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color.secondary.opacity(0.14), in: Capsule())
+                    }
+                    Spacer()
+                    Button(role: .destructive) {
+                        isDeleteConfirmPresented = true
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.headline)
+                            .foregroundStyle(.red)
+                            .frame(width: 34, height: 34)
+                            .background(Color.white.opacity(0.08), in: Circle())
+                    }
+                    .accessibilityLabel("Delete entry")
+                }
 
                 if let insight = entry.insight {
                     VStack(alignment: .leading, spacing: 10) {
@@ -1921,7 +2183,24 @@ struct EntryDetailView: View {
             }
             .padding()
         }
-        .navigationTitle("Entry")
+        .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            "Delete this entry?",
+            isPresented: $isDeleteConfirmPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Entry", role: .destructive) {
+                Task {
+                    let deleted = await model.deleteEntry(entryID: entry.id)
+                    if deleted {
+                        dismiss()
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the entry, transcript, insights, and its social dot state.")
+        }
         .task {
             await loadAudio(forceReload: false)
         }
@@ -1939,6 +2218,15 @@ struct EntryDetailView: View {
         } catch {
             model.errorMessage = error.localizedDescription
         }
+    }
+
+    private func formattedRecordedTime(_ createdAt: String) -> String {
+        let parsed = ISO8601DateFormatter.backendWithFractional.date(from: createdAt)
+            ?? ISO8601DateFormatter.backendBasic.date(from: createdAt)
+        guard let parsed else {
+            return "Recorded time unavailable"
+        }
+        return "Recorded at \(DateFormatter.recordedTime.string(from: parsed))"
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
@@ -2000,6 +2288,7 @@ struct SocialView: View {
     @EnvironmentObject private var model: AppModel
     @State private var revealNameOverride: String = ""
     @State private var acceptInviteToken: String = ""
+    @State private var clipboardStatus: String?
 
     private let columns = [GridItem(.adaptive(minimum: 74), spacing: 16)]
 
@@ -2025,7 +2314,7 @@ struct SocialView: View {
                                 Circle()
                                     .fill(Color(hex: dot.dotColor))
                                     .frame(width: 40, height: 40)
-                                Text(dot.label ?? "Anonymous")
+                                Text(displayLabel(for: dot))
                                     .font(.caption)
                                     .lineLimit(1)
                             }
@@ -2108,7 +2397,7 @@ struct SocialView: View {
                                     .textSelection(.enabled)
                                 Spacer()
                                 Button("Copy") {
-                                    UIPasteboard.general.string = inviteURL
+                                    copyToClipboard(inviteURL, label: "Invite URL")
                                 }
                                 .buttonStyle(.bordered)
                             }
@@ -2121,10 +2410,16 @@ struct SocialView: View {
                                     .textSelection(.enabled)
                                 Spacer()
                                 Button("Copy Token") {
-                                    UIPasteboard.general.string = inviteToken
+                                    copyToClipboard(inviteToken, label: "Invite token")
                                 }
                                 .buttonStyle(.bordered)
                             }
+                        }
+
+                        if let clipboardStatus {
+                            Text(clipboardStatus)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
 
                         TextField("Paste invite link or token", text: $acceptInviteToken)
@@ -2146,6 +2441,79 @@ struct SocialView: View {
             }
         }
     }
+
+    private func copyToClipboard(_ value: String, label: String) {
+        let board = UIPasteboard.general
+        board.string = value
+        board.setValue(value, forPasteboardType: UTType.plainText.identifier)
+        clipboardStatus = "\(label) copied."
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            if clipboardStatus == "\(label) copied." {
+                clipboardStatus = nil
+            }
+        }
+    }
+
+    private func displayLabel(for dot: APISocialDot) -> String {
+        if let rawLabel = dot.label?.trimmingCharacters(in: .whitespacesAndNewlines), !rawLabel.isEmpty {
+            return rawLabel
+        }
+        return "@\(dot.userId.prefix(6))"
+    }
+}
+
+struct ReminderScheduleEditor: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(ReminderWeekday.allCases) { day in
+                        let isSelected = model.isReminderWeekdaySelected(day)
+                        Button(day.shortTitle) {
+                            model.toggleReminderWeekday(day)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(isSelected ? .white : .primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(
+                            isSelected ? Color.teal.opacity(0.35) : Color.secondary.opacity(0.2),
+                            in: Capsule()
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(isSelected ? Color.teal.opacity(0.8) : Color.secondary.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                }
+            }
+
+            ForEach(model.selectedReminderDays()) { day in
+                HStack {
+                    Text(day.fullTitle)
+                        .font(.subheadline)
+                    Spacer()
+                    DatePicker(
+                        day.fullTitle,
+                        selection: Binding(
+                            get: { model.reminderTime(for: day) },
+                            set: { model.setReminderTime($0, for: day) }
+                        ),
+                        displayedComponents: .hourAndMinute
+                    )
+                    .labelsHidden()
+                }
+            }
+
+            if model.selectedReminderDays().isEmpty {
+                Text("Select at least one day for reminders.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
 }
 
 // MARK: - Settings
@@ -2162,17 +2530,18 @@ struct SettingsView: View {
                 }
 
                 Section("Check-In") {
-                    DatePicker("Daily time", selection: $model.dailyCheckin, displayedComponents: .hourAndMinute)
+                    DatePicker("Default time", selection: $model.dailyCheckin, displayedComponents: .hourAndMinute)
+                    ReminderScheduleEditor()
                     Toggle("Notifications enabled", isOn: $model.notificationEnabled)
-                    Button("Schedule daily reminder") {
+                    Button("Save reminder schedule") {
                         Task {
-                            do {
-                                _ = await NotificationScheduler.requestPermission()
-                                try await NotificationScheduler.scheduleDaily(at: model.dailyCheckin)
-                            } catch {
-                                model.errorMessage = error.localizedDescription
-                            }
+                            await model.configureDailyReminder()
                         }
+                    }
+                    if let reminderStatus = model.reminderStatus {
+                        Text(reminderStatus)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -2231,6 +2600,33 @@ struct SettingsView: View {
 
 // MARK: - Helpers
 
+private func moodColor(for moodScore: Double?) -> Color {
+    guard let moodScore else {
+        return Color.gray.opacity(0.18)
+    }
+    switch moodScore {
+    case ..<(-1.0): return Color(red: 0.4, green: 0.12, blue: 0.2)
+    case ..<(-0.2): return Color(red: 0.6, green: 0.28, blue: 0.3)
+    case ..<0.3: return Color(red: 0.35, green: 0.36, blue: 0.38)
+    case ..<1.1: return Color(red: 0.28, green: 0.55, blue: 0.49)
+    default: return Color(red: 0.13, green: 0.65, blue: 0.58)
+    }
+}
+
+private func dismissKeyboard() {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+
+extension View {
+    func dismissKeyboardOnTap() -> some View {
+        simultaneousGesture(
+            TapGesture().onEnded {
+                dismissKeyboard()
+            }
+        )
+    }
+}
+
 extension Color {
     init(hex: String) {
         var sanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2266,6 +2662,28 @@ extension DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    static let recordedTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
+}
+
+extension ISO8601DateFormatter {
+    static let backendWithFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    static let backendBasic: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
         return formatter
     }()
 }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import RevealMode, SocialPresence, User
+from .models import SocialPresence, User
 
 
 DOT_PALETTE = [
@@ -24,15 +24,5 @@ def mood_to_dot_color(mood_score: float) -> str:
 
 
 def visible_label_for_viewer(presence: SocialPresence, owner: User, viewer_user_id: str) -> str | None:
-    if presence.reveal_mode == RevealMode.ANONYMOUS:
-        return None
-
-    label = presence.display_name_override or owner.display_name or owner.anonymous_handle
-
-    if presence.reveal_mode == RevealMode.REVEALED_TO_FRIENDS:
-        return label
-
-    if presence.reveal_mode == RevealMode.REVEALED_TO_SPECIFIC:
-        return label if viewer_user_id in (presence.reveal_friend_ids or []) else None
-
-    return None
+    _ = viewer_user_id
+    return presence.display_name_override or owner.display_name or owner.anonymous_handle

@@ -50,7 +50,7 @@ from .schemas import (
     UpdateSocialPresenceRequest,
     UserProfile,
 )
-from .social import SILENT_DOT_COLOR, visible_label_for_viewer
+from .social import SILENT_DOT_COLOR, mood_to_dot_color, visible_label_for_viewer
 from .storage import LocalObjectStorage
 from .worker import run_forever as run_worker_forever
 
@@ -170,6 +170,56 @@ def build_entry_response(entry: Entry) -> EntryResponse:
         transcript=transcript_payload,
         insight=insight_payload,
     )
+
+
+def refresh_social_presence_for_user_day(db: Session, user_id: str, local_date: date) -> None:
+    latest_ready = (
+        db.query(Entry, Insight)
+        .join(Insight, Insight.entry_id == Entry.id)
+        .filter(
+            and_(
+                Entry.user_id == user_id,
+                Entry.local_date == local_date,
+                Entry.status == EntryStatus.READY,
+            )
+        )
+        .order_by(Entry.created_at.desc())
+        .first()
+    )
+
+    presence = (
+        db.query(SocialPresence)
+        .filter(and_(SocialPresence.user_id == user_id, SocialPresence.local_date == local_date))
+        .one_or_none()
+    )
+
+    if latest_ready is None:
+        if presence is not None:
+            db.delete(presence)
+        return
+
+    _, insight = latest_ready
+    color = mood_to_dot_color(insight.mood_score)
+
+    if presence is None:
+        presence = SocialPresence(
+            user_id=user_id,
+            local_date=local_date,
+            dot_color=color,
+        )
+    else:
+        presence.dot_color = color
+    db.add(presence)
+
+
+def viewer_label(friend: User, display_override: str | None = None) -> str:
+    if display_override is not None and display_override.strip():
+        return display_override.strip()
+    if friend.display_name is not None and friend.display_name.strip():
+        return friend.display_name.strip()
+    if friend.anonymous_handle.strip():
+        return friend.anonymous_handle.strip()
+    return f"user-{friend.id[:6]}"
 
 
 @app.post("/entries", response_model=EntryCreateResponse)
@@ -297,6 +347,39 @@ def get_entry(
     return build_entry_response(entry)
 
 
+@app.delete("/entries/{entry_id}", response_model=MessageResponse)
+def delete_entry(
+    entry_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageResponse:
+    entry = (
+        db.query(Entry)
+        .filter(and_(Entry.id == entry_id, Entry.user_id == current_user.id))
+        .one_or_none()
+    )
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
+
+    local_date = entry.local_date
+    audio_object_key = entry.audio_object_key
+
+    db.query(Transcript).filter(Transcript.entry_id == entry.id).delete(synchronize_session=False)
+    db.query(Insight).filter(Insight.entry_id == entry.id).delete(synchronize_session=False)
+    db.delete(entry)
+    db.flush()
+    refresh_social_presence_for_user_day(db, current_user.id, local_date)
+    db.commit()
+
+    try:
+        storage.delete_object(audio_object_key)
+    except Exception:
+        logger.exception("entry_audio_delete_failed", extra={"entry_id": entry_id, "user_id": current_user.id})
+
+    logger.info("entry_deleted", extra={"entry_id": entry_id, "user_id": current_user.id})
+    return MessageResponse(message="entry deleted")
+
+
 @app.get("/entries/{entry_id}/audio")
 def get_entry_audio(
     entry_id: str,
@@ -418,24 +501,27 @@ def social_dots(
 
         presence = presence_by_user.get(friend_id)
         if presence is None:
+            label = viewer_label(friend)
             dots.append(
                 SocialDot(
                     user_id=friend_id,
                     dot_color=SILENT_DOT_COLOR,
-                    label=None,
-                    is_revealed=False,
+                    label=label,
+                    is_revealed=True,
                     has_entry=False,
                 )
             )
             continue
 
         label = visible_label_for_viewer(presence, friend, current_user.id)
+        if label is None or not label.strip():
+            label = viewer_label(friend)
         dots.append(
             SocialDot(
                 user_id=friend_id,
                 dot_color=presence.dot_color,
                 label=label,
-                is_revealed=label is not None,
+                is_revealed=True,
                 has_entry=True,
             )
         )

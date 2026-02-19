@@ -65,6 +65,14 @@ class User(Base):
     entries: Mapped[list[Entry]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
+class AccountDecommission(Base):
+    __tablename__ = "account_decommissions"
+
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    decommissioned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+
+
 class Entry(Base):
     __tablename__ = "entries"
 

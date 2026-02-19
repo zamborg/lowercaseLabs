@@ -4,15 +4,15 @@ from datetime import date, datetime, timedelta
 from html import escape
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db, now_utc
-from .models import Entry, EntryStatus, Insight, Job, JobStatus, Transcript, User
+from .models import AccountDecommission, Entry, EntryStatus, Insight, Job, JobStatus, Transcript, User
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 basic_security = HTTPBasic()
@@ -48,6 +48,15 @@ def _snippet(text: str | None, max_chars: int = 180) -> str:
     if len(normalized) <= max_chars:
         return normalized
     return f"{normalized[:max_chars].rstrip()}..."
+
+
+def _safe_redirect_target(raw: str | None, fallback: str = "/admin/users") -> str:
+    if raw is None:
+        return fallback
+    target = raw.strip()
+    if not target.startswith("/admin"):
+        return fallback
+    return target or fallback
 
 
 def _layout(title: str, body: str) -> HTMLResponse:
@@ -86,11 +95,16 @@ def _layout(title: str, body: str) -> HTMLResponse:
     .chip {{ display: inline-block; border-radius: 999px; border: 1px solid var(--line); padding: 3px 8px; font-size: 11px; color: var(--muted); }}
     .chip.ready {{ color: var(--accent); border-color: var(--accent); }}
     .chip.failed {{ color: var(--danger); border-color: var(--danger); }}
+    .chip.user-active {{ color: var(--accent); border-color: var(--accent); }}
+    .chip.user-decommissioned {{ color: var(--danger); border-color: var(--danger); }}
     a.link {{ color: var(--accent); text-decoration: none; }}
     a.link:hover {{ text-decoration: underline; }}
     form {{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }}
-    input, button {{ background: #121722; border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 8px 10px; font-size: 13px; }}
+    input, button, select {{ background: #121722; border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 8px 10px; font-size: 13px; }}
     button {{ background: #1f2938; cursor: pointer; }}
+    button.danger {{ border-color: #6f3340; color: #f6d7dc; }}
+    button.ok {{ border-color: #257062; color: #d8fff8; }}
+    .inline-form {{ display: inline-flex; margin: 0; gap: 6px; align-items: center; }}
     pre {{ white-space: pre-wrap; line-height: 1.35; background: #0e131d; border: 1px solid var(--line); padding: 12px; border-radius: 10px; }}
     .empty {{ color: var(--muted); margin: 12px 0; }}
   </style>
@@ -100,6 +114,7 @@ def _layout(title: str, body: str) -> HTMLResponse:
     <strong>theVoid Admin</strong>
     <a href=\"/admin\">Overview</a>
     <a href=\"/admin/transcripts\">Transcripts</a>
+    <a href=\"/admin/users\">Users</a>
   </header>
   <main>
     {body}
@@ -116,6 +131,8 @@ def admin_overview(
     _: None = Depends(require_admin),
 ) -> HTMLResponse:
     users_count = db.query(func.count(User.id)).scalar() or 0
+    decommissioned_users_count = db.query(func.count(AccountDecommission.user_id)).scalar() or 0
+    active_users_count = max(0, users_count - decommissioned_users_count)
     entries_count = db.query(func.count(Entry.id)).scalar() or 0
     ready_entries_count = (
         db.query(func.count(Entry.id)).filter(Entry.status == EntryStatus.READY).scalar() or 0
@@ -170,6 +187,8 @@ def admin_overview(
       <p class=\"meta\">Now: {escape(_fmt_dt(now_utc()))}</p>
       <section class=\"cards\">
         <div class=\"card\"><div class=\"label\">Users</div><div class=\"value\">{users_count}</div></div>
+        <div class=\"card\"><div class=\"label\">Active Users</div><div class=\"value\">{active_users_count}</div></div>
+        <div class=\"card\"><div class=\"label\">Decommissioned</div><div class=\"value\">{decommissioned_users_count}</div></div>
         <div class=\"card\"><div class=\"label\">Entries</div><div class=\"value\">{entries_count}</div></div>
         <div class=\"card\"><div class=\"label\">Ready Entries</div><div class=\"value\">{ready_entries_count}</div></div>
         <div class=\"card\"><div class=\"label\">Transcripts</div><div class=\"value\">{transcript_count}</div></div>
@@ -241,6 +260,156 @@ def admin_transcripts(
     """
 
     return _layout("Transcripts", body)
+
+
+@router.get("/users", response_class=HTMLResponse)
+def admin_users(
+    q: str = Query(default="", max_length=200),
+    account_state: str = Query(default="active", pattern="^(active|decommissioned|all)$"),
+    limit: int = Query(75, ge=1, le=300),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> HTMLResponse:
+    query = (
+        db.query(User, AccountDecommission)
+        .outerjoin(AccountDecommission, AccountDecommission.user_id == User.id)
+    )
+
+    if account_state == "active":
+        query = query.filter(AccountDecommission.user_id.is_(None))
+    elif account_state == "decommissioned":
+        query = query.filter(AccountDecommission.user_id.is_not(None))
+
+    if q.strip():
+        pattern = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                User.id.ilike(pattern),
+                User.apple_sub.ilike(pattern),
+                User.anonymous_handle.ilike(pattern),
+                User.display_name.ilike(pattern),
+            )
+        )
+
+    rows = query.order_by(User.created_at.desc()).limit(limit).all()
+
+    row_html: list[str] = []
+    for user, decommission in rows:
+        account_chip = (
+            "<span class='chip user-active'>active</span>"
+            if decommission is None
+            else "<span class='chip user-decommissioned'>decommissioned</span>"
+        )
+        display_name = user.display_name or "-"
+        reason = _snippet(decommission.reason if decommission is not None else None, 80)
+        decommissioned_at = _fmt_dt(decommission.decommissioned_at if decommission is not None else None)
+
+        if decommission is None:
+            action_html = (
+                f"<form class='inline-form' method='post' action='/admin/users/{escape(user.id)}/decommission'>"
+                "<input type='hidden' name='redirect_to' value='/admin/users' />"
+                "<input type='text' name='reason' placeholder='Reason (optional)' maxlength='255' />"
+                "<button class='danger' type='submit'>Decommission</button>"
+                "</form>"
+            )
+        else:
+            action_html = (
+                f"<form class='inline-form' method='post' action='/admin/users/{escape(user.id)}/recommission'>"
+                "<input type='hidden' name='redirect_to' value='/admin/users' />"
+                "<button class='ok' type='submit'>Recommission</button>"
+                "</form>"
+            )
+
+        row_html.append(
+            "<tr>"
+            f"<td>{escape(user.id[:8])}</td>"
+            f"<td>@{escape(user.anonymous_handle)}</td>"
+            f"<td>{escape(display_name)}</td>"
+            f"<td>{account_chip}</td>"
+            f"<td>{escape(reason)}</td>"
+            f"<td>{escape(decommissioned_at)}</td>"
+            f"<td>{action_html}</td>"
+            "</tr>"
+        )
+
+    table_html = (
+        "<table>"
+        "<thead><tr><th>User</th><th>Handle</th><th>Display Name</th><th>Status</th><th>Reason</th><th>Decommissioned At</th><th>Actions</th></tr></thead>"
+        f"<tbody>{''.join(row_html)}</tbody>"
+        "</table>"
+        if row_html
+        else "<p class='empty'>No users matched your filters.</p>"
+    )
+
+    selected_active = "selected" if account_state == "active" else ""
+    selected_decommissioned = "selected" if account_state == "decommissioned" else ""
+    selected_all = "selected" if account_state == "all" else ""
+
+    body = f"""
+      <h1>Account Lifecycle</h1>
+      <form method=\"get\">
+        <input type=\"text\" name=\"q\" value=\"{escape(q)}\" placeholder=\"Search by id / handle / name / apple_sub\" />
+        <select name=\"account_state\">
+          <option value=\"active\" {selected_active}>Active</option>
+          <option value=\"decommissioned\" {selected_decommissioned}>Decommissioned</option>
+          <option value=\"all\" {selected_all}>All</option>
+        </select>
+        <input type=\"number\" name=\"limit\" min=\"1\" max=\"300\" value=\"{limit}\" />
+        <button type=\"submit\">Apply</button>
+      </form>
+      {table_html}
+    """
+
+    return _layout("Users", body)
+
+
+@router.post("/users/{user_id}/decommission")
+async def admin_decommission_user(
+    user_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> RedirectResponse:
+    user = db.query(User).filter(User.id == user_id).one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    form = await request.form()
+    reason = str(form.get("reason") or "").strip() or None
+    redirect_to = _safe_redirect_target(str(form.get("redirect_to") or ""), fallback="/admin/users")
+
+    decommission = db.query(AccountDecommission).filter(AccountDecommission.user_id == user.id).one_or_none()
+    if decommission is None:
+        decommission = AccountDecommission(user_id=user.id, reason=reason, decommissioned_at=now_utc())
+    else:
+        decommission.reason = reason
+        decommission.decommissioned_at = now_utc()
+    db.add(decommission)
+    db.commit()
+
+    return RedirectResponse(url=redirect_to, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/users/{user_id}/recommission")
+async def admin_recommission_user(
+    user_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> RedirectResponse:
+    user = db.query(User).filter(User.id == user_id).one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    form = await request.form()
+    redirect_to = _safe_redirect_target(str(form.get("redirect_to") or ""), fallback="/admin/users")
+
+    decommission = db.query(AccountDecommission).filter(AccountDecommission.user_id == user.id).one_or_none()
+    if decommission is not None:
+        db.delete(decommission)
+        db.commit()
+
+    return RedirectResponse(url=redirect_to, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/entries/{entry_id}", response_class=HTMLResponse)
