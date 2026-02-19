@@ -1,0 +1,84 @@
+name: thevoid-local
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: thevoid
+      POSTGRES_USER: thevoid
+      POSTGRES_PASSWORD: thevoid
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thevoid -d thevoid"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment: &backend_env
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+psycopg://thevoid:thevoid@db:5432/thevoid
+      OBJECT_STORAGE_ROOT: /data/storage
+      AUTO_CREATE_SCHEMA: "false"
+      INLINE_WORKER_ENABLED: "false"
+      JWT_SECRET: dev-jwt-secret
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: admin
+      ALLOW_DEV_IDENTITY_TOKENS: "true"
+      APPLE_ALLOWED_AUDIENCES: com.lowercaseLabs.theVoid
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:-gpt-4o-mini-transcribe}
+      OPENAI_INSIGHTS_MODEL: ${OPENAI_INSIGHTS_MODEL:-gpt-4.1-mini}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - backend_data:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      <<: *backend_env
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - backend_data:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)\"",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      <<: *backend_env
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - backend_data:/data
+
+volumes:
+  postgres_data:
+  backend_data:
