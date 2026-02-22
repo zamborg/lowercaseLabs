@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 import logging
+from pathlib import Path
 import secrets
 from threading import Event, Thread
 from uuid import uuid4
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import and_, func, inspect, text
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,7 @@ from .jobs import enqueue_job
 from .models import (
     Entry,
     EntryStatus,
+    FeedbackReport,
     FriendEdge,
     Insight,
     InviteToken,
@@ -37,6 +39,7 @@ from .schemas import (
     EntryCreateRequest,
     EntryCreateResponse,
     EntryResponse,
+    FeedbackCreateRequest,
     FriendAcceptRequest,
     FriendInviteRequest,
     FriendInviteResponse,
@@ -117,9 +120,85 @@ def shutdown() -> None:
     worker_stop_event = None
 
 
+def _model_asset_roots() -> list[Path]:
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for candidate in (Path(settings.model_assets_root), Path("/app/model_assets")):
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(candidate)
+    return roots
+
+
+def _normalize_model_asset_path(asset_path: str) -> Path:
+    normalized = asset_path.replace("\\", "/").strip("/")
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model file not found")
+
+    relative_path = Path(normalized)
+    if relative_path.is_absolute() or any(part in {"..", "."} for part in relative_path.parts):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model file not found")
+    return relative_path
+
+
+def _resolve_model_asset_file(asset_path: str) -> Path:
+    relative_path = _normalize_model_asset_path(asset_path)
+    for root in _model_asset_roots():
+        candidate = root / relative_path
+        try:
+            resolved = candidate.resolve(strict=False)
+            resolved.relative_to(root.resolve(strict=False))
+        except ValueError:
+            continue
+
+        if resolved.is_file():
+            return resolved
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model file not found")
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "time": now_utc().isoformat()}
+
+
+@app.get("/models")
+def list_models() -> dict:
+    files: list[dict] = []
+    seen: set[str] = set()
+    for root in _model_asset_roots():
+        if not root.exists() or not root.is_dir():
+            continue
+
+        for file_path in root.rglob("*"):
+            if not file_path.is_file():
+                continue
+
+            relative_name = file_path.relative_to(root).as_posix()
+            if relative_name in seen:
+                continue
+            seen.add(relative_name)
+            files.append(
+                {
+                    "name": relative_name,
+                    "size_bytes": file_path.stat().st_size,
+                }
+            )
+
+    files.sort(key=lambda item: item["name"])
+    return {"files": files}
+
+
+@app.get("/models/{asset_path:path}")
+def get_model(asset_path: str) -> FileResponse:
+    file_path = _resolve_model_asset_file(asset_path)
+    return FileResponse(
+        path=file_path,
+        filename=file_path.name,
+        media_type="application/octet-stream",
+    )
 
 
 @app.post("/auth/apple", response_model=AuthSessionResponse)
@@ -159,6 +238,26 @@ def update_me(
     db.commit()
     db.refresh(current_user)
     return UserProfile.model_validate(current_user)
+
+
+@app.post("/feedback", response_model=MessageResponse)
+def create_feedback(
+    payload: FeedbackCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageResponse:
+    normalized_message = payload.message.strip()
+    if not normalized_message:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feedback message cannot be empty")
+
+    report = FeedbackReport(
+        user_id=current_user.id,
+        kind=payload.kind,
+        message=normalized_message,
+    )
+    db.add(report)
+    db.commit()
+    return MessageResponse(message="Feedback submitted")
 
 
 def build_entry_response(entry: Entry) -> EntryResponse:

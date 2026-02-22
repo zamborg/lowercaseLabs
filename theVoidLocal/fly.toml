@@ -18,6 +18,7 @@ primary_region = 'sjc'
 [env]
   ENVIRONMENT = 'production'
   OBJECT_STORAGE_ROOT = '/data/storage'
+  MODEL_ASSETS_ROOT = '/data/model_assets'
   INLINE_WORKER_ENABLED = 'true'
   AUTO_CREATE_SCHEMA = 'false'
   ALLOW_DEV_IDENTITY_TOKENS = 'false'

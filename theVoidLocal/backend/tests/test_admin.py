@@ -35,6 +35,13 @@ def test_admin_dots_page_renders() -> None:
     assert "Social Dots" in response.text
 
 
+def test_admin_feedback_page_renders() -> None:
+    with TestClient(app) as client:
+        response = client.get("/admin/feedback", auth=("admin", "admin"))
+    assert response.status_code == 200
+    assert "Feedback Reports" in response.text
+
+
 def test_admin_dots_page_shows_published_dot() -> None:
     identity_token = f"dev-dots-{uuid4().hex}"
     local_date = date.today().isoformat()
@@ -59,6 +66,30 @@ def test_admin_dots_page_shows_published_dot() -> None:
         assert dots_response.status_code == 200
         assert "#66BBAA" in dots_response.text
         assert "joyful, calm" in dots_response.text
+
+
+def test_admin_feedback_page_shows_submitted_feedback() -> None:
+    identity_token = f"dev-feedback-admin-{uuid4().hex}"
+
+    with TestClient(app) as client:
+        auth_response = client.post("/auth/apple", json={"identity_token": identity_token})
+        assert auth_response.status_code == 200
+        access_token = auth_response.json()["access_token"]
+
+        feedback_response = client.post(
+            "/feedback",
+            headers={"Authorization": f"Bearer {access_token}"},
+            json={
+                "kind": "bug",
+                "message": "Settings screen clipped when keyboard opens.",
+            },
+        )
+        assert feedback_response.status_code == 200
+
+        page_response = client.get("/admin/feedback", auth=("admin", "admin"))
+        assert page_response.status_code == 200
+        assert "Settings screen clipped when keyboard opens." in page_response.text
+        assert "bug" in page_response.text
 
 
 def test_admin_overview_shows_recommission_controls() -> None:

@@ -9,3 +9,5 @@ __pycache__/
 backend/
 storage/*
 !storage/.gitkeep
+model_assets/*
+!model_assets/.gitkeep

@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C3D100032F50000000AAA001 /* LeapSDK in Frameworks */ = {isa = PBXBuildFile; productRef = C3D100022F50000000AAA001 /* LeapSDK */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		B2B392422F44270400C6E338 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C3D100032F50000000AAA001 /* LeapSDK in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = theVoid;
 			packageProductDependencies = (
+				C3D100022F50000000AAA001 /* LeapSDK */,
 			);
 			productName = theVoid;
 			productReference = B2B392342F44270300C6E338 /* theVoid.app */;
@@ -195,6 +201,9 @@
 			);
 			mainGroup = B2B3922B2F44270300C6E338;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C3D100012F50000000AAA001 /* XCRemoteSwiftPackageReference "leap-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B2B392352F44270300C6E338 /* Products */;
 			projectDirPath = "";
@@ -562,6 +571,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C3D100012F50000000AAA001 /* XCRemoteSwiftPackageReference "leap-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Liquid4All/leap-ios.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.9.3;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C3D100022F50000000AAA001 /* LeapSDK */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C3D100012F50000000AAA001 /* XCRemoteSwiftPackageReference "leap-ios" */;
+			productName = LeapSDK;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = B2B3922C2F44270300C6E338 /* Project object */;
 }

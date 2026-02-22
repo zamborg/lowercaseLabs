@@ -12,7 +12,6 @@ import Speech
 import SwiftUI
 import UIKit
 import UserNotifications
-import UniformTypeIdentifiers
 
 // MARK: - DTOs
 
@@ -256,7 +255,7 @@ enum APIError: LocalizedError {
 final class BackendClient {
     static let localBaseURLString = "http://127.0.0.1:8080"
     static let productionBaseURLString = "https://thevoid-local.fly.dev"
-    static let defaultBaseURLString = BackendClient.localBaseURLString
+    static let defaultBaseURLString = BackendClient.productionBaseURLString
 
     private var baseURL: URL
     private let encoder: JSONEncoder
@@ -311,6 +310,11 @@ final class BackendClient {
 
     struct AcceptInvitePayload: Encodable {
         let token: String
+    }
+
+    struct FeedbackPayload: Encodable {
+        let kind: String
+        let message: String
     }
 
     struct HealthResponse: Decodable {
@@ -554,6 +558,16 @@ final class BackendClient {
         let payload = AcceptInvitePayload(token: inviteToken)
         let body = try encoder.encode(payload)
         guard let url = URL(string: "/friends/accept", relativeTo: baseURL) else {
+            throw APIError.invalidURL
+        }
+        let request = buildRequest(url: url, method: "POST", token: token, body: body)
+        _ = try await send(request, decode: APIMessage.self)
+    }
+
+    func submitFeedback(token: String, kind: String, message: String) async throws {
+        let payload = FeedbackPayload(kind: kind, message: message)
+        let body = try encoder.encode(payload)
+        guard let url = URL(string: "/feedback", relativeTo: baseURL) else {
             throw APIError.invalidURL
         }
         let request = buildRequest(url: url, method: "POST", token: token, body: body)
@@ -955,6 +969,13 @@ final class AppModel: ObservableObject {
     @Published var pendingDrafts: [URL] = []
     @Published var submissionState: SubmissionState = .idle
     @Published var activeEntryID: String?
+    @Published var lastInsightRuntimeSummary: String?
+    @Published var liquidModelPrepared: Bool = false
+    @Published var showsLiquidModelPreparationScreen: Bool = false
+    @Published var isPreparingLiquidModel: Bool = false
+    @Published var liquidModelPreparationProgress: Double = 0
+    @Published var liquidModelPreparationStatus: String = "Preparing on-device AI model..."
+    @Published var liquidModelPreparationError: String?
 
     @Published var inviteURL: String?
     @Published var inviteToken: String?
@@ -963,6 +984,8 @@ final class AppModel: ObservableObject {
     private let client = BackendClient()
     private let draftStore = DraftStore()
     private let localStore = LocalJournalStore()
+    private var liquidModelPreparationTask: Task<Void, Never>?
+    private var liquidModelPreparationOperationID: UUID?
 
     private enum Keys {
         static let apiBaseURL = "thevoid.apiBaseURL"
@@ -976,6 +999,7 @@ final class AppModel: ObservableObject {
         static let reminderWeekdays = "thevoid.reminderWeekdays"
         static let reminderTimesByWeekday = "thevoid.reminderTimesByWeekday"
         static let onboardingComplete = "thevoid.onboardingComplete"
+        static let liquidModelPrepared = "thevoid.liquidModelPrepared"
     }
 
     var needsOnboarding: Bool {
@@ -992,7 +1016,7 @@ final class AppModel: ObservableObject {
 
     func loadPersistedState() {
         let defaults = UserDefaults.standard
-        apiBaseURL = defaults.string(forKey: Keys.apiBaseURL) ?? BackendClient.defaultBaseURLString
+        apiBaseURL = BackendClient.productionBaseURLString
         sessionToken = defaults.string(forKey: Keys.sessionToken)
         userID = defaults.string(forKey: Keys.userID) ?? ""
         displayName = defaults.string(forKey: Keys.displayName) ?? ""
@@ -1024,13 +1048,8 @@ final class AppModel: ObservableObject {
             }
         }
 
-        do {
-            try client.updateBaseURL(apiBaseURL)
-            apiBaseURL = client.baseURLString
-        } catch {
-            apiBaseURL = BackendClient.defaultBaseURLString
-            try? client.updateBaseURL(apiBaseURL)
-        }
+        try? client.updateBaseURL(apiBaseURL)
+        liquidModelPrepared = defaults.bool(forKey: Keys.liquidModelPrepared)
     }
 
     func persistState() {
@@ -1116,6 +1135,14 @@ final class AppModel: ObservableObject {
     }
 
     func signOut() {
+        liquidModelPreparationTask?.cancel()
+        liquidModelPreparationTask = nil
+        liquidModelPreparationOperationID = nil
+        showsLiquidModelPreparationScreen = false
+        isPreparingLiquidModel = false
+        liquidModelPreparationProgress = 0
+        liquidModelPreparationStatus = "Preparing on-device AI model..."
+        liquidModelPreparationError = nil
         sessionToken = nil
         userID = ""
         displayName = ""
@@ -1175,16 +1202,17 @@ final class AppModel: ObservableObject {
             errorMessage = "Missing user identity. Sign in again."
             return
         }
-
         do {
             let normalizedDuration = max(1, min(durationSeconds, 300))
             let localDate = DateFormatter.localDate.string(from: Date())
             submissionState = .transcribing
+            lastInsightRuntimeSummary = nil
             let (transcript, insight) = await LocalReflectionAnalyzer.analyze(
                 audioURL: url,
-                durationSeconds: normalizedDuration
+                durationSeconds: normalizedDuration,
+                useLiquidInsights: liquidModelPrepared
             )
-            let mixedHex = EmotionColorMixer.mixedHex(for: insight.moodTags)
+            lastInsightRuntimeSummary = Self.insightRuntimeSummary(from: transcript?.providerMetadata)
             let stored = try localStore.saveReflection(
                 for: userID,
                 draftURL: url,
@@ -1195,20 +1223,22 @@ final class AppModel: ObservableObject {
                 wasSharedToSocial: shareToSocial
             )
             activeEntryID = stored.id
-            submissionState = .insightsReady
+            submissionState = insight == nil ? .idle : .insightsReady
 
-            if shareToSocial {
+            if shareToSocial, let insight {
                 do {
                     try await client.publishLocalDot(
                         token: sessionToken,
                         localDate: localDate,
                         moodScore: insight.moodScore,
                         moodTags: insight.moodTags,
-                        dotColor: mixedHex
+                        dotColor: EmotionColorMixer.mixedHex(for: insight.moodTags)
                     )
                 } catch {
                     errorMessage = "Saved locally, but could not sync social dot: \(error.localizedDescription)"
                 }
+            } else if shareToSocial {
+                errorMessage = "Saved audio note locally without tags. Retranscribe from the entry to generate dots."
             }
 
             await refreshEntries()
@@ -1218,6 +1248,266 @@ final class AppModel: ObservableObject {
             submissionState = .failed
             errorMessage = error.localizedDescription
             reloadDrafts()
+        }
+    }
+
+    func redownloadLiquidModel() {
+        startLiquidModelPreparation(forceRedownload: true)
+    }
+
+    func retryLiquidModelPreparation() {
+        startLiquidModelPreparation(forceRedownload: false)
+    }
+
+    func cancelLiquidModelPreparation() {
+        liquidModelPreparationTask?.cancel()
+        liquidModelPreparationTask = nil
+        liquidModelPreparationOperationID = nil
+        Task {
+            await LocalReflectionAnalyzer.cancelLiquidModelPreparation()
+        }
+        isPreparingLiquidModel = false
+        liquidModelPreparationError = nil
+        liquidModelPreparationStatus = "Model download canceled."
+        setLiquidModelPrepared(false)
+        showsLiquidModelPreparationScreen = false
+    }
+
+    private func startLiquidModelPreparation(forceRedownload: Bool) {
+        guard sessionToken != nil, onboardingComplete else { return }
+        if isPreparingLiquidModel { return }
+        if !forceRedownload, liquidModelPrepared {
+            showsLiquidModelPreparationScreen = false
+            return
+        }
+
+        liquidModelPreparationTask?.cancel()
+        liquidModelPreparationTask = nil
+        liquidModelPreparationOperationID = nil
+
+        if forceRedownload {
+            setLiquidModelPrepared(false)
+        }
+
+        liquidModelPreparationError = nil
+        liquidModelPreparationProgress = 0
+        liquidModelPreparationStatus = forceRedownload
+            ? "Redownloading on-device AI model..."
+            : "Downloading on-device AI model..."
+        showsLiquidModelPreparationScreen = true
+        isPreparingLiquidModel = true
+        let operationID = UUID()
+        liquidModelPreparationOperationID = operationID
+
+        liquidModelPreparationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let descriptor = try await LocalReflectionAnalyzer.prepareLiquidModel(
+                    forceRedownload: forceRedownload,
+                    progressHandler: { progress in
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            self.liquidModelPreparationProgress = max(0, min(1, progress))
+                        }
+                    }
+                )
+                await MainActor.run {
+                    guard self.liquidModelPreparationOperationID == operationID else { return }
+                    self.isPreparingLiquidModel = false
+                    self.liquidModelPreparationProgress = 1
+                    self.liquidModelPreparationStatus = "Model ready (\(descriptor))"
+                    self.liquidModelPreparationError = nil
+                    self.setLiquidModelPrepared(true)
+                    self.showsLiquidModelPreparationScreen = false
+                    self.liquidModelPreparationOperationID = nil
+                }
+            } catch {
+                if error is CancellationError {
+                    await MainActor.run {
+                        guard self.liquidModelPreparationOperationID == operationID else { return }
+                        self.isPreparingLiquidModel = false
+                        self.liquidModelPreparationError = nil
+                        self.liquidModelPreparationStatus = "Model download canceled."
+                        self.setLiquidModelPrepared(false)
+                        self.showsLiquidModelPreparationScreen = false
+                        self.liquidModelPreparationOperationID = nil
+                    }
+                    return
+                }
+
+                await MainActor.run {
+                    guard self.liquidModelPreparationOperationID == operationID else { return }
+                    self.isPreparingLiquidModel = false
+                    self.liquidModelPreparationStatus = "Model download failed."
+                    self.liquidModelPreparationError = error.localizedDescription
+                    self.setLiquidModelPrepared(false)
+                    self.showsLiquidModelPreparationScreen = true
+                    self.liquidModelPreparationOperationID = nil
+                }
+            }
+        }
+    }
+
+    private func setLiquidModelPrepared(_ prepared: Bool) {
+        liquidModelPrepared = prepared
+        UserDefaults.standard.set(prepared, forKey: Keys.liquidModelPrepared)
+    }
+
+    private static func insightRuntimeSummary(from metadata: [String: JSONValue]?) -> String? {
+        guard let metadata else { return nil }
+        guard let provider = stringValue(metadata["insight_provider"]) else { return nil }
+
+        if let latency = intValue(metadata["insight_latency_ms"]) {
+            if let model = stringValue(metadata["insight_model"]), !model.isEmpty {
+                return "\(provider) • \(latency)ms • \(model)"
+            }
+            return "\(provider) • \(latency)ms"
+        }
+
+        return provider
+    }
+
+    private static func stringValue(_ value: JSONValue?) -> String? {
+        guard let value else { return nil }
+        if case .string(let output) = value {
+            return output
+        }
+        return nil
+    }
+
+    private static func intValue(_ value: JSONValue?) -> Int? {
+        guard let value else { return nil }
+        switch value {
+        case .int(let output):
+            return output
+        case .double(let output):
+            return Int(output.rounded())
+        default:
+            return nil
+        }
+    }
+
+    private static func sanitizedMoodTags(_ tags: [String]) -> [String] {
+        var ordered: [String] = []
+        for tag in tags {
+            let canonical = EmotionTaxonomy.canonicalTag(for: tag)
+            if canonical.isEmpty || ordered.contains(canonical) {
+                continue
+            }
+            ordered.append(canonical)
+            if ordered.count >= 4 {
+                break
+            }
+        }
+        return ordered
+    }
+
+    @discardableResult
+    func updateEntryTags(entryID: String, moodTags: [String]) async -> APIEntry? {
+        guard !userID.isEmpty else {
+            errorMessage = "Missing local user identity."
+            return nil
+        }
+
+        let normalizedTags = Self.sanitizedMoodTags(moodTags)
+        guard !normalizedTags.isEmpty else {
+            errorMessage = "Select at least one tag."
+            return nil
+        }
+
+        do {
+            let updateResult = try localStore.updateEntryTags(
+                for: userID,
+                entryID: entryID,
+                moodTags: normalizedTags
+            )
+
+            if let sessionToken,
+               updateResult.wasSharedToSocial,
+               let insight = updateResult.updatedEntry.insight {
+                do {
+                    try await client.publishLocalDot(
+                        token: sessionToken,
+                        localDate: updateResult.updatedEntry.localDate,
+                        moodScore: insight.moodScore,
+                        moodTags: insight.moodTags,
+                        dotColor: EmotionColorMixer.mixedHex(for: insight.moodTags)
+                    )
+                } catch {
+                    errorMessage = "Tags updated locally, but social sync failed: \(error.localizedDescription)"
+                }
+            }
+
+            await refreshEntries()
+            if updateResult.wasSharedToSocial {
+                await refreshSocialDots()
+            }
+
+            return entries.first(where: { $0.id == entryID }) ?? updateResult.updatedEntry
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    @discardableResult
+    func retranscribeEntry(entryID: String) async -> APIEntry? {
+        guard !userID.isEmpty else {
+            errorMessage = "Missing local user identity."
+            return nil
+        }
+
+        let baseEntry = entries.first(where: { $0.id == entryID }) ?? localStore.listEntries(for: userID).first(where: { $0.id == entryID })
+        guard let baseEntry else {
+            errorMessage = "Entry not found."
+            return nil
+        }
+
+        do {
+            let audioURL = try localStore.audioURL(for: userID, entryID: entryID)
+            let durationSeconds = max(1, min(baseEntry.durationSeconds, 300))
+            let (transcript, insight) = await LocalReflectionAnalyzer.analyze(
+                audioURL: audioURL,
+                durationSeconds: durationSeconds,
+                useLiquidInsights: liquidModelPrepared
+            )
+            guard let transcript else {
+                errorMessage = "Could not transcribe this audio note. Try again."
+                return nil
+            }
+
+            let updateResult = try localStore.updateEntryAnalysis(
+                for: userID,
+                entryID: entryID,
+                transcript: transcript,
+                insight: insight
+            )
+
+            if let sessionToken,
+               updateResult.wasSharedToSocial,
+               let updatedInsight = updateResult.updatedEntry.insight {
+                do {
+                    try await client.publishLocalDot(
+                        token: sessionToken,
+                        localDate: updateResult.updatedEntry.localDate,
+                        moodScore: updatedInsight.moodScore,
+                        moodTags: updatedInsight.moodTags,
+                        dotColor: EmotionColorMixer.mixedHex(for: updatedInsight.moodTags)
+                    )
+                } catch {
+                    errorMessage = "Retranscribed locally, but social sync failed: \(error.localizedDescription)"
+                }
+            }
+
+            await refreshEntries()
+            if updateResult.wasSharedToSocial {
+                await refreshSocialDots()
+            }
+
+            return entries.first(where: { $0.id == entryID }) ?? updateResult.updatedEntry
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
         }
     }
 
@@ -1312,6 +1602,28 @@ final class AppModel: ObservableObject {
             await refreshSocialDots()
         } catch {
             errorMessage = "\(error.localizedDescription)\nAPI: \(apiBaseURL)"
+        }
+    }
+
+    @discardableResult
+    func submitFeedback(kind: String, message: String) async -> Bool {
+        guard let sessionToken else {
+            errorMessage = "Sign in required"
+            return false
+        }
+
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "Please enter your idea or bug report."
+            return false
+        }
+
+        do {
+            try await client.submitFeedback(token: sessionToken, kind: kind, message: trimmed)
+            return true
+        } catch {
+            errorMessage = "\(error.localizedDescription)\nAPI: \(apiBaseURL)"
+            return false
         }
     }
 
@@ -1446,6 +1758,8 @@ struct ContentView: View {
         Group {
             if model.needsOnboarding {
                 OnboardingView()
+            } else if model.showsLiquidModelPreparationScreen {
+                LiquidModelPreparationView()
             } else {
                 MainTabView()
             }
@@ -1458,6 +1772,101 @@ struct ContentView: View {
             Button("OK", role: .cancel) { model.errorMessage = nil }
         } message: {
             Text(model.errorMessage ?? "")
+        }
+    }
+}
+
+struct LiquidModelPreparationView: View {
+    @EnvironmentObject private var model: AppModel
+
+    private var progress: Double {
+        max(0, min(1, model.liquidModelPreparationProgress))
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.black, Color(red: 0.03, green: 0.08, blue: 0.12)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 22) {
+                Spacer()
+
+                Text("Preparing On-Device AI")
+                    .font(.system(size: 31, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Text("Downloading Liquid model to this device.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.74))
+
+                ZStack {
+                    Circle()
+                        .stroke(Color.white.opacity(0.16), lineWidth: 12)
+
+                    Circle()
+                        .trim(from: 0, to: max(progress, 0.01))
+                        .stroke(
+                            AngularGradient(
+                                colors: [
+                                    Color.cyan.opacity(0.95),
+                                    Color.teal.opacity(0.95),
+                                    Color.cyan.opacity(0.95),
+                                ],
+                                center: .center
+                            ),
+                            style: StrokeStyle(lineWidth: 12, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                        .animation(.easeInOut(duration: 0.24), value: progress)
+
+                    Text("\(Int((progress * 100).rounded()))%")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 148, height: 148)
+
+                Text(model.liquidModelPreparationStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.70))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+
+                if let error = model.liquidModelPreparationError {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+
+                    Button("Retry Download") {
+                        model.retryLiquidModelPreparation()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.teal)
+                }
+
+                VStack(spacing: 10) {
+                    Text("Without the model the insights engine will not work, you can always download this later from settings.")
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.72))
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 340)
+
+                    Button("Cancel") {
+                        model.cancelLiquidModelPreparation()
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.white.opacity(0.88))
+                }
+                .padding(.top, 6)
+
+                Spacer()
+            }
+            .padding(24)
         }
     }
 }
@@ -1497,49 +1906,10 @@ struct MainTabView: View {
 
 struct OnboardingView: View {
     @EnvironmentObject private var model: AppModel
-    
-    private enum StartupBackend: String, CaseIterable, Identifiable {
-        case prod
-        case local
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .prod:
-                return "Prod"
-            case .local:
-                return "Local"
-            }
-        }
-
-        var urlString: String {
-            switch self {
-            case .prod:
-                return BackendClient.productionBaseURLString
-            case .local:
-                return BackendClient.localBaseURLString
-            }
-        }
-
-        static func from(urlString: String) -> StartupBackend {
-            guard let host = URL(string: urlString)?.host?.lowercased() else {
-                return .local
-            }
-            let prodHosts: Set<String> = ["thevoid-local.fly.dev", "thevoid.fly.dev"]
-            return prodHosts.contains(host) ? .prod : .local
-        }
-    }
 
     @State private var micGranted = false
     @State private var speechGranted = false
-    @State private var devIdentityToken = ""
     @State private var currentAppleNonce: String?
-    @State private var startupBackend: StartupBackend = .local
-
-    private var appleSignInEnabled: Bool {
-        startupBackend == .prod
-    }
 
     var body: some View {
         ScrollView {
@@ -1551,84 +1921,39 @@ struct OnboardingView: View {
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Backend")
-                        .font(.headline)
-
-                    Picker("Backend", selection: $startupBackend) {
-                        ForEach(StartupBackend.allCases) { backend in
-                            Text(backend.title).tag(backend)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: startupBackend) { _, newValue in
-                        model.apiBaseURL = newValue.urlString
-                        model.applyAPIBaseURL()
-                    }
-
-                    Text(model.apiBaseURL)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
                     Text("Identity")
                         .font(.headline)
 
-                    if appleSignInEnabled {
-                        SignInWithAppleButton(.signIn) { request in
-                            request.requestedScopes = [.fullName]
-                            let nonce = AppleNonce.random()
-                            currentAppleNonce = nonce
-                            request.nonce = AppleNonce.sha256(nonce)
-                        } onCompletion: { result in
-                            switch result {
-                            case .failure(let error):
-                                model.errorMessage = error.localizedDescription
-                            case .success(let auth):
-                                guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
-                                      let tokenData = credential.identityToken,
-                                      let token = String(data: tokenData, encoding: .utf8)
-                                else {
-                                    model.errorMessage = "Unable to read Apple identity token"
-                                    return
-                                }
+                    SignInWithAppleButton(.signIn) { request in
+                        request.requestedScopes = [.fullName]
+                        let nonce = AppleNonce.random()
+                        currentAppleNonce = nonce
+                        request.nonce = AppleNonce.sha256(nonce)
+                    } onCompletion: { result in
+                        switch result {
+                        case .failure(let error):
+                            model.errorMessage = error.localizedDescription
+                        case .success(let auth):
+                            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                                  let tokenData = credential.identityToken,
+                                  let token = String(data: tokenData, encoding: .utf8)
+                            else {
+                                model.errorMessage = "Unable to read Apple identity token"
+                                return
+                            }
 
-                                let fullName = [credential.fullName?.givenName, credential.fullName?.familyName]
-                                    .compactMap { $0 }
-                                    .joined(separator: " ")
-                                let nonce = currentAppleNonce
-                                currentAppleNonce = nil
-                                Task {
-                                    await model.signIn(identityToken: token, nonce: nonce, suggestedName: fullName.isEmpty ? nil : fullName)
-                                }
+                            let fullName = [credential.fullName?.givenName, credential.fullName?.familyName]
+                                .compactMap { $0 }
+                                .joined(separator: " ")
+                            let nonce = currentAppleNonce
+                            currentAppleNonce = nil
+                            Task {
+                                await model.signIn(identityToken: token, nonce: nonce, suggestedName: fullName.isEmpty ? nil : fullName)
                             }
                         }
-                        .signInWithAppleButtonStyle(.white)
-                        .frame(height: 48)
-                    } else {
-                        Text("Use Dev Sign-In for local testing. Switch backend to Prod for Apple Sign-In.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
                     }
-
-                    if !appleSignInEnabled {
-                        TextField("Dev identity token (optional)", text: $devIdentityToken)
-                            .textFieldStyle(.plain)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(Color.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                            )
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-
-                        Button("Use Dev Sign-In") {
-                            Task { await model.signInDev(identityToken: devIdentityToken) }
-                        }
-                        .buttonStyle(.bordered)
-                    }
+                    .signInWithAppleButtonStyle(.white)
+                    .frame(height: 48)
 
                     if !model.anonymousHandle.isEmpty {
                         Text("Signed in as @\(model.anonymousHandle)")
@@ -1711,7 +2036,10 @@ struct OnboardingView: View {
         .background(Color.black.ignoresSafeArea())
         .foregroundStyle(.white)
         .onAppear {
-            startupBackend = StartupBackend.from(urlString: model.apiBaseURL)
+            if model.apiBaseURL != BackendClient.productionBaseURLString {
+                model.apiBaseURL = BackendClient.productionBaseURLString
+                model.applyAPIBaseURL()
+            }
             micGranted = AVAudioSession.sharedInstance().recordPermission == .granted
             speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
         }
@@ -1723,11 +2051,11 @@ struct OnboardingView: View {
 struct VoidExperienceView: View {
     @EnvironmentObject private var model: AppModel
     @StateObject private var recorder = RecorderEngine()
-    @State private var isTouchActive = false
     @State private var pendingSubmission: PendingSubmission?
     @State private var showDecisionSheet = false
     @State private var showWelcomeOverlay = false
     @State private var autoWelcomePendingAck = false
+    @State private var isRecordingLocked = false
 
     private struct PendingSubmission {
         let url: URL
@@ -1736,113 +2064,115 @@ struct VoidExperienceView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                LinearGradient(
-                    colors: [Color.black, Color(red: 0.05, green: 0.06, blue: 0.1)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+            GeometryReader { geometry in
+                let availableHeight = geometry.size.height
+                let isCompactHeight = availableHeight < 760
+                let isVeryCompactHeight = availableHeight < 700
+                let stackSpacing: CGFloat = isVeryCompactHeight ? 14 : (isCompactHeight ? 18 : 26)
+                let signalSize: CGFloat = isVeryCompactHeight ? 156 : (isCompactHeight ? 172 : 190)
+                let touchAreaMinHeight: CGFloat = isVeryCompactHeight ? 180 : (isCompactHeight ? 200 : 240)
+                let topPadding: CGFloat = isVeryCompactHeight ? 16 : (isCompactHeight ? 20 : 26)
+                let bottomPadding = max(6, geometry.safeAreaInsets.bottom + 4)
 
-                VStack(spacing: 26) {
-                    Text(model.submissionState.title)
-                        .font(.headline)
-                        .foregroundStyle(.white.opacity(0.78))
-
-                    Text(formatDuration(recorder.elapsed))
-                        .font(.system(size: 46, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white)
-
-                    PulsingSignalDot(
-                        amplitude: recorder.amplitude,
-                        isRecording: recorder.isRecording,
-                        isProcessing: model.submissionState == .transcribing
-                    )
-                    .frame(width: 190, height: 190)
-
-                    Text(recorder.isRecording ? "Release to finish" : "Press and hold to record")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.9))
-
-                    Text("Max 5:00. Records while your finger stays down.")
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.68))
-
-                    RoundedRectangle(cornerRadius: 22)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(recorder.isRecording ? 0.22 : 0.11),
-                                    Color.white.opacity(recorder.isRecording ? 0.14 : 0.06),
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 230)
-                        .overlay {
-                            VStack(spacing: 10) {
-                                Image(systemName: recorder.isRecording ? "waveform.circle.fill" : "hand.tap.fill")
-                                    .font(.system(size: 38, weight: .semibold))
-                                    .foregroundStyle(.white.opacity(0.88))
-                                Text(recorder.isRecording ? "Recording…" : "Touch and hold here")
-                                    .font(.headline)
-                                    .foregroundStyle(.white.opacity(0.92))
-                            }
-                        }
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 22)
-                                .stroke(Color.white.opacity(recorder.isRecording ? 0.5 : 0.2), lineWidth: 1.2)
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: 22))
-                        .gesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { _ in
-                                    guard !showDecisionSheet else {
-                                        return
-                                    }
-                                    if !isTouchActive {
-                                        isTouchActive = true
-                                        startRecording()
-                                    }
-                                }
-                                .onEnded { _ in
-                                    isTouchActive = false
-                                    finalizeRecordingForChoice()
-                                }
-                        )
-
-                    if model.submissionState == .transcribing {
-                        Text("Processing transcription and tags on this device…")
-                            .font(.footnote)
-                            .foregroundStyle(.white.opacity(0.75))
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 26)
-                .padding(.bottom, 18)
-                .blur(radius: showWelcomeOverlay ? 6 : 0)
-                .allowsHitTesting(!showWelcomeOverlay)
-
-                if showWelcomeOverlay {
+                ZStack {
                     LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.72),
-                            Color.black.opacity(0.58),
-                        ],
+                        colors: [Color.black, Color(red: 0.05, green: 0.06, blue: 0.1)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                        .ignoresSafeArea()
+                    .ignoresSafeArea()
 
-                    WelcomeOverlayCard {
-                        dismissWelcomeOverlay()
+                    VStack(spacing: stackSpacing) {
+                        Text(model.submissionState.title)
+                            .font(.headline)
+                            .foregroundStyle(.white.opacity(0.78))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(maxWidth: .infinity)
+                            .multilineTextAlignment(.center)
+
+                        if !model.liquidModelPrepared {
+                            VStack(spacing: 6) {
+                                Label("Insights model not downloaded", systemImage: "exclamationmark.triangle.fill")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Color.orange.opacity(0.95))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
+                                Text("Without the model the insights engine will not work. Download it from Settings > On-Device AI to create dots.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.white.opacity(0.74))
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(isVeryCompactHeight ? 3 : 4)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .layoutPriority(2)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 12)
+                        }
+
+                        Text(formatDuration(recorder.elapsed))
+                            .font(.system(size: isVeryCompactHeight ? 40 : 46, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white)
+
+                        PulsingSignalDot(
+                            amplitude: recorder.amplitude,
+                            isRecording: recorder.isRecording,
+                            isProcessing: model.submissionState == .transcribing
+                        )
+                        .frame(width: signalSize, height: signalSize)
+
+                        Text(recordingInstructionTitle)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .multilineTextAlignment(.center)
+
+                        Text(recordingInstructionDetail)
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.68))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+
+                        if model.submissionState == .transcribing {
+                            Text("Processing transcription and tags on this device…")
+                                .font(.footnote)
+                                .foregroundStyle(.white.opacity(0.75))
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        GeometryReader { padGeometry in
+                            let dynamicTouchAreaHeight = max(touchAreaMinHeight, padGeometry.size.height)
+                            touchAndHoldPad
+                                .frame(height: dynamicTouchAreaHeight)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        }
+                        .frame(maxHeight: .infinity, alignment: .bottom)
                     }
-                    .padding(.horizontal, 22)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .padding(.horizontal, 20)
+                    .padding(.top, topPadding)
+                    .padding(.bottom, bottomPadding)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .blur(radius: showWelcomeOverlay ? 6 : 0)
+                    .allowsHitTesting(!showWelcomeOverlay)
+
+                    if showWelcomeOverlay {
+                        LinearGradient(
+                            colors: [
+                                Color.black.opacity(0.72),
+                                Color.black.opacity(0.58),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                            .ignoresSafeArea()
+
+                        WelcomeOverlayCard {
+                            dismissWelcomeOverlay()
+                        }
+                        .padding(.horizontal, 22)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    }
                 }
             }
             .navigationTitle("The Void")
@@ -1873,7 +2203,7 @@ struct VoidExperienceView: View {
                     pendingSubmission = PendingSubmission(url: url, durationSeconds: duration)
                     model.submissionState = .uploading
                     showDecisionSheet = true
-                    isTouchActive = false
+                    isRecordingLocked = false
                 }
                 model.reloadDrafts()
                 maybePresentWelcomeOverlayIfNeeded()
@@ -1908,6 +2238,7 @@ struct VoidExperienceView: View {
         guard let recordedURL = recorder.stopRecording() else {
             return
         }
+        isRecordingLocked = false
         let duration = max(1, Int(recorder.elapsed))
         pendingSubmission = PendingSubmission(url: recordedURL, durationSeconds: duration)
         model.submissionState = .uploading
@@ -1959,6 +2290,159 @@ struct VoidExperienceView: View {
             autoWelcomePendingAck = false
         }
         showWelcomeOverlay = false
+    }
+
+    private var recordingInstructionTitle: String {
+        if recorder.isRecording {
+            return isRecordingLocked
+                ? "Recording locked. Touch the pad to stop"
+                : "Release on the pad to stop. Release outside to lock"
+        }
+        return "Press and hold to record"
+    }
+
+    private var recordingInstructionDetail: String {
+        if recorder.isRecording {
+            return isRecordingLocked
+                ? "Recording continues until you touch the pad again."
+                : "Slide outside and lift to keep recording hands-free."
+        }
+        return "Max 5:00."
+    }
+
+    private var touchAndHoldPad: some View {
+        RoundedRectangle(cornerRadius: 22)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(recorder.isRecording ? 0.22 : 0.11),
+                        Color.white.opacity(recorder.isRecording ? 0.14 : 0.06),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(maxWidth: .infinity)
+            .overlay {
+                VStack(spacing: 10) {
+                    Image(systemName: recorder.isRecording ? (isRecordingLocked ? "lock.fill" : "waveform.circle.fill") : "hand.tap.fill")
+                        .font(.system(size: 38, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.88))
+                    Text(
+                        recorder.isRecording
+                            ? (isRecordingLocked ? "Recording Locked" : "Recording…")
+                            : "Touch and hold here"
+                    )
+                        .font(.headline)
+                        .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 22)
+                    .stroke(Color.white.opacity(recorder.isRecording ? 0.5 : 0.2), lineWidth: 1.2)
+            )
+            .overlay {
+                PressAndHoldCaptureView(
+                    onPressStart: {
+                        guard !showDecisionSheet else { return }
+                        if recorder.isRecording {
+                            if isRecordingLocked {
+                                finalizeRecordingForChoice()
+                            }
+                            return
+                        }
+                        isRecordingLocked = false
+                        startRecording()
+                    },
+                    onPressEnd: { endedInside in
+                        guard recorder.isRecording else { return }
+                        guard !isRecordingLocked else { return }
+                        if endedInside {
+                            finalizeRecordingForChoice()
+                        } else {
+                            isRecordingLocked = true
+                        }
+                    }
+                )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 22))
+    }
+}
+
+private struct PressAndHoldCaptureView: UIViewRepresentable {
+    let onPressStart: () -> Void
+    let onPressEnd: (Bool) -> Void
+
+    func makeUIView(context: Context) -> PressAndHoldControl {
+        let control = PressAndHoldControl()
+        control.onPressStart = onPressStart
+        control.onPressEnd = onPressEnd
+        return control
+    }
+
+    func updateUIView(_ uiView: PressAndHoldControl, context _: Context) {
+        uiView.onPressStart = onPressStart
+        uiView.onPressEnd = onPressEnd
+    }
+}
+
+private final class PressAndHoldControl: UIControl {
+    var onPressStart: (() -> Void)?
+    var onPressEnd: ((Bool) -> Void)?
+    private var isPressing = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isExclusiveTouch = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        _ = touch
+        _ = event
+        guard !isPressing else { return true }
+        isPressing = true
+        onPressStart?()
+        return true
+    }
+
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        _ = touch
+        _ = event
+        return true
+    }
+
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        _ = event
+        let endedInside: Bool
+        if let touch {
+            endedInside = bounds.contains(touch.location(in: self))
+        } else {
+            endedInside = false
+        }
+        finishPressIfNeeded(endedInside: endedInside)
+    }
+
+    override func cancelTracking(with event: UIEvent?) {
+        _ = event
+        finishPressIfNeeded(endedInside: false)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        finishPressIfNeeded(endedInside: false)
+    }
+
+    private func finishPressIfNeeded(endedInside: Bool) {
+        guard isPressing else { return }
+        isPressing = false
+        onPressEnd?(endedInside)
     }
 }
 
@@ -2607,6 +3091,12 @@ struct MoodHeatmap: View {
 struct EntryCard: View {
     let entry: APIEntry
 
+    private var statusLabel: String {
+        entry.status
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+    }
+
     var body: some View {
         let tags = entry.insight?.moodTags ?? []
 
@@ -2620,7 +3110,7 @@ struct EntryCard: View {
                 Text(entry.localDate)
                     .font(.headline)
                 Spacer()
-                Text(entry.status.capitalized)
+                Text(statusLabel)
                     .font(.caption)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
@@ -2654,17 +3144,26 @@ struct EntryDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let entry: APIEntry
 
+    @State private var currentEntry: APIEntry
     @StateObject private var audioPlayback = AudioPlaybackController()
     @State private var showDeleteConfirmation = false
+    @State private var showTagEditor = false
     @State private var isDeletingEntry = false
+    @State private var isSavingTags = false
+    @State private var isRetranscribing = false
+
+    init(entry: APIEntry) {
+        self.entry = entry
+        _currentEntry = State(initialValue: entry)
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text(entry.localDate)
+                Text(currentEntry.localDate)
                     .font(.title2.bold())
 
-                if let insight = entry.insight {
+                if let insight = currentEntry.insight {
                     VStack(alignment: .leading, spacing: 10) {
                         if let primary = insight.moodTags.first {
                             HStack(spacing: 8) {
@@ -2679,18 +3178,40 @@ struct EntryDetailView: View {
                             }
                         }
 
-                        Text("Tags")
-                            .font(.headline)
+                        HStack(spacing: 8) {
+                            Text("Tags")
+                                .font(.headline)
+                            Spacer()
+                            Button("Edit Tags") {
+                                showTagEditor = true
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isSavingTags || isDeletingEntry)
+                        }
                         WrapTags(tags: insight.moodTags)
+
+                        if isSavingTags {
+                            ProgressView("Saving tags...")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
-                if let transcript = entry.transcript {
+                if let transcript = currentEntry.transcript {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Transcript")
                             .font(.headline)
                         Text(transcript.text)
                             .font(.body)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Transcript")
+                            .font(.headline)
+                        Text("No transcript yet. Use Retranscribe to process this audio note.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -2718,6 +3239,14 @@ struct EntryDetailView: View {
                         .buttonStyle(.bordered)
                         .disabled(!audioPlayback.isReady || audioPlayback.isLoading)
                     }
+
+                    Button(isRetranscribing ? "Retranscribing..." : "Retranscribe") {
+                        Task {
+                            await retranscribeEntry()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isRetranscribing || isDeletingEntry)
 
                     if audioPlayback.isLoading {
                         ProgressView("Loading audio...")
@@ -2772,7 +3301,33 @@ struct EntryDetailView: View {
         } message: {
             Text("This removes the local entry, transcript, audio, and social dot for this day.")
         }
+        .sheet(isPresented: $showTagEditor) {
+            if let insight = currentEntry.insight {
+                EntryTagEditorSheet(
+                    initialTags: insight.moodTags,
+                    isSaving: isSavingTags,
+                    onSave: { tags in
+                        Task {
+                            await saveTags(tags)
+                        }
+                    }
+                )
+            } else {
+                VStack(spacing: 12) {
+                    Text("No tags available for this entry.")
+                        .font(.headline)
+                    Button("Close") {
+                        showTagEditor = false
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(24)
+            }
+        }
         .task {
+            if let refreshed = model.entries.first(where: { $0.id == entry.id }) {
+                currentEntry = refreshed
+            }
             await loadAudio(forceReload: false)
         }
         .onDisappear {
@@ -2783,7 +3338,7 @@ struct EntryDetailView: View {
     private func loadAudio(forceReload: Bool) async {
         do {
             try await audioPlayback.load(
-                fetchAudio: { try await model.fetchAudio(entryID: entry.id) },
+                fetchAudio: { try await model.fetchAudio(entryID: currentEntry.id) },
                 forceReload: forceReload
             )
         } catch {
@@ -2803,11 +3358,33 @@ struct EntryDetailView: View {
             return
         }
         isDeletingEntry = true
-        await model.deleteEntry(entryID: entry.id)
+        await model.deleteEntry(entryID: currentEntry.id)
         isDeletingEntry = false
-        if !model.entries.contains(where: { $0.id == entry.id }) {
+        if !model.entries.contains(where: { $0.id == currentEntry.id }) {
             dismiss()
         }
+    }
+
+    private func saveTags(_ tags: [String]) async {
+        guard !isSavingTags else { return }
+        isSavingTags = true
+        if let updated = await model.updateEntryTags(
+            entryID: currentEntry.id,
+            moodTags: tags
+        ) {
+            currentEntry = updated
+            showTagEditor = false
+        }
+        isSavingTags = false
+    }
+
+    private func retranscribeEntry() async {
+        guard !isRetranscribing else { return }
+        isRetranscribing = true
+        if let updated = await model.retranscribeEntry(entryID: currentEntry.id) {
+            currentEntry = updated
+        }
+        isRetranscribing = false
     }
 }
 
@@ -2821,6 +3398,144 @@ struct WrapTags: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+}
+
+private struct EntryTagEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let isSaving: Bool
+    let onSave: ([String]) -> Void
+
+    @State private var selectedTags: [String]
+
+    init(
+        initialTags: [String],
+        isSaving: Bool,
+        onSave: @escaping ([String]) -> Void
+    ) {
+        let normalized = EntryTagEditorSheet.sanitized(initialTags)
+        self.isSaving = isSaving
+        self.onSave = onSave
+        _selectedTags = State(initialValue: normalized)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Select up to 4 tags")
+                        .font(.headline)
+                    Text("\(selectedTags.count)/4 selected")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 128), spacing: 8)],
+                        spacing: 8
+                    ) {
+                        ForEach(EmotionTaxonomy.tags) { definition in
+                            Button {
+                                toggle(definition.id)
+                            } label: {
+                                SelectableTagChip(
+                                    tag: definition.id,
+                                    isSelected: selectedTags.contains(definition.id)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isSaving)
+                        }
+                    }
+
+                    Text("Tags update your journal entry and social dot for this day if the entry was shared.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
+                .padding(16)
+            }
+            .navigationTitle("Edit Tags")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isSaving)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        onSave(selectedTags)
+                    }
+                    .disabled(selectedTags.isEmpty || isSaving)
+                }
+            }
+        }
+    }
+
+    private func toggle(_ tag: String) {
+        let canonical = EmotionTaxonomy.canonicalTag(for: tag)
+        if let existingIndex = selectedTags.firstIndex(of: canonical) {
+            selectedTags.remove(at: existingIndex)
+            return
+        }
+        guard selectedTags.count < 4 else {
+            return
+        }
+        selectedTags.append(canonical)
+    }
+
+    private static func sanitized(_ tags: [String]) -> [String] {
+        var ordered: [String] = []
+        for tag in tags {
+            let canonical = EmotionTaxonomy.canonicalTag(for: tag)
+            if canonical.isEmpty || ordered.contains(canonical) {
+                continue
+            }
+            ordered.append(canonical)
+            if ordered.count >= 4 {
+                break
+            }
+        }
+        return ordered
+    }
+}
+
+private struct SelectableTagChip: View {
+    let tag: String
+    let isSelected: Bool
+
+    var body: some View {
+        let color = EmotionPalette.color(forTag: tag)
+
+        HStack(spacing: 6) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.caption.weight(.semibold))
+            Text(EmotionTaxonomy.displayName(for: tag))
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+        }
+        .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.86))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [
+                    color.opacity(isSelected ? 0.44 : 0.26),
+                    color.opacity(isSelected ? 0.22 : 0.14),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: Capsule()
+        )
+        .overlay(
+            Capsule()
+                .stroke(color.opacity(isSelected ? 0.88 : 0.42), lineWidth: isSelected ? 1.3 : 1.0)
+        )
     }
 }
 
@@ -3004,6 +3719,32 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var acceptInviteToken: String = ""
     @State private var clipboardStatus: String?
+    @State private var feedbackKind: FeedbackKind = .idea
+    @State private var feedbackMessage: String = ""
+    @State private var feedbackStatus: String?
+    @State private var isSubmittingFeedback = false
+    @State private var feedbackToastMessage: String?
+    @FocusState private var focusedInput: FocusedInput?
+
+    private enum FocusedInput: Hashable {
+        case feedbackMessage
+    }
+
+    private enum FeedbackKind: String, CaseIterable, Identifiable {
+        case idea
+        case bug
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .idea:
+                return "Idea"
+            case .bug:
+                return "Bug"
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -3034,23 +3775,25 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section("On-Device AI") {
+                    Button(model.isPreparingLiquidModel ? "Preparing Model..." : "Redownload Liquid Model") {
+                        model.redownloadLiquidModel()
+                    }
+                    .disabled(model.isPreparingLiquidModel)
+
+                    if model.isPreparingLiquidModel {
+                        ProgressView(value: model.liquidModelPreparationProgress)
+                    }
+
+                    Text("Use this if local model files are corrupted or you want a fresh download.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Social") {
                     Button("Create Invite Link") {
                         Task {
                             await model.createInvite()
-                        }
-                    }
-
-                    if let inviteURL = model.inviteURL {
-                        HStack(alignment: .top) {
-                            Text(inviteURL)
-                                .font(.footnote)
-                                .textSelection(.enabled)
-                            Spacer()
-                            Button("Copy") {
-                                copyToClipboard(inviteURL, label: "invite link")
-                            }
-                            .buttonStyle(.bordered)
                         }
                     }
 
@@ -3085,32 +3828,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Networking") {
-                    TextField("API base URL", text: $model.apiBaseURL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    Button("Save API URL") {
-                        model.applyAPIBaseURL()
-                    }
-                    Button("Test API Connection") {
-                        Task {
-                            await model.testAPIConnection()
-                        }
-                    }
-                    if let status = model.apiConnectionStatus {
-                        Text(status)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-//                    Text("Simulator: http://127.0.0.1:8080")
-//                        .font(.footnote)
-//                        .foregroundStyle(.secondary)
-//                    Text("Device: http://<your-mac-lan-ip>:8080 and run API with --host 0.0.0.0")
-//                        .font(.footnote)
-//                        .foregroundStyle(.secondary)
-                }
-
                 Section("Actions") {
                     Button("Save Settings") {
                         Task {
@@ -3126,17 +3843,108 @@ struct SettingsView: View {
                         model.signOut()
                     }
                 }
+
+                Section("Send Idea / Bug Report") {
+                    Picker("Type", selection: $feedbackKind) {
+                        ForEach(FeedbackKind.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    ZStack(alignment: .topLeading) {
+                        TextEditor(text: $feedbackMessage)
+                            .frame(minHeight: 110)
+                            .focused($focusedInput, equals: .feedbackMessage)
+                        if feedbackMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Tell us what happened or what you'd like to see.")
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 8)
+                                .allowsHitTesting(false)
+                        }
+                    }
+
+                    Button(isSubmittingFeedback ? "Sending..." : "Send Report") {
+                        Task {
+                            await submitFeedback()
+                        }
+                    }
+                    .disabled(
+                        isSubmittingFeedback
+                            || feedbackMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+
+                    if let feedbackStatus {
+                        Text(feedbackStatus)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("About") {
+                    Text("Made by Zubin @ lowercaseLabs")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             .navigationTitle("Settings")
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        focusedInput = nil
+                    }
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if let feedbackToastMessage {
+                    Text(feedbackToastMessage)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.black.opacity(0.82))
+                        )
+                        .padding(.bottom, 22)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
         }
     }
 
     private func copyToClipboard(_ value: String, label: String) {
         UIPasteboard.general.string = value
-        UIPasteboard.general.setValue(value, forPasteboardType: UTType.plainText.identifier)
         clipboardStatus = "Copied \(label)."
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
             clipboardStatus = nil
+        }
+    }
+
+    private func submitFeedback() async {
+        guard !isSubmittingFeedback else { return }
+        focusedInput = nil
+        isSubmittingFeedback = true
+        let succeeded = await model.submitFeedback(kind: feedbackKind.rawValue, message: feedbackMessage)
+        if succeeded {
+            feedbackMessage = ""
+            feedbackStatus = "Submitted."
+            showFeedbackToast("Report submitted")
+        }
+        isSubmittingFeedback = false
+    }
+
+    private func showFeedbackToast(_ message: String) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            feedbackToastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                feedbackToastMessage = nil
+            }
         }
     }
 }

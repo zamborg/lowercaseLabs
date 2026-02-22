@@ -128,6 +128,11 @@ class UpdateSocialDotRequest(BaseModel):
         return self
 
 
+class FeedbackCreateRequest(BaseModel):
+    kind: Literal["idea", "bug"]
+    message: str = Field(min_length=1, max_length=4000)
+
+
 class MetricsResponse(BaseModel):
     uploads_today: int
     avg_job_latency_seconds: float

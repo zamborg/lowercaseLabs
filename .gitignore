@@ -9,3 +9,7 @@ notesExport
 *.env
 *.mov
 wandb
+
+# Local iOS model artifacts (large files, keep out of git)
+theVoidLocal/theVoid/theVoid/ModelAssets/*
+!theVoidLocal/theVoid/theVoid/ModelAssets/.gitkeep

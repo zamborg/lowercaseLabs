@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     invite_base_url: str = "thevoid://invite"
 
     object_storage_root: str = "./backend/storage"
+    model_assets_root: str = "/data/model_assets"
     worker_poll_interval_seconds: float = 2.0
     inline_worker_enabled: bool = False
 

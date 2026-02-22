@@ -184,6 +184,11 @@ fly logs -a thevoid
 curl https://thevoid.fly.dev/health
 ```
 
+### Model hosting (for iOS on-device model download)
+- Place model files on the Fly volume at `/data/model_assets`.
+- Public listing endpoint: `GET /models`
+- Public file endpoint: `GET /models/{filename}`
+
 ## Notes
 - Apple identity tokens are verified server-side with Apple's JWKS (`iss`, `aud`, signature, exp/iat, and optional nonce).
 - `APPLE_ALLOWED_AUDIENCES` must include your iOS bundle id / service id (comma-separated if multiple).

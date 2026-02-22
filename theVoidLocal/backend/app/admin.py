@@ -16,6 +16,7 @@ from .models import (
     AccountDecommission,
     Entry,
     EntryStatus,
+    FeedbackReport,
     Insight,
     Job,
     JobStatus,
@@ -142,6 +143,7 @@ def _layout(title: str, body: str) -> HTMLResponse:
     <a href=\"/admin\">Overview</a>
     <a href=\"/admin/dots\">Dots</a>
     <a href=\"/admin/users\">Users</a>
+    <a href=\"/admin/feedback\">Feedback</a>
   </header>
   <main>
     {body}
@@ -167,6 +169,13 @@ def admin_overview(
     failed_jobs_24h = (
         db.query(func.count(Job.id))
         .filter(and_(Job.status == JobStatus.FAILED, Job.updated_at >= now_utc() - timedelta(hours=24)))
+        .scalar()
+        or 0
+    )
+    feedback_count = db.query(func.count(FeedbackReport.id)).scalar() or 0
+    feedback_24h = (
+        db.query(func.count(FeedbackReport.id))
+        .filter(FeedbackReport.created_at >= now_utc() - timedelta(hours=24))
         .scalar()
         or 0
     )
@@ -244,6 +253,35 @@ def admin_overview(
         else "<p class='empty'>No decommissioned users.</p>"
     )
 
+    feedback_rows = (
+        db.query(FeedbackReport, User)
+        .join(User, User.id == FeedbackReport.user_id)
+        .order_by(FeedbackReport.created_at.desc(), FeedbackReport.id.desc())
+        .limit(20)
+        .all()
+    )
+
+    feedback_html_rows: list[str] = []
+    for report, user in feedback_rows:
+        feedback_html_rows.append(
+            "<tr>"
+            f"<td>{escape(user.id[:8])}</td>"
+            f"<td>@{escape(user.anonymous_handle)}</td>"
+            f"<td><span class='chip'>{escape(report.kind)}</span></td>"
+            f"<td>{escape(_snippet(report.message, 160))}</td>"
+            f"<td>{escape(_fmt_dt(report.created_at))}</td>"
+            "</tr>"
+        )
+
+    feedback_html = (
+        "<table>"
+        "<thead><tr><th>User</th><th>Handle</th><th>Type</th><th>Message</th><th>Created</th></tr></thead>"
+        f"<tbody>{''.join(feedback_html_rows)}</tbody>"
+        "</table>"
+        if feedback_html_rows
+        else "<p class='empty'>No feedback reports yet.</p>"
+    )
+
     body = f"""
       <h1>Overview</h1>
       <p class=\"meta\">Now: {escape(_fmt_dt(now_utc()))}</p>
@@ -254,11 +292,16 @@ def admin_overview(
         <div class=\"card\"><div class=\"label\">Entries</div><div class=\"value\">{entries_count}</div></div>
         <div class=\"card\"><div class=\"label\">Ready Entries</div><div class=\"value\">{ready_entries_count}</div></div>
         <div class=\"card\"><div class=\"label\">Failed Jobs (24h)</div><div class=\"value\">{failed_jobs_24h}</div></div>
+        <div class=\"card\"><div class=\"label\">Feedback Reports</div><div class=\"value\">{feedback_count}</div></div>
+        <div class=\"card\"><div class=\"label\">Feedback (24h)</div><div class=\"value\">{feedback_24h}</div></div>
       </section>
       <h1 style=\"margin-top: 18px;\">Latest Entries</h1>
       {table_html}
       <h1 style=\"margin-top: 18px;\">Decommissioned Accounts</h1>
       {decommissioned_html}
+      <h1 style=\"margin-top: 18px;\">Latest Feedback</h1>
+      {feedback_html}
+      <p class=\"meta\"><a class='link' href='/admin/feedback'>Open full feedback view</a></p>
     """
 
     return _layout("Overview", body)
@@ -480,6 +523,103 @@ def admin_users(
     """
 
     return _layout("Users", body)
+
+
+@router.get("/feedback", response_class=HTMLResponse)
+def admin_feedback(
+    q: str = Query(default="", max_length=200),
+    kind: str = Query(default="all", pattern="^(all|idea|bug)$"),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> HTMLResponse:
+    query = (
+        db.query(FeedbackReport, User)
+        .join(User, User.id == FeedbackReport.user_id)
+    )
+
+    if kind != "all":
+        query = query.filter(FeedbackReport.kind == kind)
+
+    if q.strip():
+        pattern = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                FeedbackReport.message.ilike(pattern),
+                FeedbackReport.user_id.ilike(pattern),
+                User.anonymous_handle.ilike(pattern),
+                User.display_name.ilike(pattern),
+            )
+        )
+
+    rows = (
+        query.order_by(FeedbackReport.created_at.desc(), FeedbackReport.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    idea_count = (
+        db.query(func.count(FeedbackReport.id))
+        .filter(FeedbackReport.kind == "idea")
+        .scalar()
+        or 0
+    )
+    bug_count = (
+        db.query(func.count(FeedbackReport.id))
+        .filter(FeedbackReport.kind == "bug")
+        .scalar()
+        or 0
+    )
+
+    row_html: list[str] = []
+    for report, user in rows:
+        display_name = user.display_name or "-"
+        row_html.append(
+            "<tr>"
+            f"<td>{escape(user.id[:8])}</td>"
+            f"<td>@{escape(user.anonymous_handle)}</td>"
+            f"<td>{escape(display_name)}</td>"
+            f"<td><span class='chip'>{escape(report.kind)}</span></td>"
+            f"<td>{escape(_snippet(report.message, 260))}</td>"
+            f"<td>{escape(_fmt_dt(report.created_at))}</td>"
+            "</tr>"
+        )
+
+    table_html = (
+        "<table>"
+        "<thead><tr><th>User</th><th>Handle</th><th>Display Name</th><th>Type</th><th>Message</th><th>Created</th></tr></thead>"
+        f"<tbody>{''.join(row_html)}</tbody>"
+        "</table>"
+        if row_html
+        else "<p class='empty'>No feedback matched your filters.</p>"
+    )
+
+    selected_all = "selected" if kind == "all" else ""
+    selected_idea = "selected" if kind == "idea" else ""
+    selected_bug = "selected" if kind == "bug" else ""
+
+    body = f"""
+      <h1>Feedback Reports</h1>
+      <p class=\"meta\">Idea and bug report submissions from in-app settings.</p>
+      <section class=\"cards\">
+        <div class=\"card\"><div class=\"label\">Rows</div><div class=\"value\">{len(rows)}</div></div>
+        <div class=\"card\"><div class=\"label\">Ideas</div><div class=\"value\">{idea_count}</div></div>
+        <div class=\"card\"><div class=\"label\">Bugs</div><div class=\"value\">{bug_count}</div></div>
+      </section>
+      <form method=\"get\">
+        <input type=\"text\" name=\"q\" value=\"{escape(q)}\" placeholder=\"Search message / user / handle\" />
+        <select name=\"kind\">
+          <option value=\"all\" {selected_all}>All</option>
+          <option value=\"idea\" {selected_idea}>Idea</option>
+          <option value=\"bug\" {selected_bug}>Bug</option>
+        </select>
+        <input type=\"number\" name=\"limit\" min=\"1\" max=\"500\" value=\"{limit}\" />
+        <button type=\"submit\">Apply</button>
+      </form>
+      {table_html}
+    """
+
+    return _layout("Feedback", body)
 
 
 @router.post("/users/{user_id}/decommission")
