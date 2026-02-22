@@ -111,8 +111,106 @@ struct APIEntry: Codable, Identifiable, Hashable {
     let durationSeconds: Int
     let status: String
     let createdAt: String
+    let title: String
     let transcript: APITranscript?
     let insight: APIInsight?
+
+    var displayTitle: String {
+        Self.sanitizeTitle(title)
+    }
+
+    var createdAtTimeLabel: String? {
+        guard let date = parsedCreatedAt else { return nil }
+        return DateFormatter.clock.string(from: date)
+    }
+
+    init(
+        id: String,
+        localDate: String,
+        durationSeconds: Int,
+        status: String,
+        createdAt: String,
+        transcript: APITranscript?,
+        insight: APIInsight?,
+        title: String = "Entry"
+    ) {
+        self.id = id
+        self.localDate = localDate
+        self.durationSeconds = durationSeconds
+        self.status = status
+        self.createdAt = createdAt
+        self.title = Self.sanitizeTitle(title)
+        self.transcript = transcript
+        self.insight = insight
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case localDate
+        case durationSeconds
+        case status
+        case createdAt
+        case title
+        case transcript
+        case insight
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        localDate = try container.decode(String.self, forKey: .localDate)
+        durationSeconds = try container.decode(Int.self, forKey: .durationSeconds)
+        status = try container.decode(String.self, forKey: .status)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        title = Self.sanitizeTitle(try container.decodeIfPresent(String.self, forKey: .title) ?? "Entry")
+        transcript = try container.decodeIfPresent(APITranscript.self, forKey: .transcript)
+        insight = try container.decodeIfPresent(APIInsight.self, forKey: .insight)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(localDate, forKey: .localDate)
+        try container.encode(durationSeconds, forKey: .durationSeconds)
+        try container.encode(status, forKey: .status)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(Self.sanitizeTitle(title), forKey: .title)
+        try container.encodeIfPresent(transcript, forKey: .transcript)
+        try container.encodeIfPresent(insight, forKey: .insight)
+    }
+
+    static func sanitizeTitle(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Entry" }
+        let collapsed = trimmed.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        )
+        if collapsed.count <= 48 {
+            return collapsed
+        }
+        return String(collapsed.prefix(48))
+    }
+
+    private var parsedCreatedAt: Date? {
+        if let date = Self.iso8601WithFractional.date(from: createdAt) {
+            return date
+        }
+        return Self.iso8601Basic.date(from: createdAt)
+    }
+
+    private static let iso8601WithFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601Basic: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 }
 
 struct APISocialDot: Codable, Identifiable, Hashable {
@@ -1444,6 +1542,27 @@ final class AppModel: ObservableObject {
             }
 
             return entries.first(where: { $0.id == entryID }) ?? updateResult.updatedEntry
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    @discardableResult
+    func updateEntryTitle(entryID: String, title: String) async -> APIEntry? {
+        guard !userID.isEmpty else {
+            errorMessage = "Missing local user identity."
+            return nil
+        }
+
+        do {
+            let updatedEntry = try localStore.updateEntryTitle(
+                for: userID,
+                entryID: entryID,
+                title: title
+            )
+            await refreshEntries()
+            return entries.first(where: { $0.id == entryID }) ?? updatedEntry
         } catch {
             errorMessage = error.localizedDescription
             return nil
@@ -3099,16 +3218,29 @@ struct EntryCard: View {
 
     var body: some View {
         let tags = entry.insight?.moodTags ?? []
+        let timeLabel = entry.createdAtTimeLabel
 
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(alignment: .top, spacing: 10) {
                 EmotionMixedCircle(
                     tags: tags,
                     diameter: 18,
                     borderOpacity: 0.28
                 )
-                Text(entry.localDate)
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.displayTitle)
+                        .font(.headline)
+                        .lineLimit(1)
+
+                    HStack(spacing: 6) {
+                        Text(entry.localDate)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if let timeLabel {
+                            EntryTimeBadge(timeLabel: timeLabel)
+                        }
+                    }
+                }
                 Spacer()
                 Text(statusLabel)
                     .font(.caption)
@@ -3139,6 +3271,19 @@ struct EntryCard: View {
     }
 }
 
+private struct EntryTimeBadge: View {
+    let timeLabel: String
+
+    var body: some View {
+        Text(timeLabel)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Color.secondary.opacity(0.14), in: Capsule())
+    }
+}
+
 struct EntryDetailView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -3148,8 +3293,10 @@ struct EntryDetailView: View {
     @StateObject private var audioPlayback = AudioPlaybackController()
     @State private var showDeleteConfirmation = false
     @State private var showTagEditor = false
+    @State private var showTitleEditor = false
     @State private var isDeletingEntry = false
     @State private var isSavingTags = false
+    @State private var isSavingTitle = false
     @State private var isRetranscribing = false
 
     init(entry: APIEntry) {
@@ -3160,23 +3307,31 @@ struct EntryDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text(currentEntry.localDate)
-                    .font(.title2.bold())
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(currentEntry.displayTitle)
+                        .font(.title2.bold())
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+
+                    HStack(spacing: 8) {
+                        Text(currentEntry.localDate)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        if let timeLabel = currentEntry.createdAtTimeLabel {
+                            EntryTimeBadge(timeLabel: timeLabel)
+                        }
+                    }
+                }
 
                 if let insight = currentEntry.insight {
                     VStack(alignment: .leading, spacing: 10) {
-                        if let primary = insight.moodTags.first {
-                            HStack(spacing: 8) {
-                                EmotionMixedCircle(
-                                    tags: insight.moodTags,
-                                    diameter: 20,
-                                    borderOpacity: 0.28
-                                )
-                                Text("Color mix anchored by \(EmotionTaxonomy.displayName(for: primary))")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                        EmotionMixedCircle(
+                            tags: insight.moodTags,
+                            diameter: 186,
+                            borderOpacity: 0.34
+                        )
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 4)
 
                         HStack(spacing: 8) {
                             Text("Tags")
@@ -3220,24 +3375,13 @@ struct EntryDetailView: View {
                         .font(.headline)
 
                     HStack(spacing: 10) {
-                        Button(audioPlayback.isReady ? "Reload" : "Load Audio") {
+                        Button(audioPlayback.isPlaying ? "Pause" : "Play") {
                             Task {
-                                await loadAudio(forceReload: true)
+                                await togglePlayback()
                             }
                         }
-                        .buttonStyle(.bordered)
-
-                        Button(audioPlayback.isPlaying ? "Pause" : "Play") {
-                            audioPlayback.togglePlayback()
-                        }
                         .buttonStyle(.borderedProminent)
-                        .disabled(!audioPlayback.isReady || audioPlayback.isLoading)
-
-                        Button("Restart") {
-                            audioPlayback.restart()
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!audioPlayback.isReady || audioPlayback.isLoading)
+                        .disabled(audioPlayback.isLoading)
                     }
 
                     Button(isRetranscribing ? "Retranscribing..." : "Retranscribe") {
@@ -3281,9 +3425,17 @@ struct EntryDetailView: View {
             }
             .padding()
         }
-        .navigationTitle("Entry")
+        .navigationTitle(currentEntry.displayTitle)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    showTitleEditor = true
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .disabled(isDeletingEntry || isSavingTitle)
+
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
                 } label: {
@@ -3324,6 +3476,17 @@ struct EntryDetailView: View {
                 .padding(24)
             }
         }
+        .sheet(isPresented: $showTitleEditor) {
+            EntryTitleEditorSheet(
+                initialTitle: currentEntry.displayTitle,
+                isSaving: isSavingTitle,
+                onSave: { newTitle in
+                    Task {
+                        await saveTitle(newTitle)
+                    }
+                }
+            )
+        }
         .task {
             if let refreshed = model.entries.first(where: { $0.id == entry.id }) {
                 currentEntry = refreshed
@@ -3344,6 +3507,14 @@ struct EntryDetailView: View {
         } catch {
             model.errorMessage = error.localizedDescription
         }
+    }
+
+    private func togglePlayback() async {
+        if !audioPlayback.isReady {
+            await loadAudio(forceReload: true)
+        }
+        guard audioPlayback.isReady else { return }
+        audioPlayback.togglePlayback()
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
@@ -3378,6 +3549,19 @@ struct EntryDetailView: View {
         isSavingTags = false
     }
 
+    private func saveTitle(_ title: String) async {
+        guard !isSavingTitle else { return }
+        isSavingTitle = true
+        if let updated = await model.updateEntryTitle(
+            entryID: currentEntry.id,
+            title: title
+        ) {
+            currentEntry = updated
+            showTitleEditor = false
+        }
+        isSavingTitle = false
+    }
+
     private func retranscribeEntry() async {
         guard !isRetranscribing else { return }
         isRetranscribing = true
@@ -3396,6 +3580,61 @@ struct WrapTags: View {
             ForEach(tags, id: \.self) { tag in
                 TagChip(tag: tag)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+private struct EntryTitleEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let isSaving: Bool
+    let onSave: (String) -> Void
+
+    @State private var titleValue: String
+
+    init(
+        initialTitle: String,
+        isSaving: Bool,
+        onSave: @escaping (String) -> Void
+    ) {
+        self.isSaving = isSaving
+        self.onSave = onSave
+        _titleValue = State(initialValue: APIEntry.sanitizeTitle(initialTitle))
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Title")
+                    .font(.headline)
+                TextField("Entry", text: $titleValue, axis: .vertical)
+                    .textInputAutocapitalization(.sentences)
+                    .autocorrectionDisabled(false)
+                    .lineLimit(2)
+                    .padding(12)
+                    .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                Text("Shown on the journal timeline and this entry.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .navigationTitle("Edit Title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isSaving)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        onSave(titleValue)
+                    }
+                    .disabled(isSaving)
+                }
             }
         }
     }
@@ -3607,6 +3846,7 @@ struct TagChip: View {
 
 struct SocialView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var selectedDotID: String?
 
     private let columns = [GridItem(.adaptive(minimum: 66), spacing: 18)]
 
@@ -3626,13 +3866,24 @@ struct SocialView: View {
                         LazyVGrid(columns: columns, spacing: 20) {
                             ForEach(model.socialDots) { dot in
                                 VStack(spacing: 6) {
-                                    EmotionMixedCircle(
-                                        tags: dot.dotTags ?? [],
-                                        fallbackHex: dot.dotColor,
-                                        diameter: 46,
-                                        borderOpacity: 0.38
-                                    )
-                                    .frame(width: 58, height: 58)
+                                    Button {
+                                        withAnimation(.spring(response: 0.24, dampingFraction: 0.84)) {
+                                            if selectedDotID == dot.id {
+                                                selectedDotID = nil
+                                            } else {
+                                                selectedDotID = dot.id
+                                            }
+                                        }
+                                    } label: {
+                                        EmotionMixedCircle(
+                                            tags: dot.dotTags ?? [],
+                                            fallbackHex: dot.dotColor,
+                                            diameter: 46,
+                                            borderOpacity: 0.38
+                                        )
+                                        .frame(width: 58, height: 58)
+                                    }
+                                    .buttonStyle(.plain)
 
                                     Text(dot.label ?? "@\(dot.userId.prefix(6))")
                                         .font(.caption2)
@@ -3641,10 +3892,19 @@ struct SocialView: View {
                                         .minimumScaleFactor(0.75)
                                 }
                                 .frame(width: 84)
+                                .overlay(alignment: .bottom) {
+                                    if selectedDotID == dot.id {
+                                        SocialDotTagBubble(tags: dot.dotTags ?? [])
+                                            .offset(y: 92)
+                                            .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                                    }
+                                }
+                                .zIndex(selectedDotID == dot.id ? 2 : 0)
                             }
                         }
                         .padding(.horizontal, 26)
-                        .padding(.vertical, 24)
+                        .padding(.top, 24)
+                        .padding(.bottom, 132)
                         .frame(maxWidth: .infinity, alignment: .center)
                     }
                 }
@@ -3653,7 +3913,62 @@ struct SocialView: View {
             .refreshable {
                 await model.refreshSocialDots()
             }
+            .onChange(of: model.socialDots) { _, _ in
+                if let selectedDotID, !model.socialDots.contains(where: { $0.id == selectedDotID }) {
+                    self.selectedDotID = nil
+                }
+            }
         }
+    }
+}
+
+private struct SocialDotTagBubble: View {
+    let tags: [String]
+
+    private var normalizedTags: [String] {
+        var ordered: [String] = []
+        for tag in tags {
+            let canonical = EmotionTaxonomy.canonicalTag(for: tag)
+            if canonical.isEmpty || ordered.contains(canonical) {
+                continue
+            }
+            ordered.append(canonical)
+            if ordered.count >= 4 {
+                break
+            }
+        }
+        return ordered
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Dot makeup")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            if normalizedTags.isEmpty {
+                Text("No tags shared")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 70), spacing: 6)],
+                    spacing: 6
+                ) {
+                    ForEach(normalizedTags, id: \.self) { tag in
+                        TagChip(tag: tag)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .frame(width: 184, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 4)
     }
 }
 
