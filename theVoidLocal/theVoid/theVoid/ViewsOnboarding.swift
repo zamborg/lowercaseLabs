@@ -25,7 +25,7 @@ struct LiquidModelPreparationView: View {
                     .font(.system(size: 31, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
 
-                Text("Downloading Liquid model to this device.")
+                Text("Downloading the Liquid model to this device.")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.74))
 
@@ -76,7 +76,7 @@ struct LiquidModelPreparationView: View {
                 }
 
                 VStack(spacing: 10) {
-                    Text("Without the model the insights engine will not work, you can always download this later from settings.")
+                    Text("The insights engine needs this model. You can also download it later from the Settings > On-Device AI.")
                         .font(.footnote)
                         .foregroundStyle(.white.opacity(0.72))
                         .multilineTextAlignment(.center)

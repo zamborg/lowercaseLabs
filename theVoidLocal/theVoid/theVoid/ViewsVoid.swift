@@ -9,6 +9,8 @@ struct VoidExperienceView: View {
     @State private var pendingSubmission: PendingSubmission?
     @State private var showDecisionSheet = false
     @State private var showWelcomeOverlay = false
+    @State private var showModelDownloadPrompt = false
+    @State private var hasPresentedModelDownloadPrompt = false
     @State private var autoWelcomePendingAck = false
     @State private var isRecordingLocked = false
 
@@ -53,7 +55,7 @@ struct VoidExperienceView: View {
                                     .foregroundStyle(Color.orange.opacity(0.95))
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.85)
-                                Text("Without the model the insights engine will not work. Download it from Settings > On-Device AI to create dots.")
+                                Text("On-device insights are off until the AI model is downloaded. Use the download prompt or the Settings tile > On-Device AI.")
                                     .font(.footnote)
                                     .foregroundStyle(.white.opacity(0.74))
                                     .multilineTextAlignment(.center)
@@ -150,6 +152,14 @@ struct VoidExperienceView: View {
                 .presentationDetents([.fraction(0.32)])
                 .presentationDragIndicator(.visible)
             }
+            .alert("Download On-Device AI Model?", isPresented: $showModelDownloadPrompt) {
+                Button("Not Now", role: .cancel) {}
+                Button("Download Model") {
+                    model.prepareLiquidModelIfNeeded()
+                }
+            } message: {
+                Text("Download Liquid on this device to enable mood tags and dots. This is a one-time setup.")
+            }
             .onAppear {
                 recorder.onWarning = { _ in
                     UINotificationFeedbackGenerator().notificationOccurred(.warning)
@@ -162,6 +172,17 @@ struct VoidExperienceView: View {
                 }
                 model.reloadDrafts()
                 maybePresentWelcomeOverlayIfNeeded()
+                maybePresentModelDownloadPromptIfNeeded()
+            }
+            .onChange(of: model.userID) { _, _ in
+                hasPresentedModelDownloadPrompt = false
+            }
+            .onChange(of: model.liquidModelPrepared) { _, prepared in
+                if prepared {
+                    showModelDownloadPrompt = false
+                } else {
+                    maybePresentModelDownloadPromptIfNeeded()
+                }
             }
             .animation(.easeInOut(duration: 0.2), value: showWelcomeOverlay)
         }
@@ -245,6 +266,27 @@ struct VoidExperienceView: View {
             autoWelcomePendingAck = false
         }
         showWelcomeOverlay = false
+        maybePresentModelDownloadPromptIfNeeded()
+    }
+
+    private func maybePresentModelDownloadPromptIfNeeded() {
+        guard !showWelcomeOverlay else {
+            return
+        }
+        guard !model.userID.isEmpty else {
+            return
+        }
+        guard !model.liquidModelPrepared else {
+            return
+        }
+        guard !model.isPreparingLiquidModel else {
+            return
+        }
+        guard !hasPresentedModelDownloadPrompt else {
+            return
+        }
+        hasPresentedModelDownloadPrompt = true
+        showModelDownloadPrompt = true
     }
 
     private var recordingInstructionTitle: String {

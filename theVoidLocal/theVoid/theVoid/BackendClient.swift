@@ -272,16 +272,34 @@ final class BackendClient {
         return data
     }
 
-    func fetchSocialDots(token: String, localDate: String? = nil) async throws -> APISocialDotsEnvelope {
-        let path: String
-        if let localDate, !localDate.isEmpty {
-            path = "/social/dots?local_date=\(localDate)"
-        } else {
-            path = "/social/dots"
-        }
-        guard let url = URL(string: path, relativeTo: baseURL) else {
+    func fetchSocialDots(
+        token: String,
+        localDate: String? = nil,
+        history: Bool = false,
+        limit: Int? = nil
+    ) async throws -> APISocialDotsEnvelope {
+        guard let endpoint = URL(string: "/social/dots", relativeTo: baseURL),
+              var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: true) else {
             throw APIError.invalidURL
         }
+
+        var queryItems: [URLQueryItem] = []
+        if let localDate, !localDate.isEmpty {
+            queryItems.append(URLQueryItem(name: "local_date", value: localDate))
+        }
+        if history {
+            queryItems.append(URLQueryItem(name: "history", value: "true"))
+        }
+        if let limit, limit > 0 {
+            queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
+        guard let url = components.url else {
+            throw APIError.invalidURL
+        }
+
         let request = buildRequest(url: url, method: "GET", token: token)
         return try await send(request, decode: APISocialDotsEnvelope.self)
     }

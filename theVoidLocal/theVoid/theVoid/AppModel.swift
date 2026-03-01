@@ -257,8 +257,12 @@ final class AppModel: ObservableObject {
     func refreshSocialDots() async {
         guard let sessionToken else { return }
         do {
-            let envelope = try await client.fetchSocialDots(token: sessionToken)
-            socialDots = envelope.dots
+            let envelope = try await client.fetchSocialDots(
+                token: sessionToken,
+                history: true,
+                limit: 100
+            )
+            socialDots = envelope.dots.sorted(by: Self.socialDotIsMoreRecent)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -339,8 +343,12 @@ final class AppModel: ObservableObject {
         startLiquidModelPreparation(forceRedownload: true)
     }
 
-    func retryLiquidModelPreparation() {
+    func prepareLiquidModelIfNeeded() {
         startLiquidModelPreparation(forceRedownload: false)
+    }
+
+    func retryLiquidModelPreparation() {
+        prepareLiquidModelIfNeeded()
     }
 
     func cancelLiquidModelPreparation() {
@@ -436,6 +444,47 @@ final class AppModel: ObservableObject {
         liquidModelPrepared = prepared
         UserDefaults.standard.set(prepared, forKey: Keys.liquidModelPrepared)
     }
+
+    private static func socialDotIsMoreRecent(_ lhs: APISocialDot, _ rhs: APISocialDot) -> Bool {
+        let lhsLocalDate = parseSocialDotLocalDate(lhs.localDate) ?? .distantPast
+        let rhsLocalDate = parseSocialDotLocalDate(rhs.localDate) ?? .distantPast
+        if lhsLocalDate != rhsLocalDate {
+            return lhsLocalDate > rhsLocalDate
+        }
+
+        let lhsUpdatedAt = parseSocialDotUpdatedAt(lhs.updatedAt) ?? .distantPast
+        let rhsUpdatedAt = parseSocialDotUpdatedAt(rhs.updatedAt) ?? .distantPast
+        if lhsUpdatedAt != rhsUpdatedAt {
+            return lhsUpdatedAt > rhsUpdatedAt
+        }
+
+        return lhs.id < rhs.id
+    }
+
+    private static func parseSocialDotLocalDate(_ rawValue: String?) -> Date? {
+        guard let rawValue, !rawValue.isEmpty else { return nil }
+        return DateFormatter.localDate.date(from: rawValue)
+    }
+
+    private static func parseSocialDotUpdatedAt(_ rawValue: String?) -> Date? {
+        guard let rawValue, !rawValue.isEmpty else { return nil }
+        if let parsed = socialDotUpdatedAtWithFractional.date(from: rawValue) {
+            return parsed
+        }
+        return socialDotUpdatedAtBasic.date(from: rawValue)
+    }
+
+    private static let socialDotUpdatedAtWithFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let socialDotUpdatedAtBasic: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 
     private static func insightRuntimeSummary(from metadata: [String: JSONValue]?) -> String? {
         guard let metadata else { return nil }

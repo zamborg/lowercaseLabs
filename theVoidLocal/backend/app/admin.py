@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from html import escape
+import json
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -17,6 +18,7 @@ from .models import (
     Entry,
     EntryStatus,
     FeedbackReport,
+    FriendEdge,
     Insight,
     Job,
     JobStatus,
@@ -86,6 +88,18 @@ def _safe_dot_color(value: str | None) -> str:
     return SILENT_DOT_COLOR
 
 
+def _display_name_or_handle(user: User) -> str:
+    display_name = (user.display_name or "").strip()
+    if display_name:
+        return display_name
+
+    handle = (user.anonymous_handle or "").strip()
+    if handle:
+        return f"@{handle}"
+
+    return user.id[:8]
+
+
 def _layout(title: str, body: str) -> HTMLResponse:
     html = f"""<!doctype html>
 <html lang=\"en\">
@@ -135,6 +149,8 @@ def _layout(title: str, body: str) -> HTMLResponse:
     .inline-form {{ display: inline-flex; margin: 0; gap: 6px; align-items: center; }}
     pre {{ white-space: pre-wrap; line-height: 1.35; background: #0e131d; border: 1px solid var(--line); padding: 12px; border-radius: 10px; }}
     .empty {{ color: var(--muted); margin: 12px 0; }}
+    .graph-canvas {{ width: 100%; min-height: 420px; border: 1px solid var(--line); border-radius: 10px; background: #0e131d; padding: 6px; }}
+    .graph-canvas svg {{ width: 100%; height: 420px; display: block; }}
   </style>
 </head>
 <body>
@@ -311,15 +327,12 @@ def admin_overview(
 def admin_dots(
     q: str = Query(default="", max_length=200),
     local_date: date | None = Query(default=None),
-    latest_only: bool = Query(default=True),
+    latest_only: bool = Query(default=False),
     limit: int = Query(150, ge=1, le=500),
     db: Session = Depends(get_db),
     _: None = Depends(require_admin),
 ) -> HTMLResponse:
-    query = (
-        db.query(SocialPresence, User)
-        .join(User, User.id == SocialPresence.user_id)
-    )
+    query = db.query(SocialPresence, User).join(User, User.id == SocialPresence.user_id)
 
     if local_date is not None:
         query = query.filter(SocialPresence.local_date == local_date)
@@ -335,13 +348,15 @@ def admin_dots(
             )
         )
 
+    total_matching = query.count()
+
     rows: list[tuple[SocialPresence, User]]
     if latest_only:
         ordered_rows = (
             query.order_by(
                 SocialPresence.user_id.asc(),
-                SocialPresence.local_date.desc(),
                 SocialPresence.updated_at.desc(),
+                SocialPresence.local_date.desc(),
             )
             .limit(max(1000, limit * 4))
             .all()
@@ -353,12 +368,16 @@ def admin_dots(
 
         rows = sorted(
             latest_by_user.values(),
-            key=lambda item: (item[0].local_date, item[0].updated_at),
+            key=lambda item: (item[0].updated_at, item[0].local_date, item[0].user_id),
             reverse=True,
         )[:limit]
     else:
         rows = (
-            query.order_by(SocialPresence.local_date.desc(), SocialPresence.updated_at.desc())
+            query.order_by(
+                SocialPresence.updated_at.desc(),
+                SocialPresence.local_date.desc(),
+                SocialPresence.user_id.asc(),
+            )
             .limit(limit)
             .all()
         )
@@ -396,29 +415,188 @@ def admin_dots(
         else "<p class='empty'>No social dots matched your filters.</p>"
     )
 
+    directed_edges = {
+        (user_id, friend_user_id)
+        for user_id, friend_user_id in db.query(FriendEdge.user_id, FriendEdge.friend_user_id).all()
+        if user_id != friend_user_id
+    }
+    undirected_edges = sorted(
+        (user_id, friend_user_id)
+        for user_id, friend_user_id in directed_edges
+        if user_id < friend_user_id and (friend_user_id, user_id) in directed_edges
+    )
+    connected_user_ids = sorted({user_id for pair in undirected_edges for user_id in pair})
+    graph_users = db.query(User).filter(User.id.in_(connected_user_ids)).all() if connected_user_ids else []
+    graph_user_by_id = {user.id: user for user in graph_users}
+
+    degree_by_user: dict[str, int] = {user_id: 0 for user_id in connected_user_ids}
+    for left_user_id, right_user_id in undirected_edges:
+        degree_by_user[left_user_id] = degree_by_user.get(left_user_id, 0) + 1
+        degree_by_user[right_user_id] = degree_by_user.get(right_user_id, 0) + 1
+
+    graph_nodes_payload = []
+    for user_id in connected_user_ids:
+        user = graph_user_by_id.get(user_id)
+        label = _display_name_or_handle(user) if user is not None else user_id[:8]
+        graph_nodes_payload.append(
+            {
+                "id": user_id,
+                "label": label,
+                "degree": degree_by_user.get(user_id, 0),
+            }
+        )
+
+    graph_edges_payload = [
+        {"source": left_user_id, "target": right_user_id}
+        for left_user_id, right_user_id in undirected_edges
+    ]
+
+    graph_nodes_json = json.dumps(graph_nodes_payload, ensure_ascii=True).replace("</", "<\\/")
+    graph_edges_json = json.dumps(graph_edges_payload, ensure_ascii=True).replace("</", "<\\/")
+
+    graph_script = ""
+    if graph_nodes_payload:
+        graph_script = """
+      <script>
+      (function () {
+        const nodes = %s;
+        const edges = %s;
+        const container = document.getElementById("friend-graph");
+        if (!container) {
+          return;
+        }
+
+        const escapeXml = (value) => String(value).replace(/[&<>"']/g, (char) => {
+          if (char === "&") return "&amp;";
+          if (char === "<") return "&lt;";
+          if (char === ">") return "&gt;";
+          if (char === '"') return "&quot;";
+          return "&#39;";
+        });
+
+        const render = () => {
+          const width = Math.max(320, container.clientWidth - 12);
+          const height = 420;
+          const centerX = width / 2;
+          const centerY = height / 2;
+          const radius = Math.max(90, Math.min(width, height) / 2 - 56);
+          const sortedNodes = [...nodes].sort((left, right) => {
+            const degreeDelta = right.degree - left.degree;
+            if (degreeDelta !== 0) return degreeDelta;
+            return left.label.localeCompare(right.label);
+          });
+
+          sortedNodes.forEach((node, index) => {
+            const angle = ((index / sortedNodes.length) * Math.PI * 2) - (Math.PI / 2);
+            node.x = centerX + (Math.cos(angle) * radius);
+            node.y = centerY + (Math.sin(angle) * radius);
+          });
+
+          const nodeById = new Map(sortedNodes.map((node) => [node.id, node]));
+          const html = [];
+          html.push('<svg viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Undirected friend graph">');
+
+          for (const edge of edges) {
+            const source = nodeById.get(edge.source);
+            const target = nodeById.get(edge.target);
+            if (!source || !target) continue;
+            html.push(
+              '<line x1="' + source.x.toFixed(2) + '" y1="' + source.y.toFixed(2) + '" x2="' + target.x.toFixed(2) + '" y2="' + target.y.toFixed(2) + '" stroke="#365067" stroke-width="1.4" opacity="0.78" />'
+            );
+          }
+
+          for (const node of sortedNodes) {
+            const circleRadius = 5 + Math.min(7, node.degree);
+            const safeLabel = escapeXml(node.label);
+            const safeTitle = safeLabel + ' (friends: ' + node.degree + ')';
+            html.push(
+              '<circle cx="' + node.x.toFixed(2) + '" cy="' + node.y.toFixed(2) + '" r="' + circleRadius + '" fill="#18a999" stroke="#d7fffa" stroke-width="1.2"><title>' + safeTitle + '</title></circle>'
+            );
+            html.push(
+              '<text x="' + (node.x + circleRadius + 4).toFixed(2) + '" y="' + (node.y + 4).toFixed(2) + '" fill="#d8e1ee" font-size="11">' + safeLabel + '</text>'
+            );
+          }
+
+          html.push("</svg>");
+          container.innerHTML = html.join("");
+        };
+
+        let resizeTimer = null;
+        window.addEventListener("resize", () => {
+          if (resizeTimer) {
+            clearTimeout(resizeTimer);
+          }
+          resizeTimer = window.setTimeout(render, 120);
+        });
+
+        render();
+      })();
+      </script>
+        """ % (graph_nodes_json, graph_edges_json)
+    graph_placeholder_html = (
+        "<p class='empty'>Loading graph...</p>"
+        if graph_nodes_payload
+        else "<p class='empty'>No reciprocal friendships yet.</p>"
+    )
+
+    edge_rows_html: list[str] = []
+    for left_user_id, right_user_id in undirected_edges:
+        left_user = graph_user_by_id.get(left_user_id)
+        right_user = graph_user_by_id.get(right_user_id)
+        left_label = _display_name_or_handle(left_user) if left_user is not None else left_user_id[:8]
+        right_label = _display_name_or_handle(right_user) if right_user is not None else right_user_id[:8]
+        edge_rows_html.append(
+            "<tr>"
+            f"<td>{escape(left_user_id[:8])}</td>"
+            f"<td>{escape(left_label)}</td>"
+            f"<td>{escape(right_user_id[:8])}</td>"
+            f"<td>{escape(right_label)}</td>"
+            "</tr>"
+        )
+
+    edge_table_html = (
+        "<table>"
+        "<thead><tr><th>User A</th><th>Label A</th><th>User B</th><th>Label B</th></tr></thead>"
+        f"<tbody>{''.join(edge_rows_html)}</tbody>"
+        "</table>"
+        if edge_rows_html
+        else "<p class='empty'>No reciprocal friendships yet.</p>"
+    )
+
     local_date_value = local_date.isoformat() if local_date else ""
     latest_true_selected = "selected" if latest_only else ""
     latest_false_selected = "selected" if not latest_only else ""
 
     body = f"""
       <h1>Social Dots</h1>
-      <p class=\"meta\">Inspect color/tag payloads sent by clients.</p>
+      <p class=\"meta\">Inspect full dot event stream and friendship topology.</p>
       <section class=\"cards\">
-        <div class=\"card\"><div class=\"label\">Rows</div><div class=\"value\">{len(rows)}</div></div>
+        <div class=\"card\"><div class=\"label\">Showing</div><div class=\"value\">{len(rows)}</div></div>
+        <div class=\"card\"><div class=\"label\">Matching Events</div><div class=\"value\">{total_matching}</div></div>
         <div class=\"card\"><div class=\"label\">Users In Result</div><div class=\"value\">{unique_users}</div></div>
         <div class=\"card\"><div class=\"label\">Muted Dots</div><div class=\"value\">{muted_count}</div></div>
+        <div class=\"card\"><div class=\"label\">Friend Pairs</div><div class=\"value\">{len(undirected_edges)}</div></div>
+        <div class=\"card\"><div class=\"label\">Users In Graph</div><div class=\"value\">{len(connected_user_ids)}</div></div>
       </section>
       <form method=\"get\">
         <input type=\"text\" name=\"q\" value=\"{escape(q)}\" placeholder=\"Search user / handle / color\" />
         <input type=\"date\" name=\"local_date\" value=\"{escape(local_date_value)}\" />
         <select name=\"latest_only\">
+          <option value=\"false\" {latest_false_selected}>All events (ordered)</option>
           <option value=\"true\" {latest_true_selected}>Latest per user</option>
-          <option value=\"false\" {latest_false_selected}>All rows</option>
         </select>
         <input type=\"number\" name=\"limit\" min=\"1\" max=\"500\" value=\"{limit}\" />
         <button type=\"submit\">Apply</button>
       </form>
       {table_html}
+      <h1 style=\"margin-top: 18px;\">Friend Graph</h1>
+      <p class=\"meta\">Undirected edges represent reciprocal friendships between users.</p>
+      <div id=\"friend-graph\" class=\"graph-canvas\">
+        {graph_placeholder_html}
+      </div>
+      {graph_script}
+      <h1 style=\"margin-top: 18px;\">Friend Pairs</h1>
+      {edge_table_html}
     """
 
     return _layout("Dots", body)

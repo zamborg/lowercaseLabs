@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Pod Demo</title>
+    <style>
+      body {
+        font-family: "IBM Plex Sans", sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: #10131a;
+        color: #f5f7ff;
+      }
+      .card {
+        max-width: 740px;
+        border: 1px solid #2f3b4d;
+        border-radius: 12px;
+        padding: 16px;
+        background: #1a2230;
+      }
+      pre {
+        border: 1px solid #33435b;
+        border-radius: 8px;
+        padding: 10px;
+        background: #0d131c;
+      }
+      button {
+        border: 1px solid #427bff;
+        background: #1a2f5a;
+        color: #fff;
+        border-radius: 8px;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Web Pod Demo</h1>
+      <p>
+        This page is served by a user-isolated pod. It can call `/api/whoami` over the same origin.
+      </p>
+      <button id="refreshBtn">Refresh /api/whoami</button>
+      <pre id="output">Loading...</pre>
+    </div>
+    <script>
+      async function refresh() {
+        const response = await fetch('/api/whoami', { credentials: 'include' });
+        const payload = await response.json();
+        document.getElementById('output').textContent = JSON.stringify(payload, null, 2);
+      }
+
+      document.getElementById('refreshBtn').addEventListener('click', refresh);
+      refresh();
+    </script>
+  </body>
+</html>

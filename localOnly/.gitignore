@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Python
+backend/.venv/
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/__pycache__/
+backend/src/**/__pycache__/
+
+# Node / Expo
+ios-app/node_modules/
+ios-app/.expo/
+ios-app/dist/
+
+# Local env
+backend/.env
+ios-app/.env
+ios-app/.env.local

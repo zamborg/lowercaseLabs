@@ -103,6 +103,9 @@ class SocialDot(BaseModel):
     label: str | None
     is_revealed: bool
     has_entry: bool
+    presence_id: str | None = None
+    local_date: date | None = None
+    updated_at: datetime | None = None
 
 
 class SocialDotsResponse(BaseModel):

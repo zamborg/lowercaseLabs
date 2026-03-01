@@ -6,65 +6,115 @@ import UIKit
 struct SocialView: View {
     @EnvironmentObject private var model: AppModel
     @State private var selectedDotID: String?
+    @State private var dotFrames: [String: CGRect] = [:]
 
     private let columns = [GridItem(.adaptive(minimum: 66), spacing: 18)]
+    private let bubbleWidth: CGFloat = 206
+
+    private var selectedDot: APISocialDot? {
+        guard let selectedDotID else { return nil }
+        return model.socialDots.first(where: { $0.id == selectedDotID })
+    }
+
+    private struct SocialDotDayGroup: Identifiable {
+        let key: String
+        let title: String
+        let dots: [APISocialDot]
+
+        var id: String { key }
+    }
+
+    private var dayGroups: [SocialDotDayGroup] {
+        guard !model.socialDots.isEmpty else { return [] }
+        var grouped: [(String, [APISocialDot])] = []
+        for dot in model.socialDots {
+            let key = dot.localDate ?? "recent"
+            if !grouped.isEmpty, grouped[grouped.count - 1].0 == key {
+                grouped[grouped.count - 1].1.append(dot)
+            } else {
+                grouped.append((key, [dot]))
+            }
+        }
+
+        return grouped.map { pair in
+            SocialDotDayGroup(
+                key: pair.0,
+                title: dayTitle(for: pair.0),
+                dots: pair.1
+            )
+        }
+    }
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.black.opacity(0.02).ignoresSafeArea()
+            GeometryReader { geometry in
+                ZStack(alignment: .topLeading) {
+                    Color.black.opacity(0.02).ignoresSafeArea()
 
-                if model.socialDots.isEmpty {
-                    Text("No friend dots yet.\nAdd friends in Settings.")
-                        .font(.subheadline)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                        .padding()
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: columns, spacing: 20) {
-                            ForEach(model.socialDots) { dot in
-                                VStack(spacing: 6) {
-                                    Button {
-                                        withAnimation(.spring(response: 0.24, dampingFraction: 0.84)) {
-                                            if selectedDotID == dot.id {
-                                                selectedDotID = nil
-                                            } else {
-                                                selectedDotID = dot.id
+                    if model.socialDots.isEmpty {
+                        Text("No friend dots yet.\nAdd friends in Settings.")
+                            .font(.subheadline)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .padding()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 14) {
+                                Text("Newest dots first")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+
+                                ForEach(dayGroups) { group in
+                                    SocialDayDivider(title: group.title)
+
+                                    LazyVGrid(columns: columns, spacing: 20) {
+                                        ForEach(group.dots) { dot in
+                                            SocialDotCell(dot: dot, isSelected: selectedDotID == dot.id) {
+                                                withAnimation(.spring(response: 0.24, dampingFraction: 0.84)) {
+                                                    if selectedDotID == dot.id {
+                                                        selectedDotID = nil
+                                                    } else {
+                                                        selectedDotID = dot.id
+                                                    }
+                                                }
                                             }
+                                            .background(
+                                                GeometryReader { proxy in
+                                                    Color.clear.preference(
+                                                        key: SocialDotFramePreferenceKey.self,
+                                                        value: [dot.id: proxy.frame(in: .named("social-grid"))]
+                                                    )
+                                                }
+                                            )
+                                            .zIndex(selectedDotID == dot.id ? 2 : 1)
                                         }
-                                    } label: {
-                                        EmotionMixedCircle(
-                                            tags: dot.dotTags ?? [],
-                                            fallbackHex: dot.dotColor,
-                                            diameter: 46,
-                                            borderOpacity: 0.38
-                                        )
-                                        .frame(width: 58, height: 58)
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    Text(dot.label ?? "@\(dot.userId.prefix(6))")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.75)
-                                }
-                                .frame(width: 84)
-                                .overlay(alignment: .bottom) {
-                                    if selectedDotID == dot.id {
-                                        SocialDotTagBubble(tags: dot.dotTags ?? [])
-                                            .offset(y: 92)
-                                            .transition(.opacity.combined(with: .scale(scale: 0.92)))
                                     }
                                 }
-                                .zIndex(selectedDotID == dot.id ? 2 : 0)
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 18)
+                            .padding(.bottom, 132)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .coordinateSpace(name: "social-grid")
+                        .overlay(alignment: .topLeading) {
+                            if let selectedDot,
+                               let frame = dotFrames[selectedDot.id] {
+                                SocialDotTagBubble(dot: selectedDot)
+                                    .frame(width: bubbleWidth, alignment: .leading)
+                                    .offset(
+                                        x: bubbleOriginX(
+                                            for: frame,
+                                            containerWidth: geometry.size.width,
+                                            bubbleWidth: bubbleWidth
+                                        ),
+                                        y: frame.maxY + 10
+                                    )
+                                    .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                                    .zIndex(3)
                             }
                         }
-                        .padding(.horizontal, 26)
-                        .padding(.top, 24)
-                        .padding(.bottom, 132)
-                        .frame(maxWidth: .infinity, alignment: .center)
                     }
                 }
             }
@@ -72,21 +122,112 @@ struct SocialView: View {
             .refreshable {
                 await model.refreshSocialDots()
             }
+            .onPreferenceChange(SocialDotFramePreferenceKey.self) { value in
+                dotFrames = value
+            }
             .onChange(of: model.socialDots) { _, _ in
                 if let selectedDotID, !model.socialDots.contains(where: { $0.id == selectedDotID }) {
                     self.selectedDotID = nil
                 }
+                let knownIDs = Set(model.socialDots.map(\.id))
+                dotFrames = dotFrames.filter { knownIDs.contains($0.key) }
             }
         }
+    }
+
+    private func bubbleOriginX(for frame: CGRect, containerWidth: CGFloat, bubbleWidth: CGFloat) -> CGFloat {
+        let unclamped = frame.midX - (bubbleWidth / 2)
+        let minimumX: CGFloat = 12
+        let maximumX = max(minimumX, containerWidth - bubbleWidth - 12)
+        return min(max(unclamped, minimumX), maximumX)
+    }
+
+    private func dayTitle(for key: String) -> String {
+        guard key != "recent",
+              let parsed = DateFormatter.localDate.date(from: key) else {
+            return "Recent"
+        }
+
+        if Calendar.current.isDateInToday(parsed) {
+            return "Today"
+        }
+        if Calendar.current.isDateInYesterday(parsed) {
+            return "Yesterday"
+        }
+        return Self.dayHeaderFormatter.string(from: parsed)
+    }
+
+    private static let dayHeaderFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+}
+
+private struct SocialDotFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct SocialDotCell: View {
+    let dot: APISocialDot
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Button(action: onTap) {
+                EmotionMixedCircle(
+                    tags: dot.dotTags ?? [],
+                    fallbackHex: dot.dotColor,
+                    diameter: 46,
+                    borderOpacity: isSelected ? 0.62 : 0.38
+                )
+                .frame(width: 58, height: 58)
+                .scaleEffect(isSelected ? 1.04 : 1.0)
+            }
+            .buttonStyle(.plain)
+
+            Text(dot.label ?? "@\(dot.userId.prefix(6))")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(width: 84)
+    }
+}
+
+private struct SocialDayDivider: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.22))
+                .frame(height: 1)
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Rectangle()
+                .fill(Color.secondary.opacity(0.22))
+                .frame(height: 1)
+        }
+        .padding(.top, 4)
     }
 }
 
 private struct SocialDotTagBubble: View {
-    let tags: [String]
+    let dot: APISocialDot
 
     private var normalizedTags: [String] {
         var ordered: [String] = []
-        for tag in tags {
+        for tag in dot.dotTags ?? [] {
             let canonical = EmotionTaxonomy.canonicalTag(for: tag)
             if canonical.isEmpty || ordered.contains(canonical) {
                 continue
@@ -101,7 +242,11 @@ private struct SocialDotTagBubble: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("Dot makeup")
+            Text(dot.label ?? "@\(dot.userId.prefix(6))")
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+
+            Text(dot.localDate ?? "Recent")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
 

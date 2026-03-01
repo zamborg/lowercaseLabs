@@ -202,13 +202,29 @@ struct APIEntry: Codable, Identifiable, Hashable {
 }
 
 struct APISocialDot: Codable, Identifiable, Hashable {
-    var id: String { userId }
+    var id: String {
+        if let presenceId, !presenceId.isEmpty {
+            return presenceId
+        }
+        var parts = [userId]
+        if let localDate, !localDate.isEmpty {
+            parts.append(localDate)
+        }
+        if let updatedAt, !updatedAt.isEmpty {
+            parts.append(updatedAt)
+        }
+        return parts.joined(separator: "::")
+    }
+
     let userId: String
     let dotColor: String
     let dotTags: [String]?
     let label: String?
     let isRevealed: Bool
     let hasEntry: Bool
+    let presenceId: String?
+    let localDate: String?
+    let updatedAt: String?
 }
 
 struct APISocialDotsEnvelope: Codable {
@@ -247,4 +263,3 @@ enum AppleNonce {
         return hashed.compactMap { String(format: "%02x", $0) }.joined()
     }
 }
-

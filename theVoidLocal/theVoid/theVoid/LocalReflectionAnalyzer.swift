@@ -742,6 +742,9 @@ private actor LiquidInsightsRuntime {
     private var activeGenerationCount = 0
     private var activeCustomDownloadSession: URLSession?
     private var activeRemoteDownloadTarget: (model: String, quantization: String)?
+#if canImport(LeapModelDownloader)
+    private var activeModelDownloader: ModelDownloader?
+#endif
     private var isLoadingRunner = false
 #if canImport(LeapSDK)
     private var runnerLoadWaiters: [CheckedContinuation<ModelRunner, Error>] = []
@@ -1248,7 +1251,8 @@ private actor LiquidInsightsRuntime {
 
     private func getRunner(
         progressHandler: ProgressHandler? = nil,
-        forceReload: Bool = false
+        forceReload: Bool = false,
+        preferManagedRemoteDownload: Bool = false
     ) async throws -> ModelRunner {
         if forceReload {
             debugLog("getRunner forcing reload and clearing cached runner")
@@ -1284,7 +1288,8 @@ private actor LiquidInsightsRuntime {
         do {
             let runner = try await loadRunnerForConfiguredModel(
                 progressHandler: progressHandler,
-                forceReload: forceReload
+                forceReload: forceReload,
+                preferManagedRemoteDownload: preferManagedRemoteDownload
             )
             modelRunner = runner
             finishRunnerLoad(with: .success(runner))
@@ -1297,7 +1302,8 @@ private actor LiquidInsightsRuntime {
 
     private func loadRunnerForConfiguredModel(
         progressHandler: ProgressHandler? = nil,
-        forceReload: Bool = false
+        forceReload: Bool = false,
+        preferManagedRemoteDownload: Bool = false
     ) async throws -> ModelRunner {
         let defaults = UserDefaults.standard
         let modelName = defaultModel
@@ -1366,6 +1372,38 @@ private actor LiquidInsightsRuntime {
             debugLog("getRunner custom model sources disabled; using bundled assets or Leap remote defaults")
         }
 
+        if preferManagedRemoteDownload {
+            debugLog("getRunner no local model found, using cancellable ModelDownloader path")
+#if canImport(LeapModelDownloader)
+            activeRemoteDownloadTarget = (model: modelName, quantization: quantization)
+            defer {
+                if activeRemoteDownloadTarget?.model == modelName,
+                   activeRemoteDownloadTarget?.quantization == quantization {
+                    activeRemoteDownloadTarget = nil
+                }
+            }
+
+            if forceReload {
+                do {
+                    try removeRemoteModelCache(modelName: modelName, quantization: quantization)
+                    debugLog("managed remote path forceRedownload cleared cache model=\(modelName) q=\(quantization)")
+                } catch {
+                    debugLog("managed remote path forceRedownload remove cache error=\(detailedErrorText(error))")
+                }
+            }
+
+            let runner = try await downloadAndLoadWithModelDownloader(
+                modelName: modelName,
+                quantization: quantization,
+                progressHandler: progressHandler
+            )
+            debugLog("getRunner managed remote load success descriptor=\(activeModelDescriptor ?? "unknown") modelId=\(runner.modelId)")
+            return runner
+#else
+            debugLog("ModelDownloader unavailable in this build, falling back to Leap remote load")
+#endif
+        }
+
         debugLog("getRunner no local model found, using remote load")
         let runner = try await loadRunnerFromRemote(
             modelName: modelName,
@@ -1392,7 +1430,8 @@ private actor LiquidInsightsRuntime {
         progressHandler?(0)
         _ = try await getRunner(
             progressHandler: progressHandler,
-            forceReload: forceRedownload
+            forceReload: forceRedownload,
+            preferManagedRemoteDownload: true
         )
         progressHandler?(1)
         let descriptor = activeModelDescriptor ?? "liquid_model_loaded"
@@ -1410,10 +1449,27 @@ private actor LiquidInsightsRuntime {
         }
 
 #if canImport(LeapModelDownloader)
-        let downloader = ModelDownloader(sessionConfiguration: modelDownloaderSessionConfiguration())
-        downloader.requestStopService()
-
         if let target = activeRemoteDownloadTarget {
+            let downloadableModel = await LeapDownloadableModel.resolve(
+                modelSlug: target.model,
+                quantizationSlug: target.quantization
+            )
+
+            if let activeModelDownloader {
+                debugLog("cancelActiveDownloads stopping active ModelDownloader instance for model=\(target.model) quantization=\(target.quantization)")
+                if let downloadableModel {
+                    activeModelDownloader.requestStopDownload(downloadableModel)
+                }
+                activeModelDownloader.requestStopService()
+                self.activeModelDownloader = nil
+            }
+
+            let downloader = ModelDownloader(sessionConfiguration: modelDownloaderSessionConfiguration())
+            if let downloadableModel {
+                downloader.requestStopDownload(downloadableModel)
+            }
+            downloader.requestStopService()
+
             let status = downloader.queryStatus(target.model, quantization: target.quantization)
             debugLog(
                 "cancelActiveDownloads model status before stop model=\(target.model) quantization=\(target.quantization) status=\(downloadStatusDescription(status))"
@@ -1427,6 +1483,15 @@ private actor LiquidInsightsRuntime {
                     "cancelActiveDownloads removeModel skipped model=\(target.model) quantization=\(target.quantization) error=\(detailedErrorText(error))"
                 )
             }
+        } else {
+            if let activeModelDownloader {
+                debugLog("cancelActiveDownloads stopping active ModelDownloader instance")
+                activeModelDownloader.requestStopService()
+                self.activeModelDownloader = nil
+            }
+
+            let downloader = ModelDownloader(sessionConfiguration: modelDownloaderSessionConfiguration())
+            downloader.requestStopService()
         }
 #endif
 
@@ -2151,24 +2216,59 @@ private actor LiquidInsightsRuntime {
     ) async throws -> ModelRunner {
         debugLog("ModelDownloader start model=\(modelName) quantization=\(quantization)")
         let downloader = ModelDownloader(sessionConfiguration: modelDownloaderSessionConfiguration())
+        let downloadableModel = await LeapDownloadableModel.resolve(
+            modelSlug: modelName,
+            quantizationSlug: quantization
+        )
+        activeModelDownloader = downloader
+        defer {
+            if activeModelDownloader === downloader {
+                activeModelDownloader = nil
+            }
+        }
         let verbose = isVerboseLoggingEnabled()
         let logger = self.logger
-        let manifest = try await downloader.downloadModel(
-            modelName,
-            quantization: quantization,
-            downloadProgress: { progress, speed in
-                progressHandler?(max(0, min(1, progress)))
-                guard verbose else { return }
-                let percentage = Int((progress * 100).rounded())
-                let mbps = Double(speed) / 1_048_576
-                logger.debug(
-                    "downloader progress model=\(modelName, privacy: .public) q=\(quantization, privacy: .public) progress=\(percentage, privacy: .public)% speedMBps=\(mbps, privacy: .public)"
-                )
+        let manifest: DownloadedModelManifest
+        do {
+            manifest = try await withTaskCancellationHandler(
+                operation: {
+                    try Task.checkCancellation()
+                    return try await downloader.downloadModel(
+                        modelName,
+                        quantization: quantization,
+                        downloadProgress: { progress, speed in
+                            progressHandler?(max(0, min(1, progress)))
+                            guard verbose else { return }
+                            let percentage = Int((progress * 100).rounded())
+                            let mbps = Double(speed) / 1_048_576
+                            logger.debug(
+                                "downloader progress model=\(modelName, privacy: .public) q=\(quantization, privacy: .public) progress=\(percentage, privacy: .public)% speedMBps=\(mbps, privacy: .public)"
+                            )
+                        }
+                    )
+                },
+                onCancel: {
+                    if let downloadableModel {
+                        downloader.requestStopDownload(downloadableModel)
+                    }
+                    downloader.requestStopService()
+                }
+            )
+        } catch let error as ModelDownloadError {
+            if case .downloadCancelled = error {
+                debugLog("ModelDownloader canceled by caller model=\(modelName) quantization=\(quantization)")
+                throw CancellationError()
             }
-        )
+            throw error
+        } catch is CancellationError {
+            debugLog("ModelDownloader task canceled model=\(modelName) quantization=\(quantization)")
+            throw CancellationError()
+        }
         debugLog(
             "ModelDownloader manifest modelURL=\(manifest.localModelURL.path) mmProj=\(manifest.localMultimodalProjectorURL?.path ?? "nil") audioDecoder=\(manifest.localAudioDecoderURL?.path ?? "nil") audioTokenizer=\(manifest.localAudioTokenizerURL?.path ?? "nil")"
         )
+
+        try Task.checkCancellation()
 
         let options = LiquidInferenceEngineOptions(
             bundlePath: manifest.localModelURL.path,

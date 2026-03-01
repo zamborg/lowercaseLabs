@@ -516,6 +516,8 @@ def accept_invite(
 @app.get("/social/dots", response_model=SocialDotsResponse)
 def social_dots(
     local_date: date | None = Query(default=None),
+    history: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=300),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> SocialDotsResponse:
@@ -529,6 +531,40 @@ def social_dots(
 
     friends = db.query(User).filter(User.id.in_(friend_ids)).all()
     friend_by_id = {friend.id: friend for friend in friends}
+
+    if history and local_date is None:
+        presences = (
+            db.query(SocialPresence)
+            .filter(SocialPresence.user_id.in_(friend_ids))
+            .order_by(
+                SocialPresence.local_date.desc(),
+                SocialPresence.updated_at.desc(),
+                SocialPresence.user_id.asc(),
+            )
+            .limit(limit)
+            .all()
+        )
+        dots: list[SocialDot] = []
+        for presence in presences:
+            friend = friend_by_id.get(presence.user_id)
+            if friend is None:
+                continue
+            label = visible_label_for_viewer(presence, friend, current_user.id)
+            dots.append(
+                SocialDot(
+                    user_id=presence.user_id,
+                    dot_color=presence.dot_color,
+                    dot_tags=presence.dot_tags or [],
+                    label=label,
+                    is_revealed=label is not None,
+                    has_entry=True,
+                    presence_id=presence.id,
+                    local_date=presence.local_date,
+                    updated_at=presence.updated_at,
+                )
+            )
+
+        return SocialDotsResponse(local_date=day, dots=dots)
 
     if local_date is None:
         presences = (
@@ -583,6 +619,9 @@ def social_dots(
                 label=label,
                 is_revealed=label is not None,
                 has_entry=True,
+                presence_id=presence.id,
+                local_date=presence.local_date,
+                updated_at=presence.updated_at,
             )
         )
 
