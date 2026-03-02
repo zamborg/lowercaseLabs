@@ -144,6 +144,18 @@ class SocialPresence(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
 
+class SocialDotEvent(Base):
+    __tablename__ = "social_dot_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    local_date: Mapped[date] = mapped_column(Date, index=True)
+    dot_color: Mapped[str] = mapped_column(String(32))
+    dot_tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc, index=True)
+
+
 class InviteToken(Base):
     __tablename__ = "invite_tokens"
 

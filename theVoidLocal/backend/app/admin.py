@@ -22,7 +22,7 @@ from .models import (
     Insight,
     Job,
     JobStatus,
-    SocialPresence,
+    SocialDotEvent,
     Transcript,
     User,
 )
@@ -332,77 +332,79 @@ def admin_dots(
     db: Session = Depends(get_admin_db),
     _: None = Depends(require_admin),
 ) -> HTMLResponse:
-    query = db.query(SocialPresence, User).join(User, User.id == SocialPresence.user_id)
+    query = db.query(SocialDotEvent, User).join(User, User.id == SocialDotEvent.user_id)
 
     if local_date is not None:
-        query = query.filter(SocialPresence.local_date == local_date)
+        query = query.filter(SocialDotEvent.local_date == local_date)
 
     if q.strip():
         pattern = f"%{q.strip()}%"
         query = query.filter(
             or_(
-                SocialPresence.user_id.ilike(pattern),
+                SocialDotEvent.user_id.ilike(pattern),
                 User.anonymous_handle.ilike(pattern),
                 User.display_name.ilike(pattern),
-                SocialPresence.dot_color.ilike(pattern),
+                SocialDotEvent.dot_color.ilike(pattern),
             )
         )
 
     total_matching = query.count()
 
-    rows: list[tuple[SocialPresence, User]]
+    rows: list[tuple[SocialDotEvent, User]]
     if latest_only:
         ordered_rows = (
             query.order_by(
-                SocialPresence.user_id.asc(),
-                SocialPresence.updated_at.desc(),
-                SocialPresence.local_date.desc(),
+                SocialDotEvent.user_id.asc(),
+                SocialDotEvent.updated_at.desc(),
+                SocialDotEvent.local_date.desc(),
+                SocialDotEvent.id.desc(),
             )
             .limit(max(1000, limit * 4))
             .all()
         )
-        latest_by_user: dict[str, tuple[SocialPresence, User]] = {}
-        for presence, user in ordered_rows:
-            if presence.user_id not in latest_by_user:
-                latest_by_user[presence.user_id] = (presence, user)
+        latest_by_user: dict[str, tuple[SocialDotEvent, User]] = {}
+        for dot_event, user in ordered_rows:
+            if dot_event.user_id not in latest_by_user:
+                latest_by_user[dot_event.user_id] = (dot_event, user)
 
         rows = sorted(
             latest_by_user.values(),
-            key=lambda item: (item[0].updated_at, item[0].local_date, item[0].user_id),
+            key=lambda item: (item[0].updated_at, item[0].local_date, item[0].user_id, item[0].id),
             reverse=True,
         )[:limit]
     else:
         rows = (
             query.order_by(
-                SocialPresence.updated_at.desc(),
-                SocialPresence.local_date.desc(),
-                SocialPresence.user_id.asc(),
+                SocialDotEvent.updated_at.desc(),
+                SocialDotEvent.local_date.desc(),
+                SocialDotEvent.user_id.asc(),
+                SocialDotEvent.id.desc(),
             )
             .limit(limit)
             .all()
         )
 
-    unique_users = len({presence.user_id for presence, _ in rows})
-    muted_count = sum(1 for presence, _ in rows if _safe_dot_color(presence.dot_color) == SILENT_DOT_COLOR)
+    unique_users = len({dot_event.user_id for dot_event, _ in rows})
+    muted_count = sum(1 for dot_event, _ in rows if _safe_dot_color(dot_event.dot_color) == SILENT_DOT_COLOR)
 
     row_html: list[str] = []
-    for presence, user in rows:
-        color = _safe_dot_color(presence.dot_color)
+    for dot_event, user in rows:
+        color = _safe_dot_color(dot_event.dot_color)
         color_html = (
             f"<span class='dot-swatch' style='background:{escape(color)};'></span>"
             f"{escape(color)}"
         )
-        tags = ", ".join(presence.dot_tags) if presence.dot_tags else "-"
+        tags = ", ".join(dot_event.dot_tags) if dot_event.dot_tags else "-"
         display_name = user.display_name or "-"
         row_html.append(
             "<tr>"
             f"<td>{escape(user.id[:8])}</td>"
             f"<td>@{escape(user.anonymous_handle)}</td>"
             f"<td>{escape(display_name)}</td>"
-            f"<td>{escape(str(presence.local_date))}</td>"
+            f"<td>{escape(str(dot_event.local_date))}</td>"
             f"<td>{color_html}</td>"
             f"<td>{escape(tags)}</td>"
-            f"<td>{escape(_fmt_dt(presence.updated_at))}</td>"
+            f"<td>{escape(_fmt_dt(dot_event.updated_at))}</td>"
             "</tr>"
         )
 

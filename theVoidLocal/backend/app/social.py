@@ -23,6 +23,8 @@ def mood_to_dot_color(mood_score: float) -> str:
     return DOT_PALETTE[-1][1]
 
 
-def visible_label_for_viewer(presence: SocialPresence, owner: User, viewer_user_id: str) -> str | None:
+def visible_label_for_viewer(presence: SocialPresence | None, owner: User, viewer_user_id: str) -> str | None:
     _ = viewer_user_id
+    if presence is None:
+        return owner.display_name or owner.anonymous_handle
     return presence.display_name_override or owner.display_name or owner.anonymous_handle

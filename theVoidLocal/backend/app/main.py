@@ -28,6 +28,7 @@ from .models import (
     JobStatus,
     JobType,
     RevealMode,
+    SocialDotEvent,
     SocialPresence,
     Transcript,
     User,
@@ -543,61 +544,92 @@ def social_dots(
     friend_by_id = {friend.id: friend for friend in friends}
 
     if history and local_date is None:
-        presences = (
-            db.query(SocialPresence)
-            .filter(SocialPresence.user_id.in_(friend_ids))
+        dot_events = (
+            db.query(SocialDotEvent)
+            .filter(SocialDotEvent.user_id.in_(friend_ids))
             .order_by(
-                SocialPresence.updated_at.desc(),
-                SocialPresence.local_date.desc(),
-                SocialPresence.user_id.asc(),
+                SocialDotEvent.updated_at.desc(),
+                SocialDotEvent.local_date.desc(),
+                SocialDotEvent.user_id.asc(),
+                SocialDotEvent.id.desc(),
             )
             .limit(limit)
             .all()
         )
+        event_dates = sorted({dot_event.local_date for dot_event in dot_events})
+        presence_by_key: dict[tuple[str, date], SocialPresence] = {}
+        if event_dates:
+            presences = (
+                db.query(SocialPresence)
+                .filter(and_(SocialPresence.user_id.in_(friend_ids), SocialPresence.local_date.in_(event_dates)))
+                .all()
+            )
+            presence_by_key = {(presence.user_id, presence.local_date): presence for presence in presences}
+
         dots: list[SocialDot] = []
-        for presence in presences:
-            friend = friend_by_id.get(presence.user_id)
+        for dot_event in dot_events:
+            friend = friend_by_id.get(dot_event.user_id)
             if friend is None:
                 continue
+            presence = presence_by_key.get((dot_event.user_id, dot_event.local_date))
             label = visible_label_for_viewer(presence, friend, current_user.id)
             dots.append(
                 SocialDot(
-                    user_id=presence.user_id,
-                    dot_color=presence.dot_color,
-                    dot_tags=presence.dot_tags or [],
+                    user_id=dot_event.user_id,
+                    dot_color=dot_event.dot_color,
+                    dot_tags=dot_event.dot_tags or [],
                     label=label,
                     is_revealed=label is not None,
                     has_entry=True,
-                    presence_id=presence.id,
-                    local_date=presence.local_date,
-                    updated_at=presence.updated_at,
+                    presence_id=dot_event.id,
+                    local_date=dot_event.local_date,
+                    updated_at=dot_event.updated_at,
                 )
             )
 
         return SocialDotsResponse(local_date=day, dots=dots)
 
     if local_date is None:
-        presences = (
-            db.query(SocialPresence)
-            .filter(SocialPresence.user_id.in_(friend_ids))
+        dot_events = (
+            db.query(SocialDotEvent)
+            .filter(SocialDotEvent.user_id.in_(friend_ids))
             .order_by(
-                SocialPresence.user_id.asc(),
-                SocialPresence.updated_at.desc(),
-                SocialPresence.local_date.desc(),
+                SocialDotEvent.user_id.asc(),
+                SocialDotEvent.updated_at.desc(),
+                SocialDotEvent.local_date.desc(),
+                SocialDotEvent.id.desc(),
             )
             .all()
         )
-        presence_by_user: dict[str, SocialPresence] = {}
-        for presence in presences:
-            if presence.user_id not in presence_by_user:
-                presence_by_user[presence.user_id] = presence
+        latest_event_by_user: dict[str, SocialDotEvent] = {}
+        for dot_event in dot_events:
+            if dot_event.user_id not in latest_event_by_user:
+                latest_event_by_user[dot_event.user_id] = dot_event
     else:
-        presences = (
-            db.query(SocialPresence)
-            .filter(and_(SocialPresence.user_id.in_(friend_ids), SocialPresence.local_date == day))
+        dot_events = (
+            db.query(SocialDotEvent)
+            .filter(and_(SocialDotEvent.user_id.in_(friend_ids), SocialDotEvent.local_date == day))
+            .order_by(
+                SocialDotEvent.user_id.asc(),
+                SocialDotEvent.updated_at.desc(),
+                SocialDotEvent.id.desc(),
+            )
             .all()
         )
-        presence_by_user = {presence.user_id: presence for presence in presences}
+        latest_event_by_user = {}
+        for dot_event in dot_events:
+            if dot_event.user_id not in latest_event_by_user:
+                latest_event_by_user[dot_event.user_id] = dot_event
+
+    event_dates = sorted({dot_event.local_date for dot_event in latest_event_by_user.values()})
+    presence_by_key: dict[tuple[str, date], SocialPresence] = {}
+    if event_dates:
+        presences = (
+            db.query(SocialPresence)
+            .filter(and_(SocialPresence.user_id.in_(friend_ids), SocialPresence.local_date.in_(event_dates)))
+            .all()
+        )
+        presence_by_key = {(presence.user_id, presence.local_date): presence for presence in presences}
 
     dots: list[SocialDot] = []
     for friend_id in sorted(friend_ids):
@@ -605,8 +637,8 @@ def social_dots(
         if friend is None:
             continue
 
-        presence = presence_by_user.get(friend_id)
-        if presence is None:
+        dot_event = latest_event_by_user.get(friend_id)
+        if dot_event is None:
             label = default_friend_label(friend)
             dots.append(
                 SocialDot(
@@ -620,18 +652,19 @@ def social_dots(
             )
             continue
 
+        presence = presence_by_key.get((dot_event.user_id, dot_event.local_date))
         label = visible_label_for_viewer(presence, friend, current_user.id)
         dots.append(
             SocialDot(
                 user_id=friend_id,
-                dot_color=presence.dot_color,
-                dot_tags=presence.dot_tags or [],
+                dot_color=dot_event.dot_color,
+                dot_tags=dot_event.dot_tags or [],
                 label=label,
                 is_revealed=label is not None,
                 has_entry=True,
-                presence_id=presence.id,
-                local_date=presence.local_date,
-                updated_at=presence.updated_at,
+                presence_id=dot_event.id,
+                local_date=dot_event.local_date,
+                updated_at=dot_event.updated_at,
             )
         )
 
@@ -680,6 +713,13 @@ def publish_social_dot(
     color = payload.dot_color or mood_to_dot_color(payload.mood_score if payload.mood_score is not None else 0.0)
     tags = [tag.strip().lower() for tag in payload.mood_tags if tag.strip()][:8]
 
+    dot_event = SocialDotEvent(
+        user_id=current_user.id,
+        local_date=local_date,
+        dot_color=color,
+        dot_tags=tags,
+    )
+
     presence = (
         db.query(SocialPresence)
         .filter(and_(SocialPresence.user_id == current_user.id, SocialPresence.local_date == local_date))
@@ -696,6 +736,7 @@ def publish_social_dot(
         presence.dot_color = color
         presence.dot_tags = tags
 
+    db.add(dot_event)
     db.add(presence)
     db.commit()
 
@@ -708,15 +749,37 @@ def delete_social_dot(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MessageResponse:
+    dot_event = (
+        db.query(SocialDotEvent)
+        .filter(and_(SocialDotEvent.user_id == current_user.id, SocialDotEvent.local_date == local_date))
+        .order_by(SocialDotEvent.updated_at.desc(), SocialDotEvent.created_at.desc(), SocialDotEvent.id.desc())
+        .first()
+    )
+    if dot_event is None:
+        return MessageResponse(message="social dot already absent")
+
+    db.delete(dot_event)
+
+    replacement = (
+        db.query(SocialDotEvent)
+        .filter(and_(SocialDotEvent.user_id == current_user.id, SocialDotEvent.local_date == local_date))
+        .order_by(SocialDotEvent.updated_at.desc(), SocialDotEvent.created_at.desc(), SocialDotEvent.id.desc())
+        .first()
+    )
     presence = (
         db.query(SocialPresence)
         .filter(and_(SocialPresence.user_id == current_user.id, SocialPresence.local_date == local_date))
         .one_or_none()
     )
-    if presence is None:
-        return MessageResponse(message="social dot already absent")
+    if presence is not None:
+        if replacement is None:
+            presence.dot_color = SILENT_DOT_COLOR
+            presence.dot_tags = []
+        else:
+            presence.dot_color = replacement.dot_color
+            presence.dot_tags = replacement.dot_tags or []
+        db.add(presence)
 
-    db.delete(presence)
     db.commit()
     return MessageResponse(message="social dot deleted")
 
