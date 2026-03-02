@@ -112,8 +112,12 @@ make compose-up
 make compose-logs
 make compose-down
 make fly-bootstrap APP=thevoid
-make fly-mpg-create APP=thevoid DB_APP=thevoid-db REGION=sjc
-make fly-mpg-attach APP=thevoid DB_APP=thevoid-db
+make fly-selfhosted-pg-bootstrap DB_APP=thevoid-postgres REGION=sjc DB_VOLUME=thevoid_db_data DB_VOLUME_SIZE_GB=20
+make fly-pg-sync SOURCE_DATABASE_URL=... TARGET_DATABASE_URL=...
+make fly-pg-parity SOURCE_DATABASE_URL=... TARGET_DATABASE_URL=... PARITY_EXTRA_ARGS='--counts-only'
+make fly-pg-cutover APP=thevoid DB_APP=thevoid-postgres POSTGRES_DB=thevoid POSTGRES_USER=thevoid POSTGRES_PASSWORD=... DEPLOY_AFTER_SWITCH=1
+make fly-mpg-create APP=thevoid DB_APP=thevoid-mpg REGION=sjc
+make fly-mpg-attach APP=thevoid DB_APP=thevoid-mpg
 make fly-deploy APP=thevoid
 make fly-status APP=thevoid
 make fly-logs APP=thevoid
@@ -132,6 +136,8 @@ make fly-secrets APP=thevoid
 
 ## Environment
 Copy `.env.example` to `.env` and customize.
+For Fly Postgres migration helpers, `make fly-pg-sync`, `make fly-pg-parity`, `make fly-pg-cutover`, and `make fly-selfhosted-pg-bootstrap` auto-source `backend/.env` when present.
+Set `ADMIN_DATABASE_URL` if you want `/admin` routes to read/write a different Postgres than the main API `DATABASE_URL`.
 
 ## Admin viewer
 - URL: `http://127.0.0.1:8080/admin`
@@ -139,13 +145,13 @@ Copy `.env.example` to `.env` and customize.
 - Social dots table: `http://127.0.0.1:8080/admin/dots`
 - User lifecycle table: `http://127.0.0.1:8080/admin/users`
 
-## Fly Deployment (Postgres + Persistent Audio V1)
+## Fly Deployment (Self-hosted Postgres + Persistent Audio V1)
 This repo is configured for a single Fly machine with:
 - persistent volume mounted at `/data`
 - audio object storage at `/data/storage`
 - inline worker thread in the API process (`INLINE_WORKER_ENABLED=true`)
 - Alembic release migration step (`alembic upgrade head`)
-- database provided by `DATABASE_URL` secret (Fly Managed Postgres)
+- database provided by `DATABASE_URL` secret (managed or self-hosted)
 
 This avoids cross-machine file visibility issues for local object storage in V1.
 
@@ -155,13 +161,14 @@ cd backend
 ./scripts/fly_bootstrap.sh thevoid sjc thevoid_data 10
 ```
 
-### 2) Create and attach Fly Managed Postgres (required)
+### 2) Bootstrap a self-hosted Postgres app (container image)
 ```bash
-fly mpg create --name thevoid-db --region sjc
-fly mpg attach thevoid-db -a thevoid
+cd backend
+POSTGRES_PASSWORD='<db-password>' \
+./scripts/fly_selfhosted_postgres_bootstrap.sh thevoid-postgres sjc thevoid_db_data 20 thevoid thevoid
 ```
 
-### 3) Set app secrets
+### 3) Set backend app secrets
 ```bash
 fly secrets set -a thevoid \\
   JWT_SECRET='<strong-random-secret>' \\
@@ -171,13 +178,38 @@ fly secrets set -a thevoid \\
   ADMIN_PASSWORD='<admin-pass>'
 ```
 
-### 4) Deploy
+### 4) Run migration service against the target Postgres
 ```bash
-cd /path/to/theVoid
-backend/scripts/fly_deploy.sh thevoid
+cd backend
+DATABASE_URL='postgresql+psycopg://thevoid:<db-password>@thevoid-postgres.internal:5432/thevoid' \
+./scripts/migrate.sh
 ```
 
-### 5) Verify
+### 5) Sync managed Postgres data into self-hosted Postgres
+```bash
+cd backend
+SOURCE_DATABASE_URL='<managed-postgres-url>' \
+TARGET_DATABASE_URL='postgresql://thevoid:<db-password>@thevoid-postgres.internal:5432/thevoid' \
+./scripts/postgres_sync_managed_to_container.sh
+```
+
+### 6) Verify parity before cutover
+```bash
+cd backend
+poetry run python ./scripts/postgres_parity_check.py \
+  --source-url '<managed-postgres-url>' \
+  --target-url 'postgresql://thevoid:<db-password>@thevoid-postgres.internal:5432/thevoid'
+```
+
+### 7) Cut over backend app DATABASE_URL to self-hosted Postgres and deploy
+```bash
+cd backend
+POSTGRES_PASSWORD='<db-password>' \
+DEPLOY_AFTER_SWITCH=1 \
+./scripts/fly_switch_database_url.sh thevoid thevoid-postgres thevoid thevoid
+```
+
+### 8) Verify
 ```bash
 fly status -a thevoid
 fly logs -a thevoid
@@ -199,3 +231,4 @@ curl https://thevoid.fly.dev/health
 - Audio is stored outside Postgres by object key as required.
 - The production migration path is Alembic (`alembic upgrade head`), not SQLAlchemy `create_all`.
 - Production startup rejects sqlite `DATABASE_URL` to avoid accidental non-persistent deployments.
+- `postgres_sync_managed_to_container.sh` is a snapshot sync. For strict cutover, run it during a write freeze window.

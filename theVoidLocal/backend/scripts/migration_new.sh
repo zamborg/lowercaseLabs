@@ -7,12 +7,8 @@ if [[ $# -lt 1 ]]; then
   echo "Usage: $0 \"migration message\""
   exit 1
 fi
+POETRY="./scripts/poetry_cmd.sh"
 
-if [[ ! -d .venv ]]; then
-  python3 -m venv .venv
-fi
+"$POETRY" install --no-interaction --no-ansi >/dev/null
 
-source .venv/bin/activate
-pip install -r requirements.txt >/dev/null
-
-exec alembic revision --autogenerate -m "$1"
+"$POETRY" run alembic revision --autogenerate -m "$1"

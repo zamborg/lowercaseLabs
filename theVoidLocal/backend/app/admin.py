@@ -12,7 +12,7 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .db import get_db, now_utc
+from .db import get_admin_db, now_utc
 from .models import (
     AccountDecommission,
     Entry,
@@ -172,7 +172,7 @@ def _layout(title: str, body: str) -> HTMLResponse:
 @router.get("", response_class=HTMLResponse)
 def admin_overview(
     limit: int = Query(25, ge=1, le=150),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_admin_db),
     _: None = Depends(require_admin),
 ) -> HTMLResponse:
     users_count = db.query(func.count(User.id)).scalar() or 0
@@ -329,7 +329,7 @@ def admin_dots(
     local_date: date | None = Query(default=None),
     latest_only: bool = Query(default=False),
     limit: int = Query(150, ge=1, le=500),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_admin_db),
     _: None = Depends(require_admin),
 ) -> HTMLResponse:
     query = db.query(SocialPresence, User).join(User, User.id == SocialPresence.user_id)
@@ -607,7 +607,7 @@ def admin_users(
     q: str = Query(default="", max_length=200),
     account_state: str = Query(default="active", pattern="^(active|decommissioned|all)$"),
     limit: int = Query(75, ge=1, le=300),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_admin_db),
     _: None = Depends(require_admin),
 ) -> HTMLResponse:
     query = (
@@ -708,7 +708,7 @@ def admin_feedback(
     q: str = Query(default="", max_length=200),
     kind: str = Query(default="all", pattern="^(all|idea|bug)$"),
     limit: int = Query(100, ge=1, le=500),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_admin_db),
     _: None = Depends(require_admin),
 ) -> HTMLResponse:
     query = (
@@ -804,7 +804,7 @@ def admin_feedback(
 async def admin_decommission_user(
     user_id: str,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_admin_db),
     _: None = Depends(require_admin),
 ) -> RedirectResponse:
     user = db.query(User).filter(User.id == user_id).one_or_none()
@@ -831,7 +831,7 @@ async def admin_decommission_user(
 async def admin_recommission_user(
     user_id: str,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_admin_db),
     _: None = Depends(require_admin),
 ) -> RedirectResponse:
     user = db.query(User).filter(User.id == user_id).one_or_none()
@@ -852,7 +852,7 @@ async def admin_recommission_user(
 @router.get("/entries/{entry_id}", response_class=HTMLResponse)
 def admin_entry_detail(
     entry_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_admin_db),
     _: None = Depends(require_admin),
 ) -> HTMLResponse:
     row = (

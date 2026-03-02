@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     app_name: str = "theVoid-api"
     environment: str = "development"
     database_url: str = "sqlite:///./backend/thevoid.db"
+    admin_database_url: str | None = None
 
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

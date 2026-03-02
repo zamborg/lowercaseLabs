@@ -5,8 +5,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY backend/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir poetry==2.1.2
+
+COPY backend/pyproject.toml /app/pyproject.toml
+COPY backend/poetry.lock /app/poetry.lock
+RUN poetry config virtualenvs.create false \
+    && poetry install --only main --no-interaction --no-ansi
 
 COPY backend/app /app/app
 COPY backend/alembic /app/alembic

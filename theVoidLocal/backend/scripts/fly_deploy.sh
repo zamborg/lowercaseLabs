@@ -13,9 +13,7 @@ fi
 
 if ! fly secrets list -a "${APP_NAME}" --json | rg -q '"name":\s*"DATABASE_URL"'; then
   echo "DATABASE_URL secret is missing for app '${APP_NAME}'."
-  echo "Attach Fly Managed Postgres before deploying:"
-  echo "  fly mpg create --name ${APP_NAME}-db --region sjc"
-  echo "  fly mpg attach ${APP_NAME}-db -a ${APP_NAME}"
+  echo "Set DATABASE_URL before deploying (managed or self-hosted Postgres)."
   exit 1
 fi
 

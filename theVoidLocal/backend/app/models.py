@@ -150,7 +150,7 @@ class InviteToken(Base):
     token: Mapped[str] = mapped_column(String(128), primary_key=True)
     inviter_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    max_uses: Mapped[int] = mapped_column(Integer, default=1)
+    max_uses: Mapped[int] = mapped_column(Integer, default=25)
     use_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 

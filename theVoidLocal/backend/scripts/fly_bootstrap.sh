@@ -33,12 +33,13 @@ if fly secrets list -a "${APP_NAME}" --json | rg -q '"name":\s*"DATABASE_URL"'; 
   echo "DATABASE_URL secret already set."
 else
   echo "DATABASE_URL secret is missing."
-  echo "Attach managed Postgres before deploy:"
-  echo "  fly mpg create --name ${APP_NAME}-db --region ${REGION}"
-  echo "  fly mpg attach ${APP_NAME}-db -a ${APP_NAME}"
+  echo "Set DATABASE_URL before deploy."
+  echo "If using self-hosted Postgres on Fly:"
+  echo "  backend/scripts/fly_selfhosted_postgres_bootstrap.sh ${APP_NAME}-postgres ${REGION}"
+  echo "  POSTGRES_PASSWORD='<db-password>' backend/scripts/fly_switch_database_url.sh ${APP_NAME} ${APP_NAME}-postgres"
 fi
 
 echo "Bootstrap complete. Next:"
-echo "1) Ensure DATABASE_URL exists (via fly mpg attach ...)"
+echo "1) Ensure DATABASE_URL secret exists (managed or self-hosted Postgres)"
 echo "2) fly secrets set -a ${APP_NAME} JWT_SECRET=<strong-random> OPENAI_API_KEY=<key> ADMIN_USERNAME=<user> ADMIN_PASSWORD=<pass> APPLE_ALLOWED_AUDIENCES=<bundle-id>"
 echo "3) fly deploy -a ${APP_NAME}"

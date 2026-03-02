@@ -2,12 +2,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+POETRY="./scripts/poetry_cmd.sh"
 
-if [[ ! -d .venv ]]; then
-  python3 -m venv .venv
-fi
+"$POETRY" install --no-interaction --no-ansi >/dev/null
 
-source .venv/bin/activate
-pip install -r requirements.txt >/dev/null
-
-exec alembic upgrade head
+"$POETRY" run alembic upgrade head

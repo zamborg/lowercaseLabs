@@ -523,8 +523,18 @@ def social_dots(
 ) -> SocialDotsResponse:
     day = local_date or date.today()
 
-    edges = db.query(FriendEdge).filter(FriendEdge.user_id == current_user.id).all()
-    friend_ids = [edge.friend_user_id for edge in edges]
+    edge_pairs = (
+        db.query(FriendEdge.user_id, FriendEdge.friend_user_id)
+        .filter(or_(FriendEdge.user_id == current_user.id, FriendEdge.friend_user_id == current_user.id))
+        .all()
+    )
+    friend_ids = sorted(
+        {
+            friend_user_id if user_id == current_user.id else user_id
+            for user_id, friend_user_id in edge_pairs
+            if user_id != friend_user_id
+        }
+    )
 
     if not friend_ids:
         return SocialDotsResponse(local_date=day, dots=[])
@@ -537,8 +547,8 @@ def social_dots(
             db.query(SocialPresence)
             .filter(SocialPresence.user_id.in_(friend_ids))
             .order_by(
-                SocialPresence.local_date.desc(),
                 SocialPresence.updated_at.desc(),
+                SocialPresence.local_date.desc(),
                 SocialPresence.user_id.asc(),
             )
             .limit(limit)
@@ -572,8 +582,8 @@ def social_dots(
             .filter(SocialPresence.user_id.in_(friend_ids))
             .order_by(
                 SocialPresence.user_id.asc(),
-                SocialPresence.local_date.desc(),
                 SocialPresence.updated_at.desc(),
+                SocialPresence.local_date.desc(),
             )
             .all()
         )
