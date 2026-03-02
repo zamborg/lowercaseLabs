@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
-from sqlalchemy import and_, func, inspect, text
+from sqlalchemy import and_, func, inspect, or_, text
 from sqlalchemy.orm import Session
 
 from .admin import router as admin_router
