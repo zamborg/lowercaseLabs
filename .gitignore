@@ -1,14 +1,44 @@
-__pycache__
+__pycache__/
+*.py[cod]
 *.bin
 notesExport
-.DS_store
-*.pyc
-.ipynb_checkpoints
+.DS_Store
+.ipynb_checkpoints/
 .python-version
 *.jpeg
 *.env
 *.mov
-wandb
+*.swp
+wandb/
+
+# Python caches and local environments
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.hypothesis/
+.venv/
+.venv*/
+venv/
+venv*/
+
+# Node / frontend build output
+node_modules/
+dist/
+build/
+
+# Local tool state
+.claude/
+.trust-engine-data/
+
+# Xcode and test artifacts
+.test-results/
+*.xcresult/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
 
 # Local iOS model artifacts (large files, keep out of git)
 theVoidLocal/theVoid/theVoid/ModelAssets/*
