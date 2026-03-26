@@ -1,7 +1,7 @@
 # Fly app config for self-hosted Postgres (container-based) on a single machine.
 # Override app/region/volume via backend/scripts/fly_selfhosted_postgres_bootstrap.sh
 
-app = "thevoid-local-db"
+app = "thevoid-local-postgres"
 primary_region = "sjc"
 
 [build]

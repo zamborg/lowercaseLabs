@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Trust Engine</title>
+    <style>
+      :root {
+        --panel: #fffdf9;
+        --ink: #1f1b18;
+        --muted: #6e6259;
+        --line: #ddcfbf;
+        --accent: #c45b2f;
+        --accent-soft: #f3d7cb;
+        --danger: #b23a26;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Iowan Old Style", "Palatino Linotype", serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top right, rgba(196, 91, 47, 0.12), transparent 28%),
+          linear-gradient(180deg, #f9f5ee 0%, #f0e7da 100%);
+      }
+
+      main {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 32px 20px 60px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0 0 12px;
+        font-family: "Avenir Next Condensed", "Franklin Gothic Medium", sans-serif;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .hero {
+        display: grid;
+        gap: 18px;
+        margin-bottom: 28px;
+      }
+
+      .hero p,
+      .muted {
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .two-up {
+        display: grid;
+        grid-template-columns: minmax(320px, 1fr) minmax(320px, 2fr);
+        gap: 16px;
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 18px;
+        box-shadow: 0 12px 40px rgba(31, 27, 24, 0.05);
+      }
+
+      .metric {
+        font-size: 2rem;
+        font-weight: 700;
+      }
+
+      .rule-list,
+      .event-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .rule,
+      .event {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 14px;
+        background: rgba(255, 253, 249, 0.85);
+      }
+
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 0.75rem;
+        background: var(--accent-soft);
+        margin-right: 8px;
+      }
+
+      .risk-high {
+        background: #f8d0c8;
+      }
+
+      .risk-medium {
+        background: #f2e0b8;
+      }
+
+      .risk-low {
+        background: #d4ebd9;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      button,
+      select,
+      input,
+      textarea {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: white;
+        color: var(--ink);
+        padding: 10px 12px;
+        font: inherit;
+      }
+
+      button {
+        border-radius: 999px;
+        cursor: pointer;
+      }
+
+      button.primary {
+        background: var(--accent);
+        color: white;
+        border-color: var(--accent);
+      }
+
+      button.danger {
+        color: white;
+        background: var(--danger);
+        border-color: var(--danger);
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 0.95rem;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .status {
+        min-height: 24px;
+        color: var(--muted);
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 0;
+        font-family: "SF Mono", ui-monospace, monospace;
+        font-size: 0.84rem;
+      }
+
+      @media (max-width: 900px) {
+        .two-up,
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Trust Engine</h1>
+        <p>
+          Zero-trust telemetry for Claude Code. Every hook event is stored, repeated approvals are compiled into a
+          trust skill, and manual rules can be created, edited, or deleted from this dashboard.
+        </p>
+      </section>
+
+      <section id="summary" class="grid"></section>
+
+      <section class="stack">
+        <div class="two-up">
+          <div class="card">
+            <div class="actions" style="margin-top: 0; margin-bottom: 12px;">
+              <button id="newRuleButton" class="primary">New Manual Rule</button>
+              <button id="rebuildButton">Rebuild Trust</button>
+            </div>
+            <h2>Rule Editor</h2>
+            <form id="ruleForm">
+              <input id="ruleId" type="hidden" />
+              <label>
+                Tool Name
+                <input id="toolName" required placeholder="mcp__mail__send_email" />
+              </label>
+              <label>
+                Fingerprint
+                <input id="fingerprint" required placeholder="16-char fingerprint" />
+              </label>
+              <label>
+                Summary
+                <input id="summaryField" placeholder="Human-readable summary" />
+              </label>
+              <div class="row">
+                <label>
+                  Decision
+                  <select id="decision" required>
+                    <option value="allow_once">allow once</option>
+                    <option value="allow_always">allow always</option>
+                    <option value="allow_more_complex">allow-more-complex</option>
+                    <option value="escalate">escalate</option>
+                    <option value="deny">deny</option>
+                  </select>
+                </label>
+                <label>
+                  Remaining Uses
+                  <input id="remainingUses" type="number" min="0" step="1" value="1" />
+                </label>
+              </div>
+              <label>
+                Notes
+                <textarea id="notes" rows="5" placeholder="Why this rule exists"></textarea>
+              </label>
+              <label>
+                <span>Active</span>
+                <select id="active">
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              </label>
+              <div class="actions">
+                <button type="submit" class="primary">Save Rule</button>
+                <button type="button" id="cancelEdit">Clear Editor</button>
+              </div>
+            </form>
+            <div id="status" class="status"></div>
+          </div>
+
+          <div class="card">
+            <h2>Suggested Patterns</h2>
+            <div class="muted">Promote a suggestion into a manual rule or open it in the editor.</div>
+            <div id="suggestedRules" class="rule-list" style="margin-top: 12px;"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Manual Rules</h2>
+          <div id="manualRules" class="rule-list"></div>
+        </div>
+
+        <div class="card">
+          <h2>Generated Skill</h2>
+          <pre id="skillMarkdown"></pre>
+        </div>
+
+        <div class="card">
+          <h2>Recent Events</h2>
+          <div id="recentEvents" class="event-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      let currentState = null;
+
+      async function requestJson(url, method = "GET", body) {
+        const response = await fetch(url, {
+          method,
+          headers: body ? { "content-type": "application/json" } : undefined,
+          body: body ? JSON.stringify(body) : undefined
+        });
+
+        if (!response.ok) {
+          throw new Error(`Request failed: ${response.status}`);
+        }
+
+        return response.json();
+      }
+
+      function setStatus(message) {
+        document.querySelector("#status").textContent = message;
+      }
+
+      function metricCard(label, value, detail) {
+        const div = document.createElement("div");
+        div.className = "card";
+        div.innerHTML = `<div class="muted">${label}</div><div class="metric">${value}</div><div class="muted">${detail}</div>`;
+        return div;
+      }
+
+      function riskClass(risk) {
+        return `pill risk-${risk || "medium"}`;
+      }
+
+      function fillEditor(rule = null) {
+        document.querySelector("#ruleId").value = rule?.id || "";
+        document.querySelector("#toolName").value = rule?.toolName || "";
+        document.querySelector("#fingerprint").value = rule?.fingerprint || "";
+        document.querySelector("#summaryField").value = rule?.summary || "";
+        document.querySelector("#decision").value = rule?.decision || "allow_once";
+        document.querySelector("#remainingUses").value = String(rule?.remainingUses ?? 1);
+        document.querySelector("#notes").value = rule?.notes || "";
+        document.querySelector("#active").value = String(rule?.active ?? true);
+        setStatus(rule ? `Editing ${rule.toolName} ${rule.fingerprint}` : "Creating a new manual rule.");
+      }
+
+      function clearEditor() {
+        fillEditor(null);
+      }
+
+      async function saveRule(payload) {
+        await requestJson("/api/manual-rules", "POST", payload);
+        setStatus("Rule saved.");
+        await load();
+      }
+
+      async function deleteRule(ruleId) {
+        await requestJson(`/api/manual-rules/${encodeURIComponent(ruleId)}`, "DELETE");
+        setStatus("Rule deleted.");
+        await load();
+      }
+
+      function quickCreatePayload(rule, decision) {
+        return {
+          toolName: rule.toolName,
+          fingerprint: rule.fingerprint,
+          summary: rule.summary,
+          decision,
+          notes: rule.summary || "",
+          remainingUses: decision === "allow_once" ? 1 : 0,
+          active: true
+        };
+      }
+
+      function renderRule(rule, options = {}) {
+        const div = document.createElement("div");
+        div.className = "rule";
+        div.innerHTML = `
+          <div>
+            <span class="${riskClass(rule.risk)}">${rule.risk || "manual"}</span>
+            <span class="pill">${rule.decision || "manual"}</span>
+            ${rule.active === false ? '<span class="pill">inactive</span>' : ""}
+          </div>
+          <h3>${rule.toolName}</h3>
+          <div>${rule.summary || "(no summary)"}</div>
+          <div class="muted">fingerprint: ${rule.fingerprint}</div>
+          ${rule.notes ? `<div class="muted">notes: ${rule.notes}</div>` : ""}
+        `;
+
+        const actions = document.createElement("div");
+        actions.className = "actions";
+
+        if (options.suggested) {
+          const optionsList = [
+            ["Allow Once", "allow_once"],
+            ["Allow Always", "allow_always"],
+            ["Allow More Complex", "allow_more_complex"],
+            ["Escalate", "escalate"],
+            ["Deny", "deny"]
+          ];
+
+          for (const [label, decision] of optionsList) {
+            const button = document.createElement("button");
+            button.textContent = label;
+            button.className = decision === "allow_always" ? "primary" : "";
+            button.addEventListener("click", async () => {
+              await saveRule(quickCreatePayload(rule, decision));
+            });
+            actions.appendChild(button);
+          }
+
+          const editButton = document.createElement("button");
+          editButton.textContent = "Open In Editor";
+          editButton.addEventListener("click", () => fillEditor({ ...rule, id: "" }));
+          actions.appendChild(editButton);
+        }
+
+        if (options.manual) {
+          const editButton = document.createElement("button");
+          editButton.textContent = "Edit";
+          editButton.className = "primary";
+          editButton.addEventListener("click", () => fillEditor(rule));
+          actions.appendChild(editButton);
+
+          const deleteButton = document.createElement("button");
+          deleteButton.textContent = "Delete";
+          deleteButton.className = "danger";
+          deleteButton.addEventListener("click", async () => {
+            if (!window.confirm(`Delete rule for ${rule.toolName} ${rule.fingerprint}?`)) {
+              return;
+            }
+
+            await deleteRule(rule.id);
+          });
+          actions.appendChild(deleteButton);
+        }
+
+        div.appendChild(actions);
+        return div;
+      }
+
+      function renderEvent(event) {
+        const div = document.createElement("div");
+        div.className = "event";
+        div.innerHTML = `
+          <div>
+            <span class="${riskClass(event.risk)}">${event.risk}</span>
+            <span class="pill">${event.hookEventName}</span>
+          </div>
+          <h3>${event.toolName || event.hookEventName}</h3>
+          <div>${event.summary || "(no summary)"}</div>
+          <div class="muted">${event.timestamp}</div>
+        `;
+        return div;
+      }
+
+      async function load() {
+        const data = await requestJson("/api/state");
+        currentState = data;
+
+        const summary = document.querySelector("#summary");
+        summary.innerHTML = "";
+        summary.appendChild(metricCard("Events", data.summary.events, "raw hook telemetry stored"));
+        summary.appendChild(metricCard("Manual Rules", data.summary.manualRules, "editable runtime rules"));
+        summary.appendChild(metricCard("Suggested Rules", data.summary.suggestedRules, "compiled from history"));
+        summary.appendChild(
+          metricCard("Mode", data.summary.zeroTrust ? "Zero Trust" : "Adaptive", data.summary.generatedAt || "not built")
+        );
+
+        const suggestedRules = document.querySelector("#suggestedRules");
+        suggestedRules.innerHTML = "";
+        data.suggestedRules.slice(0, 20).forEach((rule) => suggestedRules.appendChild(renderRule(rule, { suggested: true })));
+
+        const manualRules = document.querySelector("#manualRules");
+        manualRules.innerHTML = "";
+        data.manualRules.forEach((rule) => manualRules.appendChild(renderRule(rule, { manual: true })));
+
+        document.querySelector("#skillMarkdown").textContent = data.skillMarkdown || "Skill not generated yet.";
+
+        const recentEvents = document.querySelector("#recentEvents");
+        recentEvents.innerHTML = "";
+        data.recentEvents.slice(0, 40).forEach((event) => recentEvents.appendChild(renderEvent(event)));
+
+        if (!document.querySelector("#ruleId").value) {
+          clearEditor();
+        }
+      }
+
+      document.querySelector("#ruleForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const payload = {
+          id: document.querySelector("#ruleId").value || undefined,
+          toolName: document.querySelector("#toolName").value.trim(),
+          fingerprint: document.querySelector("#fingerprint").value.trim(),
+          summary: document.querySelector("#summaryField").value.trim(),
+          decision: document.querySelector("#decision").value,
+          remainingUses: document.querySelector("#remainingUses").value,
+          notes: document.querySelector("#notes").value.trim(),
+          active: document.querySelector("#active").value === "true"
+        };
+
+        await saveRule(payload);
+      });
+
+      document.querySelector("#newRuleButton").addEventListener("click", () => clearEditor());
+      document.querySelector("#cancelEdit").addEventListener("click", () => clearEditor());
+      document.querySelector("#rebuildButton").addEventListener("click", async () => {
+        await requestJson("/api/rebuild", "POST");
+        setStatus("Trust artifacts rebuilt.");
+        await load();
+      });
+
+      load();
+      setInterval(load, 5000);
+    </script>
+  </body>
+</html>

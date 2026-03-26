@@ -119,6 +119,9 @@ struct SocialView: View {
                 }
             }
             .navigationTitle("Social")
+            .task(id: model.sessionToken) {
+                await model.refreshSocialDots()
+            }
             .refreshable {
                 await model.refreshSocialDots()
             }
@@ -389,7 +392,89 @@ struct SettingsView: View {
                 }
 
                 Section("Integrations") {
-                    Text("HealthKit (V2 planned): sleep, HRV, and activity.")
+                    HStack {
+                        Label("Health", systemImage: healthIconName)
+                        Spacer()
+                        Text(model.healthAuthorizationState.displayLabel)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let snapshot = model.liveHealthSnapshot {
+                        HStack {
+                            Text("Latest score")
+                            Spacer()
+                            if let readinessScore = snapshot.readinessScore {
+                                Text("\(readinessScore)")
+                                    .font(.body.weight(.semibold))
+                            } else {
+                                Text("Unavailable")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    if model.isFetchingLiveHealthSnapshot {
+                        ProgressView("Refreshing health score...")
+                            .font(.footnote)
+                    }
+
+                    HStack {
+                        Button(healthConnectionActionLabel) {
+                            Task {
+                                await runHealthConnectionAction()
+                            }
+                        }
+                        .disabled(!canRunHealthConnectionAction)
+
+                        if model.healthAuthorizationState.isAuthorized {
+                            Button("Refresh Now") {
+                                Task {
+                                    await model.refreshLiveHealthSnapshot()
+                                }
+                            }
+                            .disabled(model.isFetchingLiveHealthSnapshot)
+                        }
+                    }
+
+                    Text("Health data stays on this device in V1 and is not sent to social or backend.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("iCloud Sync") {
+                    Toggle(
+                        "Enable iCloud Sync",
+                        isOn: Binding(
+                            get: { model.iCloudSyncEnabled },
+                            set: { model.setICloudSyncEnabled($0) }
+                        )
+                    )
+
+                    HStack {
+                        Text("Status")
+                        Spacer()
+                        Text(model.iCloudSyncStatusText)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+
+                    if let lastSynced = model.iCloudLastSyncAt {
+                        Text("Last sync: \(lastSynced.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button("Sync Now") {
+                        Task {
+                            await model.syncNow()
+                        }
+                    }
+                    .disabled(!model.iCloudSyncEnabled)
+
+                    Text("Syncs local journal entries, transcripts/insights, audio, and drafts to your private iCloud account.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -508,6 +593,9 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .task {
+                await model.refreshHealthAuthorizationState()
+            }
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
@@ -563,6 +651,60 @@ struct SettingsView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             withAnimation(.easeInOut(duration: 0.2)) {
                 feedbackToastMessage = nil
+            }
+        }
+    }
+
+    private var healthIconName: String {
+        switch model.healthAuthorizationState {
+        case .authorizedAll:
+            return "heart.fill"
+        case .authorizedPartial:
+            return "heart.circle.fill"
+        case .notDetermined:
+            return "heart"
+        case .denied:
+            return "heart.slash.fill"
+        case .unavailable:
+            return "heart.slash"
+        }
+    }
+
+    private var healthConnectionActionLabel: String {
+        switch model.healthAuthorizationState {
+        case .authorizedAll:
+            return "Manage in Health"
+        case .authorizedPartial:
+            return "Manage in Health"
+        case .notDetermined:
+            return "Connect Health"
+        case .denied:
+            return "Open Health"
+        case .unavailable:
+            return "Unavailable"
+        }
+    }
+
+    private var canRunHealthConnectionAction: Bool {
+        model.healthAuthorizationState != .unavailable
+    }
+
+    private func runHealthConnectionAction() async {
+        switch model.healthAuthorizationState {
+        case .notDetermined:
+            await model.requestHealthAuthorization()
+        case .denied:
+            await model.requestHealthAuthorization()
+            if model.healthAuthorizationState == .denied {
+                await MainActor.run {
+                    UIApplication.openHealthAccessManagement()
+                }
+            }
+        case .unavailable:
+            break
+        case .authorizedAll, .authorizedPartial:
+            await MainActor.run {
+                UIApplication.openHealthAccessManagement()
             }
         }
     }

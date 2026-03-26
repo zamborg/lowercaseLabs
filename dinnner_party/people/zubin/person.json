@@ -1,0 +1,8 @@
+{
+  "id": "zubin",
+  "display_name": "Zubin",
+  "preferred_model": "gpt-5.1",
+  "calendar_identity": "zubinaysola@gmail.com",
+  "calendar_mcp_server": "google-calendar",
+  "role": "participant"
+}

@@ -181,6 +181,11 @@
 				TargetAttributes = {
 					B2B392332F44270300C6E338 = {
 						CreatedOnToolsVersion = 16.4;
+						SystemCapabilities = {
+							com.apple.iCloud = {
+								enabled = 1;
+							};
+						};
 					};
 					B2B392402F44270400C6E338 = {
 						CreatedOnToolsVersion = 16.4;
@@ -408,6 +413,8 @@
 				DEVELOPMENT_TEAM = 9G57J2JMF7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "theVoid reads sleep, HRV, resting heart rate, and steps to compute a local readiness score at note time.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "theVoid does not write to Health data in this version. This key is included for HealthKit compatibility.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "theVoid records your daily reflection audio.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "theVoid transcribes your reflections on this device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -439,6 +446,8 @@
 				DEVELOPMENT_TEAM = 9G57J2JMF7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "theVoid reads sleep, HRV, resting heart rate, and steps to compute a local readiness score at note time.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "theVoid does not write to Health data in this version. This key is included for HealthKit compatibility.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "theVoid records your daily reflection audio.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "theVoid transcribes your reflections on this device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

@@ -366,6 +366,7 @@ struct VoidExperienceView: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: 22))
     }
+
 }
 
 private struct PressAndHoldCaptureView: UIViewRepresentable {

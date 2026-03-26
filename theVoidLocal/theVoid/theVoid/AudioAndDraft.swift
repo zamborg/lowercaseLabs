@@ -6,39 +6,176 @@ import SwiftUI
 
 final class DraftStore {
     private let directory: URL
+    private let manifestURL: URL
+    private let fileManager = FileManager.default
 
     init() {
-        let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let root = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
         self.directory = root.appendingPathComponent("VoidDrafts", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: directory.path) {
-            try? FileManager.default.createDirectory(
+        self.manifestURL = directory.appendingPathComponent("drafts.json")
+
+        if !fileManager.fileExists(atPath: directory.path) {
+            try? fileManager.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true,
                 attributes: nil
             )
         }
+
+        reconcileManifestWithFilesystem()
     }
 
     func makeDraftURL() -> URL {
-        directory.appendingPathComponent("\(UUID().uuidString).m4a")
+        let draftID = UUID().uuidString
+        let fileName = "\(draftID).m4a"
+        var manifest = loadManifest()
+        let now = ICloudSyncTimestamp.nowString()
+        manifest.removeAll { $0.draftID == draftID }
+        manifest.append(
+            StoredLocalDraft(
+                draftID: draftID,
+                createdAt: now,
+                updatedAt: now,
+                audioFileName: fileName
+            )
+        )
+        saveManifest(manifest)
+        return directory.appendingPathComponent(fileName)
     }
 
     func listDrafts() -> [URL] {
-        let urls = (try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.creationDateKey],
-            options: [.skipsHiddenFiles]
-        )) ?? []
+        reconcileManifestWithFilesystem()
+        let manifest = loadManifest()
+            .filter { !$0.isDeleted }
+            .sorted { left, right in
+                let leftDate = ICloudSyncTimestamp.date(from: left.updatedAt) ?? .distantPast
+                let rightDate = ICloudSyncTimestamp.date(from: right.updatedAt) ?? .distantPast
+                if leftDate != rightDate {
+                    return leftDate > rightDate
+                }
+                return left.draftID > right.draftID
+            }
 
-        return urls.sorted {
-            let leftDate = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-            let rightDate = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-            return leftDate > rightDate
+        return manifest.compactMap { draft in
+            let url = directory.appendingPathComponent(draft.audioFileName)
+            return fileManager.fileExists(atPath: url.path) ? url : nil
         }
     }
 
     func delete(_ url: URL) {
-        try? FileManager.default.removeItem(at: url)
+        try? fileManager.removeItem(at: url)
+        var manifest = loadManifest()
+        let fileName = url.lastPathComponent
+        let draftID = url.deletingPathExtension().lastPathComponent
+        manifest.removeAll { $0.audioFileName == fileName || $0.draftID == draftID }
+        saveManifest(manifest)
+    }
+
+    func storedDrafts() -> [StoredLocalDraft] {
+        reconcileManifestWithFilesystem()
+        return loadManifest()
+    }
+
+    func storedDraft(draftID: String) -> StoredLocalDraft? {
+        loadManifest().first(where: { $0.draftID == draftID })
+    }
+
+    func draftData(draftID: String) throws -> Data {
+        guard let draft = storedDraft(draftID: draftID), !draft.isDeleted else {
+            throw LocalReflectionError.missingAudioForEntry
+        }
+        let url = directory.appendingPathComponent(draft.audioFileName)
+        guard fileManager.fileExists(atPath: url.path) else {
+            throw LocalReflectionError.missingAudioForEntry
+        }
+        return try Data(contentsOf: url)
+    }
+
+    func upsertDraftFromCloud(_ draft: StoredLocalDraft, audioData: Data) throws {
+        let targetURL = directory.appendingPathComponent(draft.audioFileName)
+        try audioData.write(to: targetURL, options: [.atomic])
+
+        var manifest = loadManifest()
+        manifest.removeAll { $0.draftID == draft.draftID }
+        manifest.append(draft)
+        saveManifest(manifest)
+    }
+
+    func deleteDraft(draftID: String) {
+        var manifest = loadManifest()
+        guard let draft = manifest.first(where: { $0.draftID == draftID }) else {
+            return
+        }
+        let targetURL = directory.appendingPathComponent(draft.audioFileName)
+        try? fileManager.removeItem(at: targetURL)
+        manifest.removeAll { $0.draftID == draftID }
+        saveManifest(manifest)
+    }
+
+    func updateCloudChangeTag(draftID: String, changeTag: String?) {
+        var manifest = loadManifest()
+        guard let index = manifest.firstIndex(where: { $0.draftID == draftID }) else {
+            return
+        }
+        let current = manifest[index]
+        manifest[index] = StoredLocalDraft(
+            draftID: current.draftID,
+            createdAt: current.createdAt,
+            updatedAt: current.updatedAt,
+            audioFileName: current.audioFileName,
+            isDeleted: current.isDeleted,
+            cloudRecordChangeTag: changeTag
+        )
+        saveManifest(manifest)
+    }
+
+    private func reconcileManifestWithFilesystem() {
+        let files = ((try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? [])
+        .filter { $0.pathExtension.lowercased() == "m4a" }
+
+        var manifest = loadManifest()
+        let knownIDs = Set(manifest.map(\.draftID))
+        let now = ICloudSyncTimestamp.nowString()
+
+        for fileURL in files {
+            let draftID = fileURL.deletingPathExtension().lastPathComponent
+            if knownIDs.contains(draftID) {
+                continue
+            }
+            manifest.append(
+                StoredLocalDraft(
+                    draftID: draftID,
+                    createdAt: now,
+                    updatedAt: now,
+                    audioFileName: fileURL.lastPathComponent
+                )
+            )
+        }
+
+        let validFileNames = Set(files.map(\.lastPathComponent))
+        manifest.removeAll { !validFileNames.contains($0.audioFileName) }
+        saveManifest(manifest)
+    }
+
+    private func loadManifest() -> [StoredLocalDraft] {
+        guard fileManager.fileExists(atPath: manifestURL.path),
+              let data = try? Data(contentsOf: manifestURL) else {
+            return []
+        }
+        return (try? JSONDecoder().decode([StoredLocalDraft].self, from: data)) ?? []
+    }
+
+    private func saveManifest(_ manifest: [StoredLocalDraft]) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(manifest) else {
+            return
+        }
+        try? data.write(to: manifestURL, options: [.atomic])
     }
 }
 

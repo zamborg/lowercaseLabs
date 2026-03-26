@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>roundRobin control</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'SF Mono', 'Fira Code', monospace; background: #0a0a0a; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+
+  nav { display: flex; background: #111; border-bottom: 1px solid #222; }
+  nav button { background: none; border: none; color: #666; padding: 10px 20px; font-family: inherit; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; }
+  nav button:hover { color: #aaa; }
+  nav button.active { color: #fff; border-bottom-color: #6ae; }
+  .nav-title { margin-left: auto; padding: 10px 20px; font-size: 11px; color: #444; }
+
+  .panel { flex: 1; display: none; overflow: hidden; flex-direction: column; }
+  .panel.active { display: flex; }
+
+  /* Two-column layout for Tasks + Agents */
+  .split { display: flex; flex: 1; overflow: hidden; }
+  .list-col { width: 260px; border-right: 1px solid #1a1a1a; display: flex; flex-direction: column; }
+  .list-col-header { padding: 12px 16px; background: #0f0f0f; border-bottom: 1px solid #1a1a1a; display: flex; align-items: center; gap: 8px; }
+  .list-col-header span { font-size: 11px; color: #666; flex: 1; }
+  .list-scroll { flex: 1; overflow-y: auto; }
+  .list-item { padding: 10px 16px; cursor: pointer; border-bottom: 1px solid #111; font-size: 12px; display: flex; align-items: center; gap: 8px; }
+  .list-item:hover { background: #111; }
+  .list-item.active { background: #141a22; color: #6ae; }
+  .list-item .item-name { flex: 1; }
+  .list-item .item-tag { font-size: 10px; color: #555; background: #1a1a1a; padding: 1px 5px; border-radius: 3px; }
+  .list-item .del-btn { opacity: 0; font-size: 10px; color: #a44; cursor: pointer; padding: 2px 5px; border-radius: 3px; border: 1px solid #a44; background: none; font-family: inherit; }
+  .list-item:hover .del-btn { opacity: 1; }
+
+  .editor-col { flex: 1; display: flex; flex-direction: column; }
+  .editor-header { padding: 10px 16px; background: #0f0f0f; border-bottom: 1px solid #1a1a1a; display: flex; align-items: center; gap: 10px; font-size: 12px; color: #888; }
+  .editor-header input { flex: 1; background: none; border: none; color: #e0e0e0; font-family: inherit; font-size: 13px; font-weight: 600; outline: none; }
+  textarea { flex: 1; background: #0d0d0d; border: none; color: #ccc; font-family: inherit; font-size: 12px; line-height: 1.7; padding: 16px; resize: none; outline: none; }
+  .editor-footer { padding: 10px 16px; background: #0f0f0f; border-top: 1px solid #1a1a1a; display: flex; gap: 8px; align-items: center; }
+  .editor-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #333; font-size: 13px; }
+
+  /* Runs panel */
+  #runs-panel { padding: 24px; overflow-y: auto; }
+  .run-launch { margin-bottom: 28px; }
+  .run-launch h2 { font-size: 13px; color: #888; margin-bottom: 12px; }
+  .selector-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .selector-group { display: flex; flex-direction: column; gap: 6px; }
+  .selector-group label { font-size: 11px; color: #666; }
+  select { background: #151515; border: 1px solid #2a2a2a; color: #e0e0e0; padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 12px; outline: none; }
+  select:focus { border-color: #444; }
+  select[multiple] { height: 100px; }
+  .run-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+  #launch-feedback { font-size: 12px; color: #888; }
+
+  .runs-list h2 { font-size: 13px; color: #888; margin-bottom: 12px; }
+  .run-card { background: #111; border: 1px solid #222; border-radius: 8px; padding: 14px 18px; margin-bottom: 10px; display: flex; align-items: center; gap: 16px; }
+  .run-card .run-info { flex: 1; }
+  .run-card .run-title { font-size: 13px; font-weight: 600; color: #e0e0e0; margin-bottom: 4px; }
+  .run-card .run-meta { font-size: 11px; color: #555; }
+  .run-card a { color: #6ae; font-size: 12px; text-decoration: none; }
+  .run-card a:hover { text-decoration: underline; }
+  .run-card .run-dot { width: 8px; height: 8px; border-radius: 50%; background: #2d5; }
+
+  /* Buttons */
+  .btn { padding: 7px 18px; border-radius: 6px; border: none; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: #2a7; color: #fff; }
+  .btn-primary:hover { background: #3b8; }
+  .btn-primary:disabled { background: #1a3a2a; color: #555; cursor: not-allowed; }
+  .btn-secondary { background: #1a1a1a; border: 1px solid #333; color: #aaa; }
+  .btn-secondary:hover { border-color: #555; color: #e0e0e0; }
+  .btn-danger { background: none; border: 1px solid #a33; color: #e44; font-size: 11px; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-family: inherit; }
+  .btn-danger:hover { background: rgba(170,51,51,0.1); }
+  .btn-small { padding: 4px 12px; font-size: 11px; }
+  .saved-flash { font-size: 11px; color: #2d5; }
+
+  /* Schema hint panel */
+  .schema-hint { background: #080808; border-bottom: 1px solid #1a1a1a; padding: 10px 16px; }
+  .schema-hint-label { font-size: 10px; color: #444; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .schema-hint pre { font-size: 11px; color: #556; line-height: 1.6; white-space: pre; }
+</style>
+</head>
+<body>
+
+<nav>
+  <button class="tab-btn active" data-tab="tasks">Tasks</button>
+  <button class="tab-btn" data-tab="souls">Agents</button>
+  <button class="tab-btn" data-tab="prompts">Prompts</button>
+  <button class="tab-btn" data-tab="runs">Runs</button>
+  <span class="nav-title">roundRobin control</span>
+</nav>
+
+<!-- Tasks Panel -->
+<div id="tasks" class="panel active">
+  <div class="split">
+    <div class="list-col">
+      <div class="list-col-header">
+        <span>tasks</span>
+        <button class="btn btn-secondary btn-small" id="new-task-btn">+ New</button>
+      </div>
+      <div class="list-scroll" id="tasks-list"></div>
+    </div>
+    <div class="editor-col" id="task-editor">
+      <div class="editor-empty">Select a task to edit</div>
+    </div>
+  </div>
+</div>
+
+<!-- Souls Panel -->
+<div id="souls" class="panel">
+  <div class="split">
+    <div class="list-col">
+      <div class="list-col-header">
+        <span>souls</span>
+        <button class="btn btn-secondary btn-small" id="new-soul-btn">+ New</button>
+      </div>
+      <div class="list-scroll" id="souls-list"></div>
+    </div>
+    <div class="editor-col" id="soul-editor">
+      <div class="editor-empty">Select a soul to edit</div>
+    </div>
+  </div>
+</div>
+
+<!-- Prompts Panel -->
+<div id="prompts" class="panel">
+  <div class="split">
+    <div class="list-col">
+      <div class="list-col-header">
+        <span>prompts</span>
+        <button class="btn btn-secondary btn-small" id="new-prompt-btn">+ New</button>
+      </div>
+      <div class="list-scroll" id="prompts-list"></div>
+    </div>
+    <div class="editor-col" id="prompt-editor">
+      <div class="editor-empty">Select a prompt to edit</div>
+    </div>
+  </div>
+</div>
+
+<!-- Runs Panel -->
+<div id="runs" class="panel">
+  <div id="runs-panel">
+    <div class="run-launch">
+      <h2>Start a run</h2>
+      <div class="selector-row">
+        <div class="selector-group">
+          <label>Task</label>
+          <select id="run-task"></select>
+        </div>
+        <div class="selector-group">
+          <label>Souls (hold ⌘/ctrl for multi-select)</label>
+          <select id="run-souls" multiple></select>
+        </div>
+      </div>
+      <div class="run-actions">
+        <button class="btn btn-primary" id="launch-btn">Launch Run</button>
+        <span id="launch-feedback"></span>
+      </div>
+    </div>
+    <div class="runs-list">
+      <h2>Active runs</h2>
+      <div id="runs-cards"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- Tabs ---
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'runs') loadRunsPanel();
+    if (btn.dataset.tab === 'prompts') loadPrompts();
+  });
+});
+
+// ─── Tasks ───────────────────────────────────────────
+
+let tasks = [];
+let selectedTask = null;
+
+async function loadTasks() {
+  tasks = await fetch('/api/tasks').then(r => r.json());
+  renderTaskList();
+}
+
+function renderTaskList() {
+  const el = document.getElementById('tasks-list');
+  el.innerHTML = '';
+  for (const t of tasks) {
+    const row = document.createElement('div');
+    row.className = 'list-item' + (selectedTask?.name === t.name ? ' active' : '');
+    row.innerHTML = `<span class="item-name">${t.name}</span>${t.hasData ? '<span class="item-tag">data/</span>' : ''}<button class="del-btn" title="Delete">✕</button>`;
+    row.querySelector('.item-name').addEventListener('click', () => openTask(t.name));
+    row.querySelector('.del-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete task "${t.name}"?`)) return;
+      await fetch(`/api/tasks/${encodeURIComponent(t.name)}`, { method: 'DELETE' });
+      if (selectedTask?.name === t.name) { selectedTask = null; document.getElementById('task-editor').innerHTML = '<div class="editor-empty">Select a task to edit</div>'; }
+      loadTasks();
+    });
+    el.appendChild(row);
+  }
+}
+
+async function openTask(name) {
+  const { content } = await fetch(`/api/tasks/${encodeURIComponent(name)}`).then(r => r.json());
+  selectedTask = { name };
+  renderTaskList();
+  const ed = document.getElementById('task-editor');
+  ed.innerHTML = `
+    <div class="editor-header">
+      <span style="color:#555">tasks/</span><span style="color:#e0e0e0;font-weight:600">${name}</span><span style="color:#555">/task.md</span>
+      <span class="saved-flash" id="task-saved" style="display:none">saved</span>
+    </div>
+    <div class="schema-hint">
+      <div class="schema-hint-label">task format</div>
+      <pre>---
+data_dir: ./data   # optional — path to data dir, relative to tasks/&lt;name&gt;/ or absolute
+---
+
+# Task title
+description of what agents should do...</pre>
+    </div>
+    <textarea id="task-content" spellcheck="false">${esc(content)}</textarea>
+    <div class="editor-footer">
+      <button class="btn btn-primary btn-small" id="save-task-btn">Save</button>
+    </div>`;
+  document.getElementById('save-task-btn').addEventListener('click', async () => {
+    const content = document.getElementById('task-content').value;
+    await fetch(`/api/tasks/${encodeURIComponent(name)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+    flash('task-saved');
+  });
+}
+
+document.getElementById('new-task-btn').addEventListener('click', async () => {
+  const name = prompt('Task name:');
+  if (!name) return;
+  await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+  await loadTasks();
+  openTask(name);
+});
+
+// ─── Souls ───────────────────────────────────────────
+
+let souls = [];
+let selectedSoul = null;
+
+async function loadSouls() {
+  souls = await fetch('/api/souls').then(r => r.json());
+  renderSoulList();
+}
+
+function renderSoulList() {
+  const el = document.getElementById('souls-list');
+  el.innerHTML = '';
+  for (const s of souls) {
+    const row = document.createElement('div');
+    row.className = 'list-item' + (selectedSoul?.file === s.file ? ' active' : '');
+    const modelShort = { 'claude-opus-4-6': 'opus', 'claude-sonnet-4-6': 'sonnet', 'claude-haiku-4-5-20251001': 'haiku' };
+    const m = s.content.match(/^model:\s*(.+)$/m);
+    const modelLabel = m ? (modelShort[m[1].trim()] || m[1].trim()) : 'sonnet';
+    row.innerHTML = `<span class="item-name">${s.name}</span><span class="item-tag">${modelLabel}</span><button class="del-btn" title="Delete">✕</button>`;
+    row.querySelector('.item-name').addEventListener('click', () => openSoul(s.file));
+    row.querySelector('.del-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete soul "${s.name}"?`)) return;
+      await fetch(`/api/souls/${encodeURIComponent(s.file)}`, { method: 'DELETE' });
+      if (selectedSoul?.file === s.file) { selectedSoul = null; document.getElementById('soul-editor').innerHTML = '<div class="editor-empty">Select a soul to edit</div>'; }
+      loadSouls();
+    });
+    el.appendChild(row);
+  }
+}
+
+
+async function openSoul(file) {
+  const { content } = await fetch(`/api/souls/${encodeURIComponent(file)}`).then(r => r.json());
+  selectedSoul = { file };
+  renderSoulList();
+  const ed = document.getElementById('soul-editor');
+  ed.innerHTML = `
+    <div class="editor-header">
+      <span style="color:#555">souls/</span><span style="color:#e0e0e0;font-weight:600">${file}</span>
+      <span class="saved-flash" id="soul-saved" style="display:none">saved</span>
+    </div>
+    <div class="schema-hint">
+      <div class="schema-hint-label">agent config format</div>
+      <pre>---
+name: MyAgent
+model: claude-sonnet-4-6   # claude-opus-4-6 | claude-sonnet-4-6 | claude-haiku-4-5-20251001
+system_prompt: default.md  # filename in prompts/
+---
+
+...soul / personality here...</pre>
+    </div>
+    <textarea id="soul-content" spellcheck="false">${esc(content)}</textarea>
+    <div class="editor-footer">
+      <button class="btn btn-primary btn-small" id="save-soul-btn">Save</button>
+    </div>`;
+  document.getElementById('save-soul-btn').addEventListener('click', async () => {
+    const content = document.getElementById('soul-content').value;
+    await fetch(`/api/souls/${encodeURIComponent(file)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+    flash('soul-saved');
+    loadSouls();
+  });
+}
+
+document.getElementById('new-soul-btn').addEventListener('click', async () => {
+  const name = prompt('Soul name (e.g. "Critic"):');
+  if (!name) return;
+  const { file } = await fetch('/api/souls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }).then(r => r.json());
+  await loadSouls();
+  openSoul(file);
+});
+
+// ─── Prompts ──────────────────────────────────────────
+
+let prompts = [];
+let selectedPrompt = null;
+
+async function loadPrompts() {
+  prompts = await fetch('/api/prompts').then(r => r.json());
+  renderPromptList();
+}
+
+function renderPromptList() {
+  const el = document.getElementById('prompts-list');
+  el.innerHTML = '';
+  for (const p of prompts) {
+    const row = document.createElement('div');
+    row.className = 'list-item' + (selectedPrompt?.file === p.file ? ' active' : '');
+    row.innerHTML = `<span class="item-name">${p.file}</span><button class="del-btn" title="Delete">✕</button>`;
+    row.querySelector('.item-name').addEventListener('click', () => openPrompt(p.file));
+    row.querySelector('.del-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete prompt "${p.file}"?`)) return;
+      await fetch(`/api/prompts/${encodeURIComponent(p.file)}`, { method: 'DELETE' });
+      if (selectedPrompt?.file === p.file) { selectedPrompt = null; document.getElementById('prompt-editor').innerHTML = '<div class="editor-empty">Select a prompt to edit</div>'; }
+      loadPrompts();
+    });
+    el.appendChild(row);
+  }
+}
+
+async function openPrompt(file) {
+  const { content } = await fetch(`/api/prompts/${encodeURIComponent(file)}`).then(r => r.json());
+  selectedPrompt = { file };
+  renderPromptList();
+  const ed = document.getElementById('prompt-editor');
+  ed.innerHTML = `
+    <div class="editor-header">
+      <span style="color:#555">prompts/</span><span style="color:#e0e0e0;font-weight:600">${file}</span>
+      <span class="saved-flash" id="prompt-saved" style="display:none">saved</span>
+    </div>
+    <div class="schema-hint">
+      <div class="schema-hint-label">system prompt — referenced by agents via <code style="color:#6ae">system_prompt: ${file}</code></div>
+      <pre>Plain markdown. Injected at the top of each agent's CLAUDE.md before their soul and the task.</pre>
+    </div>
+    <textarea id="prompt-content" spellcheck="false">${esc(content)}</textarea>
+    <div class="editor-footer">
+      <button class="btn btn-primary btn-small" id="save-prompt-btn">Save</button>
+    </div>`;
+  document.getElementById('save-prompt-btn').addEventListener('click', async () => {
+    const content = document.getElementById('prompt-content').value;
+    await fetch(`/api/prompts/${encodeURIComponent(file)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+    flash('prompt-saved');
+  });
+}
+
+document.getElementById('new-prompt-btn').addEventListener('click', async () => {
+  const name = prompt('Prompt name (e.g. "senior-engineer"):');
+  if (!name) return;
+  const { file } = await fetch('/api/prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }).then(r => r.json());
+  await loadPrompts();
+  openPrompt(file);
+});
+
+// ─── Runs ─────────────────────────────────────────────
+
+async function loadRunsPanel() {
+  // Populate task selector
+  const taskSel = document.getElementById('run-task');
+  const curTask = taskSel.value;
+  taskSel.innerHTML = '<option value="">— select task —</option>';
+  for (const t of tasks) {
+    const opt = document.createElement('option');
+    opt.value = t.name; opt.textContent = t.name;
+    if (t.name === curTask) opt.selected = true;
+    taskSel.appendChild(opt);
+  }
+
+  // Populate souls selector
+  const soulsSel = document.getElementById('run-souls');
+  const curSouls = Array.from(soulsSel.selectedOptions).map(o => o.value);
+  soulsSel.innerHTML = '';
+  for (const s of souls) {
+    const opt = document.createElement('option');
+    opt.value = s.file; opt.textContent = s.name;
+    if (curSouls.includes(s.file)) opt.selected = true;
+    soulsSel.appendChild(opt);
+  }
+
+  // Load active runs
+  const runs = await fetch('/api/runs').then(r => r.json());
+  const cards = document.getElementById('runs-cards');
+  cards.innerHTML = '';
+  if (!runs.length) {
+    cards.innerHTML = '<p style="color:#444;font-size:12px">No active runs.</p>';
+    return;
+  }
+  for (const run of runs) {
+    const card = document.createElement('div');
+    card.className = 'run-card';
+    card.innerHTML = `
+      <div class="run-dot"></div>
+      <div class="run-info">
+        <div class="run-title">${run.task} &mdash; ${run.souls.join(', ')}</div>
+        <div class="run-meta">Started ${new Date(run.startedAt).toLocaleTimeString()} &bull; container ${run.id}</div>
+      </div>
+      <a href="${run.url}" target="_blank">${run.url}</a>
+      <button class="btn-danger" data-id="${run.id}">Kill</button>`;
+    card.querySelector('.btn-danger').addEventListener('click', async (e) => {
+      const id = e.target.dataset.id;
+      await fetch(`/api/runs/${id}/kill`, { method: 'POST' });
+      loadRunsPanel();
+    });
+    cards.appendChild(card);
+  }
+}
+
+document.getElementById('launch-btn').addEventListener('click', async () => {
+  const task = document.getElementById('run-task').value;
+  const souls = Array.from(document.getElementById('run-souls').selectedOptions).map(o => o.value);
+  const feedback = document.getElementById('launch-feedback');
+  if (!task || !souls.length) { feedback.textContent = 'Select a task and at least one soul.'; return; }
+  feedback.textContent = 'Building image if needed, then spinning up container...';
+  document.getElementById('launch-btn').disabled = true;
+  try {
+    const res = await fetch('/api/runs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task, souls }),
+    });
+    const run = await res.json();
+    if (run.error) { feedback.textContent = 'Error: ' + run.error; }
+    else {
+      const note = run.imageBuilt ? ' (image was built)' : '';
+      feedback.innerHTML = `Run started${note}! <a href="${run.url}" target="_blank" style="color:#6ae">${run.url}</a>`;
+      loadRunsPanel();
+    }
+  } catch (e) { feedback.textContent = 'Error: ' + e.message; }
+  document.getElementById('launch-btn').disabled = false;
+});
+
+// ─── Utils ────────────────────────────────────────────
+
+function esc(s) { const d = document.createElement('textarea'); d.textContent = s; return d.value; }
+
+function flash(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.display = 'inline';
+  setTimeout(() => { el.style.display = 'none'; }, 1500);
+}
+
+// ─── Init ─────────────────────────────────────────────
+loadTasks();
+loadSouls();
+loadPrompts();
+</script>
+</body>
+</html>

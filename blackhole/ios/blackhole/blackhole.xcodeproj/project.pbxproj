@@ -1,0 +1,551 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		233B17AA97F45840B8A74C4E /* CaptureRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B36373AC36C9BC877835AE5 /* CaptureRouting.swift */; };
+		248DE74F29C327CC987D570D /* CaptureViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2D69C04A5D124F5CC2BF1F9 /* CaptureViewModel.swift */; };
+		271D680C5BFC4A0DF8B19E8F /* AudioRecorderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9822BCF2117B71EA95BCD691 /* AudioRecorderService.swift */; };
+		2B1426FD9721B881A1AC19C8 /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00401261BCCD761344CEFBE3 /* NotesView.swift */; };
+		2B31100379B544B3EB713A7D /* Protocols.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D62E828997A12F3039A7DB5 /* Protocols.swift */; };
+		31AD859B77F7F1FC9BD6F937 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55CAD912F24E60911C46FC1F /* RootView.swift */; };
+		334FB2B70E18686BD5A84895 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91B4FE229D6BC5818469851D /* AppTheme.swift */; };
+		432D70B77105AAE06A185F81 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4070CCCA44767B1DA1860C /* AppState.swift */; };
+		5023CA01AD4A3ED04AB4FEC6 /* DomainModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B10171C8D8FEDFF17E51832 /* DomainModels.swift */; };
+		51ECEFE85316D682626B102B /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A666A558FC1E95342FBE211 /* CaptureView.swift */; };
+		690FC4043B1FD84A8B72E07E /* CaptureRouterClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8C537BAD1C6F8740F519A0 /* CaptureRouterClientTests.swift */; };
+		80AD2A1DAF2BEBAA31869CFB /* RemoteServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD99A9D2C2E36CB89DEF886B /* RemoteServices.swift */; };
+		83F5C86A0D4EA552B8EF460E /* SSEParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3962B5DCCDC6749E909EFE6 /* SSEParser.swift */; };
+		84802AD8EA206D6443C1B732 /* JSONCoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DC2B3B00BB1955A9C02D44C /* JSONCoding.swift */; };
+		92F738C76102E72A205B6B31 /* blackholeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AC7F13A4EC9C261EE69CDD8 /* blackholeApp.swift */; };
+		959B38054D31AFECF2CDFE91 /* CaptureViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90AFBDC39C5FC5867CB3CFBB /* CaptureViewModelTests.swift */; };
+		B801FAE10D9959A6C2D1A6D4 /* TodosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24346E81DB2B31F85450175E /* TodosView.swift */; };
+		BCA1D8E357F260C4D85FD526 /* TodosViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 886DF3F4D33B365FEC5C6005 /* TodosViewModel.swift */; };
+		F12EDC3EE0DF636B95C8B132 /* SSEParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B79A92D66D70B1DCD4F2977 /* SSEParserTests.swift */; };
+		F7717B2358C937CD36D46D97 /* AuthSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F6FB5C8DF3109D92FBC42F2 /* AuthSessionStore.swift */; };
+		F9C117C5056B0A933E6291A8 /* NotesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA2EC1CCB2859AAF5E03949 /* NotesViewModel.swift */; };
+		FA1BD6A9F463284347B63F69 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10E7A72FD4E3FB8D92FD5FB /* APIClient.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		9B778B38A74A48132C03CA55 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8702F2A50A677B13C8CE4B72 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E19E5B614332ED15A31C3084;
+			remoteInfo = blackhole;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		00401261BCCD761344CEFBE3 /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
+		24346E81DB2B31F85450175E /* TodosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodosView.swift; sourceTree = "<group>"; };
+		2A666A558FC1E95342FBE211 /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
+		2AC7F13A4EC9C261EE69CDD8 /* blackholeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = blackholeApp.swift; sourceTree = "<group>"; };
+		2B36373AC36C9BC877835AE5 /* CaptureRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureRouting.swift; sourceTree = "<group>"; };
+		2F6FB5C8DF3109D92FBC42F2 /* AuthSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionStore.swift; sourceTree = "<group>"; };
+		3E2EB56F348D631B90F056E4 /* blackholeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = blackholeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		55CAD912F24E60911C46FC1F /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		6D62E828997A12F3039A7DB5 /* Protocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Protocols.swift; sourceTree = "<group>"; };
+		6DC2B3B00BB1955A9C02D44C /* JSONCoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCoding.swift; sourceTree = "<group>"; };
+		6FA2EC1CCB2859AAF5E03949 /* NotesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesViewModel.swift; sourceTree = "<group>"; };
+		7B79A92D66D70B1DCD4F2977 /* SSEParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEParserTests.swift; sourceTree = "<group>"; };
+		886DF3F4D33B365FEC5C6005 /* TodosViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodosViewModel.swift; sourceTree = "<group>"; };
+		90AFBDC39C5FC5867CB3CFBB /* CaptureViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModelTests.swift; sourceTree = "<group>"; };
+		91B4FE229D6BC5818469851D /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		9822BCF2117B71EA95BCD691 /* AudioRecorderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorderService.swift; sourceTree = "<group>"; };
+		9B10171C8D8FEDFF17E51832 /* DomainModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainModels.swift; sourceTree = "<group>"; };
+		AA4070CCCA44767B1DA1860C /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		B2D69C04A5D124F5CC2BF1F9 /* CaptureViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModel.swift; sourceTree = "<group>"; };
+		C25283F0519997D337970990 /* blackhole.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = blackhole.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C3962B5DCCDC6749E909EFE6 /* SSEParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEParser.swift; sourceTree = "<group>"; };
+		CB8C537BAD1C6F8740F519A0 /* CaptureRouterClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureRouterClientTests.swift; sourceTree = "<group>"; };
+		DD99A9D2C2E36CB89DEF886B /* RemoteServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteServices.swift; sourceTree = "<group>"; };
+		F10E7A72FD4E3FB8D92FD5FB /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		001D7FC4EACE49DB1E616832 /* Todos */ = {
+			isa = PBXGroup;
+			children = (
+				24346E81DB2B31F85450175E /* TodosView.swift */,
+				886DF3F4D33B365FEC5C6005 /* TodosViewModel.swift */,
+			);
+			path = Todos;
+			sourceTree = "<group>";
+		};
+		0074246B694B4A31C091080F /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				B2B9AFBA8BEF0CD786A42C69 /* Capture */,
+				1E3F6D422EC2FD6E90693D5F /* Notes */,
+				001D7FC4EACE49DB1E616832 /* Todos */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		1E3F6D422EC2FD6E90693D5F /* Notes */ = {
+			isa = PBXGroup;
+			children = (
+				00401261BCCD761344CEFBE3 /* NotesView.swift */,
+				6FA2EC1CCB2859AAF5E03949 /* NotesViewModel.swift */,
+			);
+			path = Notes;
+			sourceTree = "<group>";
+		};
+		26BA9043D10ADFB143D1008E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C25283F0519997D337970990 /* blackhole.app */,
+				3E2EB56F348D631B90F056E4 /* blackholeTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		2716305400F6F161B3C86774 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				AA4070CCCA44767B1DA1860C /* AppState.swift */,
+				2AC7F13A4EC9C261EE69CDD8 /* blackholeApp.swift */,
+				55CAD912F24E60911C46FC1F /* RootView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		4F4E9AF2E9A2F684DE297E49 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				F10E7A72FD4E3FB8D92FD5FB /* APIClient.swift */,
+				9822BCF2117B71EA95BCD691 /* AudioRecorderService.swift */,
+				2F6FB5C8DF3109D92FBC42F2 /* AuthSessionStore.swift */,
+				6DC2B3B00BB1955A9C02D44C /* JSONCoding.swift */,
+				6D62E828997A12F3039A7DB5 /* Protocols.swift */,
+				DD99A9D2C2E36CB89DEF886B /* RemoteServices.swift */,
+				C3962B5DCCDC6749E909EFE6 /* SSEParser.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		774F197953DF0A1563C82CE9 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				2B36373AC36C9BC877835AE5 /* CaptureRouting.swift */,
+				9B10171C8D8FEDFF17E51832 /* DomainModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		B2B9AFBA8BEF0CD786A42C69 /* Capture */ = {
+			isa = PBXGroup;
+			children = (
+				2A666A558FC1E95342FBE211 /* CaptureView.swift */,
+				B2D69C04A5D124F5CC2BF1F9 /* CaptureViewModel.swift */,
+			);
+			path = Capture;
+			sourceTree = "<group>";
+		};
+		D5F9EE7AA6A9EECD7465885F /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				91B4FE229D6BC5818469851D /* AppTheme.swift */,
+			);
+			path = Design;
+			sourceTree = "<group>";
+		};
+		E2163C331607BF46875CB9FF = {
+			isa = PBXGroup;
+			children = (
+				ED5430A261E2F9B957C9E020 /* blackholeTests */,
+				E35F50DB8F89C66C45747ED9 /* Sources */,
+				26BA9043D10ADFB143D1008E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E35F50DB8F89C66C45747ED9 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				2716305400F6F161B3C86774 /* App */,
+				D5F9EE7AA6A9EECD7465885F /* Design */,
+				0074246B694B4A31C091080F /* Features */,
+				774F197953DF0A1563C82CE9 /* Models */,
+				4F4E9AF2E9A2F684DE297E49 /* Services */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		ED5430A261E2F9B957C9E020 /* blackholeTests */ = {
+			isa = PBXGroup;
+			children = (
+				CB8C537BAD1C6F8740F519A0 /* CaptureRouterClientTests.swift */,
+				90AFBDC39C5FC5867CB3CFBB /* CaptureViewModelTests.swift */,
+				7B79A92D66D70B1DCD4F2977 /* SSEParserTests.swift */,
+			);
+			name = blackholeTests;
+			path = Tests/blackholeTests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		700492F3E01ECA746EF5E52B /* blackholeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 67F2406C65127512DECC52B5 /* Build configuration list for PBXNativeTarget "blackholeTests" */;
+			buildPhases = (
+				F613F0110B17F4892D6C8CC6 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E1B1DF98A941620E2AFBB452 /* PBXTargetDependency */,
+			);
+			name = blackholeTests;
+			packageProductDependencies = (
+			);
+			productName = blackholeTests;
+			productReference = 3E2EB56F348D631B90F056E4 /* blackholeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		E19E5B614332ED15A31C3084 /* blackhole */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9027CFC30CBD691D0CFCB682 /* Build configuration list for PBXNativeTarget "blackhole" */;
+			buildPhases = (
+				1F118DA949D68F874297A79C /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = blackhole;
+			packageProductDependencies = (
+			);
+			productName = blackhole;
+			productReference = C25283F0519997D337970990 /* blackhole.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8702F2A50A677B13C8CE4B72 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					E19E5B614332ED15A31C3084 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 5229424F23595510946B7206 /* Build configuration list for PBXProject "blackhole" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = E2163C331607BF46875CB9FF;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 26BA9043D10ADFB143D1008E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E19E5B614332ED15A31C3084 /* blackhole */,
+				700492F3E01ECA746EF5E52B /* blackholeTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1F118DA949D68F874297A79C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FA1BD6A9F463284347B63F69 /* APIClient.swift in Sources */,
+				432D70B77105AAE06A185F81 /* AppState.swift in Sources */,
+				334FB2B70E18686BD5A84895 /* AppTheme.swift in Sources */,
+				271D680C5BFC4A0DF8B19E8F /* AudioRecorderService.swift in Sources */,
+				F7717B2358C937CD36D46D97 /* AuthSessionStore.swift in Sources */,
+				233B17AA97F45840B8A74C4E /* CaptureRouting.swift in Sources */,
+				51ECEFE85316D682626B102B /* CaptureView.swift in Sources */,
+				248DE74F29C327CC987D570D /* CaptureViewModel.swift in Sources */,
+				5023CA01AD4A3ED04AB4FEC6 /* DomainModels.swift in Sources */,
+				84802AD8EA206D6443C1B732 /* JSONCoding.swift in Sources */,
+				2B1426FD9721B881A1AC19C8 /* NotesView.swift in Sources */,
+				F9C117C5056B0A933E6291A8 /* NotesViewModel.swift in Sources */,
+				2B31100379B544B3EB713A7D /* Protocols.swift in Sources */,
+				80AD2A1DAF2BEBAA31869CFB /* RemoteServices.swift in Sources */,
+				31AD859B77F7F1FC9BD6F937 /* RootView.swift in Sources */,
+				83F5C86A0D4EA552B8EF460E /* SSEParser.swift in Sources */,
+				B801FAE10D9959A6C2D1A6D4 /* TodosView.swift in Sources */,
+				BCA1D8E357F260C4D85FD526 /* TodosViewModel.swift in Sources */,
+				92F738C76102E72A205B6B31 /* blackholeApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F613F0110B17F4892D6C8CC6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				690FC4043B1FD84A8B72E07E /* CaptureRouterClientTests.swift in Sources */,
+				959B38054D31AFECF2CDFE91 /* CaptureViewModelTests.swift in Sources */,
+				F12EDC3EE0DF636B95C8B132 /* SSEParserTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		E1B1DF98A941620E2AFBB452 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E19E5B614332ED15A31C3084 /* blackhole */;
+			targetProxy = 9B778B38A74A48132C03CA55 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2BDE4F683020CB5EE6AFEB3D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		60016396297CAF688340E9B4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9G57J2JMF7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = blackhole;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "blackhole records voice captures for notes, todos, and search.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "blackhole may transcribe and route captures.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = labs.lowercase.blackhole;
+				PRODUCT_NAME = blackhole;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		603EF7E270458CA0E91F22AF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		60F75D9F8B98430E0157CF1E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9G57J2JMF7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = blackhole;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "blackhole records voice captures for notes, todos, and search.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "blackhole may transcribe and route captures.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = labs.lowercase.blackhole;
+				PRODUCT_NAME = blackhole;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DBA9EC4E090275992B240CD0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = labs.lowercase.blackholeTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/blackhole.app/blackhole";
+			};
+			name = Debug;
+		};
+		F934C98E8C88B5D4C5065BD6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = labs.lowercase.blackholeTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/blackhole.app/blackhole";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5229424F23595510946B7206 /* Build configuration list for PBXProject "blackhole" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2BDE4F683020CB5EE6AFEB3D /* Debug */,
+				603EF7E270458CA0E91F22AF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		67F2406C65127512DECC52B5 /* Build configuration list for PBXNativeTarget "blackholeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DBA9EC4E090275992B240CD0 /* Debug */,
+				F934C98E8C88B5D4C5065BD6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9027CFC30CBD691D0CFCB682 /* Build configuration list for PBXNativeTarget "blackhole" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				60F75D9F8B98430E0157CF1E /* Debug */,
+				60016396297CAF688340E9B4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 8702F2A50A677B13C8CE4B72 /* Project object */;
+}

@@ -1,0 +1,9 @@
+{
+  "name": "round-robin-map-reduce",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "run": "node src/runTask.js",
+    "runtime": "node src/runtime.js"
+  }
+}

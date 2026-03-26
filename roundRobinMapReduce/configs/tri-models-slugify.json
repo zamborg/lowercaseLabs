@@ -1,0 +1,21 @@
+{
+  "imageTag": "ruffle-mapreduce",
+  "sourceDir": "../tasks/slugify-source",
+  "task": "../tasks/slugify.md",
+  "keepAliveSecondsAfterExit": 120,
+  "mappers": [
+    { "name": "claude-haiku", "command": "../agents/claude-haiku.sh" },
+    {
+      "name": "codex-gpt-5-codex",
+      "command": "../agents/codex-gpt-5-codex.sh"
+    },
+    {
+      "name": "gemini-2.5-flash-lite",
+      "command": "../agents/gemini-2.5-flash-lite.sh"
+    }
+  ],
+  "reducer": {
+    "name": "claude-haiku-reducer",
+    "command": "../agents/claude-haiku.sh"
+  }
+}

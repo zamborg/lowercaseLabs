@@ -1,0 +1,19 @@
+/status
+
+╭──────────────────────────────────────────────────────────────────────────────────╮
+│  >_ OpenAI Codex (v0.116.0)                                                      │
+│                                                                                  │
+│ Visit https://chatgpt.com/codex/settings/usage for up-to-date                    │
+│ information on rate limits and credits                                           │
+│                                                                                  │
+│  Model:                gpt-5.4 (reasoning high, summaries auto)                  │
+│  Directory:            ~/Documents/personal/lowercaseLabs                        │
+│  Permissions:          Custom (workspace-write, on-request)                      │
+│  Agents.md:            <none>                                                    │
+│  Account:              zubinaysola@gmail.com (Plus)                              │
+│  Collaboration mode:   Default                                                   │
+│  Session:              019d1e35-3952-7740-b03f-b6224a666d69                      │
+│                                                                                  │
+│  5h limit:             [████████████████████] 100% left (resets 02:57 on 24 Mar) │
+│  Weekly limit:         [█████████████████░░░] 85% left (resets 11:18 on 28 Mar)  │
+╰──────────────────────────────────────────────────────────────────────────────────╯

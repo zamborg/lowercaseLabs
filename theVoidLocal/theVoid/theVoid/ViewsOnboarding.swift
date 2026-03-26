@@ -1,6 +1,7 @@
 import AuthenticationServices
 import Speech
 import SwiftUI
+import UIKit
 
 struct LiquidModelPreparationView: View {
     @EnvironmentObject private var model: AppModel
@@ -212,7 +213,18 @@ struct OnboardingView: View {
                         .disabled(speechGranted)
                     }
 
-                    Text("HealthKit (V2): sleep, HRV, and activity signals can be layered in later.")
+                    HStack {
+                        Label("Health", systemImage: healthIconName)
+                        Spacer()
+                        Button(healthActionLabel) {
+                            Task {
+                                await runHealthPermissionAction()
+                            }
+                        }
+                        .disabled(!canRunHealthAction)
+                    }
+
+                    Text("Health is used locally to create a readiness score at note time.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -237,6 +249,64 @@ struct OnboardingView: View {
             }
             micGranted = AVAudioSession.sharedInstance().recordPermission == .granted
             speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
+            Task {
+                await model.refreshHealthAuthorizationState()
+            }
+        }
+    }
+
+    private var healthIconName: String {
+        switch model.healthAuthorizationState {
+        case .authorizedAll:
+            return "checkmark.circle.fill"
+        case .authorizedPartial:
+            return "checkmark.circle"
+        case .notDetermined:
+            return "circle"
+        case .denied:
+            return "xmark.circle.fill"
+        case .unavailable:
+            return "slash.circle"
+        }
+    }
+
+    private var healthActionLabel: String {
+        switch model.healthAuthorizationState {
+        case .authorizedAll:
+            return "Granted"
+        case .authorizedPartial:
+            return "Granted"
+        case .notDetermined:
+            return "Allow"
+        case .denied:
+            return "Open Health"
+        case .unavailable:
+            return "Unavailable"
+        }
+    }
+
+    private var canRunHealthAction: Bool {
+        switch model.healthAuthorizationState {
+        case .authorizedAll, .authorizedPartial, .unavailable:
+            return false
+        case .notDetermined, .denied:
+            return true
+        }
+    }
+
+    private func runHealthPermissionAction() async {
+        switch model.healthAuthorizationState {
+        case .denied:
+            await model.requestHealthAuthorization()
+            if model.healthAuthorizationState == .denied {
+                await MainActor.run {
+                    UIApplication.openHealthAccessManagement()
+                }
+            }
+        case .unavailable, .authorizedAll, .authorizedPartial:
+            break
+        case .notDetermined:
+            await model.requestHealthAuthorization()
         }
     }
 }

@@ -1,0 +1,323 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DEFAULT_PORT=9090
+DEFAULT_SYSTEM_PROMPT="$SCRIPT_DIR/prompts/default.md"
+
+# ─── Subcommands ───
+
+if [[ "${1:-}" == "attach" ]]; then
+  tmux attach -t "roundrobin-${2:?Usage: roundrobin attach <agent-id>}"
+  exit 0
+fi
+
+if [[ "${1:-}" == "list" ]]; then
+  tmux list-sessions 2>/dev/null | grep "^roundrobin-" || echo "No active roundrobin sessions."
+  exit 0
+fi
+
+if [[ "${1:-}" == "kill" ]]; then
+  RUN_DIR="${2:?Usage: roundrobin kill <run-dir>}"
+  if [[ -f "$RUN_DIR/hub.pid" ]]; then
+    kill "$(cat "$RUN_DIR/hub.pid")" 2>/dev/null || true
+    rm -f "$RUN_DIR/hub.pid"
+  fi
+  # Kill all agent tmux sessions for this run
+  if [[ -f "$RUN_DIR/sessions.txt" ]]; then
+    while IFS= read -r sess; do
+      tmux kill-session -t "$sess" 2>/dev/null || true
+    done < "$RUN_DIR/sessions.txt"
+  fi
+  echo "Run killed: $RUN_DIR"
+  exit 0
+fi
+
+if [[ "${1:-}" == "status" ]]; then
+  RUN_DIR="${2:?Usage: roundrobin status <run-dir>}"
+  if [[ -f "$RUN_DIR/hub.pid" ]] && kill -0 "$(cat "$RUN_DIR/hub.pid")" 2>/dev/null; then
+    echo "Hub: running (PID $(cat "$RUN_DIR/hub.pid"))"
+  else
+    echo "Hub: stopped"
+  fi
+  if [[ -f "$RUN_DIR/sessions.txt" ]]; then
+    while IFS= read -r sess; do
+      if tmux has-session -t "$sess" 2>/dev/null; then
+        echo "Agent $sess: alive"
+      else
+        echo "Agent $sess: dead"
+      fi
+    done < "$RUN_DIR/sessions.txt"
+  fi
+  # Try to hit the hub for stats
+  PORT_FILE="$RUN_DIR/port.txt"
+  if [[ -f "$PORT_FILE" ]]; then
+    curl -s "http://localhost:$(cat "$PORT_FILE")/api/status" 2>/dev/null || true
+  fi
+  exit 0
+fi
+
+# ─── Parse args ───
+
+TASK_FILE=""
+SOURCE_DIR=""
+SOULS=()
+SYSTEM_PROMPT="$DEFAULT_SYSTEM_PROMPT"
+PORT="$DEFAULT_PORT"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --task)     TASK_FILE="$2"; shift 2 ;;
+    --source)   SOURCE_DIR="$2"; shift 2 ;;
+    --souls)    shift; while [[ $# -gt 0 && ! "$1" =~ ^-- ]]; do SOULS+=("$1"); shift; done ;;
+    --system-prompt) SYSTEM_PROMPT="$2"; shift 2 ;;
+    --port)     PORT="$2"; shift 2 ;;
+    *)          echo "Unknown arg: $1"; exit 1 ;;
+  esac
+done
+
+if [[ -z "$TASK_FILE" || -z "$SOURCE_DIR" || ${#SOULS[@]} -eq 0 ]]; then
+  echo "Usage: roundrobin --task <task.md> --source <repo-dir> --souls <soul1.md> [soul2.md ...]"
+  echo ""
+  echo "Options:"
+  echo "  --task <file>           Task description markdown file"
+  echo "  --source <dir>          Source repository to clone into workspaces"
+  echo "  --souls <files...>      One or more soul definition files"
+  echo "  --system-prompt <file>  System prompt file (default: prompts/default.md)"
+  echo "  --port <number>         Hub port (default: 9090)"
+  echo ""
+  echo "Subcommands:"
+  echo "  attach <agent-id>       Attach to agent tmux session"
+  echo "  list                    List active roundrobin sessions"
+  echo "  kill <run-dir>          Kill a run (all agents + hub)"
+  echo "  status <run-dir>        Show run status"
+  exit 1
+fi
+
+# ─── Helpers ───
+
+extract_name() {
+  # Extract name from YAML frontmatter: name: <value>
+  local file="$1"
+  local name
+  name=$(grep -m1 '^name:' "$file" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '\r')
+  if [[ -z "$name" ]]; then
+    # Fallback: use filename without extension
+    name=$(basename "$file" .md)
+  fi
+  echo "$name"
+}
+
+wait_for_http() {
+  local url="$1"
+  local timeout="${2:-30}"
+  local elapsed=0
+  while [[ $elapsed -lt $timeout ]]; do
+    if curl -sf "$url" > /dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+  echo "Timeout waiting for $url" >&2
+  return 1
+}
+
+wait_for_ready() {
+  local session="$1"
+  local timeout="${2:-90}"
+  local elapsed=0
+  local dismissed_channel=0
+  local dismissed_perm=0
+
+  while [[ $elapsed -lt $timeout ]]; do
+    local content
+    content=$(tmux capture-pane -t "$session" -p -S -50 2>/dev/null || true)
+
+    # Dismiss dev channels prompt
+    if [[ $dismissed_channel -eq 0 ]] && echo "$content" | grep -q "I am using this for local development"; then
+      tmux send-keys -t "$session" Enter
+      dismissed_channel=1
+      echo "$session: confirmed dev channels"
+      sleep 1
+      elapsed=$((elapsed + 1))
+      continue
+    fi
+
+    # Dismiss permissions bypass prompt
+    if [[ $dismissed_perm -eq 0 ]] && echo "$content" | grep -q "bypass permissions"; then
+      tmux send-keys -t "$session" Enter
+      dismissed_perm=1
+      echo "$session: confirmed permissions bypass"
+      sleep 1
+      elapsed=$((elapsed + 1))
+      continue
+    fi
+
+    # Check if Claude is idle and ready for input
+    if [[ $dismissed_channel -eq 1 || $dismissed_perm -eq 1 ]]; then
+      if ! echo "$content" | grep -q "esc to interrupt"; then
+        if echo "$content" | grep -qE "(>|What would you like)"; then
+          return 0
+        fi
+      fi
+    fi
+
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+  return 1
+}
+
+# ─── Create run directory ───
+
+RUN_DIR="$SCRIPT_DIR/runs/$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$RUN_DIR/workspaces"
+echo "$PORT" > "$RUN_DIR/port.txt"
+
+echo "=== roundRobin ==="
+echo "Run: $RUN_DIR"
+echo "Task: $TASK_FILE"
+echo "Source: $SOURCE_DIR"
+echo "Agents: ${#SOULS[@]}"
+echo "Port: $PORT"
+echo ""
+
+# ─── Build agent roster ───
+
+ROSTER=""
+for i in "${!SOULS[@]}"; do
+  idx=$((i + 1))
+  soul_file="${SOULS[$i]}"
+  name=$(extract_name "$soul_file")
+  ROSTER+="- agent-$idx: $name"$'\n'
+done
+
+# ─── Set up workspaces ───
+
+SESSIONS=()
+for i in "${!SOULS[@]}"; do
+  idx=$((i + 1))
+  AGENT_ID="agent-$idx"
+  soul_file="${SOULS[$i]}"
+  AGENT_NAME=$(extract_name "$soul_file")
+  WORKSPACE="$RUN_DIR/workspaces/$AGENT_ID"
+
+  echo "Setting up $AGENT_ID ($AGENT_NAME)..."
+
+  # Clone source
+  cp -r "$SOURCE_DIR" "$WORKSPACE"
+
+  # Write .mcp.json
+  cat > "$WORKSPACE/.mcp.json" << MCPEOF
+{
+  "mcpServers": {
+    "roundrobin-chat": {
+      "command": "bun",
+      "args": ["$(realpath "$SCRIPT_DIR/src/channel/server.ts")"],
+      "env": {
+        "ROUNDROBIN_AGENT_ID": "$AGENT_ID",
+        "ROUNDROBIN_AGENT_NAME": "$AGENT_NAME",
+        "ROUNDROBIN_HUB_URL": "ws://localhost:$PORT/ws",
+        "ROUNDROBIN_HUB_HTTP": "http://localhost:$PORT"
+      }
+    }
+  }
+}
+MCPEOF
+
+  # Write CLAUDE.md
+  cat > "$WORKSPACE/CLAUDE.md" << CLAUDEEOF
+$(cat "$SYSTEM_PROMPT")
+
+## Your Identity
+$(cat "$soul_file")
+
+## The Task
+$(cat "$TASK_FILE")
+
+## Agent Roster
+$ROSTER
+
+## Your Workspace
+You are $AGENT_NAME ($AGENT_ID). You are working in an isolated copy of the repository.
+Other agents have their own copies. Coordinate via the chat channel.
+CLAUDEEOF
+
+  SESSION_NAME="roundrobin-$AGENT_ID"
+  SESSIONS+=("$SESSION_NAME")
+done
+
+# Save session list
+printf '%s\n' "${SESSIONS[@]}" > "$RUN_DIR/sessions.txt"
+
+# ─── Start hub ───
+
+echo "Starting hub on port $PORT..."
+bun "$SCRIPT_DIR/src/hub/server.ts" --port "$PORT" --db "$RUN_DIR/chat.db" &
+HUB_PID=$!
+echo "$HUB_PID" > "$RUN_DIR/hub.pid"
+
+wait_for_http "http://localhost:$PORT/api/status" 15
+echo "Hub ready."
+
+# ─── Spawn agents (parallel) ───
+
+# Phase 1: Launch all tmux sessions + Claude at once
+for i in "${!SOULS[@]}"; do
+  idx=$((i + 1))
+  AGENT_ID="agent-$idx"
+  WORKSPACE="$RUN_DIR/workspaces/$AGENT_ID"
+  SESSION_NAME="roundrobin-$AGENT_ID"
+
+  echo "Launching $AGENT_ID..."
+  tmux new-session -d -s "$SESSION_NAME" -x 200 -y 50 -c "$WORKSPACE"
+  tmux send-keys -t "$SESSION_NAME" \
+    "env -u CLAUDECODE claude --dangerously-skip-permissions --dangerously-load-development-channels server:roundrobin-chat" \
+    Enter
+done
+
+# Phase 2: Wait for all agents in parallel
+echo "Waiting for all agents to boot..."
+WAIT_PIDS=()
+for i in "${!SOULS[@]}"; do
+  idx=$((i + 1))
+  AGENT_ID="agent-$idx"
+  SESSION_NAME="roundrobin-$AGENT_ID"
+  (
+    if wait_for_ready "$SESSION_NAME" 60; then
+      echo "$AGENT_ID: ready"
+    else
+      echo "$AGENT_ID: WARNING - timeout waiting for idle"
+    fi
+  ) &
+  WAIT_PIDS+=($!)
+done
+
+# Wait for all background waits to finish
+for pid in "${WAIT_PIDS[@]}"; do
+  wait "$pid" 2>/dev/null || true
+done
+
+# Phase 3: Prompt all agents at once
+sleep 0.5
+for i in "${!SOULS[@]}"; do
+  idx=$((i + 1))
+  AGENT_ID="agent-$idx"
+  SESSION_NAME="roundrobin-$AGENT_ID"
+
+  tmux send-keys -t "$SESSION_NAME" \
+    "Read CLAUDE.md and begin working on the task. Check in with other agents via the chat." \
+    Enter
+  echo "$AGENT_ID: prompted"
+done
+
+echo ""
+echo "=== All agents launched ==="
+echo "Chat UI: http://localhost:$PORT"
+echo "Run dir: $RUN_DIR"
+echo ""
+echo "Commands:"
+echo "  ./bin/roundrobin attach agent-1    # Watch an agent"
+echo "  ./bin/roundrobin status $RUN_DIR   # Check status"
+echo "  ./bin/roundrobin kill $RUN_DIR     # Stop everything"

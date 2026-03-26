@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "generatedAt": "2026-03-22T07:22:32.370Z",
+  "zeroTrust": true,
+  "totals": {
+    "events": 28,
+    "manualRules": 0,
+    "suggestedRules": 8
+  },
+  "suggestedRules": [
+    {
+      "toolName": "Bash",
+      "fingerprint": "48352b8ef4322f0f",
+      "summary": "ls -la",
+      "risk": "medium",
+      "attempts": 3,
+      "executions": 2,
+      "prompts": 2,
+      "likelyDeniedOrAbandoned": 0,
+      "decision": "allow_more_complex",
+      "active": false
+    },
+    {
+      "toolName": "Glob",
+      "fingerprint": "ce54d0760966955a",
+      "summary": "{\"pattern\":\"*\"}",
+      "risk": "low",
+      "attempts": 2,
+      "executions": 1,
+      "prompts": 1,
+      "likelyDeniedOrAbandoned": 0,
+      "decision": "allow_more_complex",
+      "active": false
+    },
+    {
+      "toolName": "Bash",
+      "fingerprint": "2bcc1dc8002a7439",
+      "summary": "touch test-file.txt && rm test-file.txt && echo \"Done\"",
+      "risk": "high",
+      "attempts": 1,
+      "executions": 1,
+      "prompts": 1,
+      "likelyDeniedOrAbandoned": 0,
+      "decision": "escalate",
+      "active": false
+    },
+    {
+      "toolName": "Bash",
+      "fingerprint": "65061f8339ca8da0",
+      "summary": "touch temp.mdd",
+      "risk": "medium",
+      "attempts": 1,
+      "executions": 1,
+      "prompts": 1,
+      "likelyDeniedOrAbandoned": 0,
+      "decision": "escalate",
+      "active": false
+    },
+    {
+      "toolName": "Bash",
+      "fingerprint": "f66ee0966e15f940",
+      "summary": "rm temp.mdd",
+      "risk": "high",
+      "attempts": 2,
+      "executions": 1,
+      "prompts": 1,
+      "likelyDeniedOrAbandoned": 0,
+      "decision": "escalate",
+      "active": false
+    },
+    {
+      "toolName": "Bash",
+      "fingerprint": "ce12360579d6de9e",
+      "summary": "touch temp.mdd",
+      "risk": "medium",
+      "attempts": 1,
+      "executions": 1,
+      "prompts": 1,
+      "likelyDeniedOrAbandoned": 0,
+      "decision": "escalate",
+      "active": false
+    },
+    {
+      "toolName": "Bash",
+      "fingerprint": "19b31c24f7d096f5",
+      "summary": "ls -la",
+      "risk": "medium",
+      "attempts": 1,
+      "executions": 0,
+      "prompts": 1,
+      "likelyDeniedOrAbandoned": 1,
+      "decision": "escalate",
+      "active": false
+    },
+    {
+      "toolName": "SessionEnd",
+      "fingerprint": "3f5d97866af4b299",
+      "summary": "{}",
+      "risk": "medium",
+      "attempts": 0,
+      "executions": 0,
+      "prompts": 0,
+      "likelyDeniedOrAbandoned": 0,
+      "decision": "escalate",
+      "active": false
+    }
+  ]
+}

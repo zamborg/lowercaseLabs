@@ -1,0 +1,11 @@
+{
+  "imageTag": "ruffle-mapreduce",
+  "sourceDir": "../tasks/sample-source",
+  "task": "../tasks/example.md",
+  "mappers": [
+    { "name": "alpha", "command": "../agents/examples/mapper-echo.sh" },
+    { "name": "beta", "command": "../agents/examples/mapper-echo.sh" },
+    { "name": "gamma", "command": "../agents/examples/mapper-echo.sh" }
+  ],
+  "reducer": { "name": "reducer", "command": "../agents/examples/reducer-echo.sh" }
+}
