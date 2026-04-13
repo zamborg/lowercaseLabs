@@ -41,6 +41,7 @@ final class FeedViewModel: ObservableObject {
 
 struct FeedView: View {
     @StateObject private var viewModel = FeedViewModel()
+    @State private var selectedItem: Item?
 
     var body: some View {
         NavigationStack {
@@ -71,6 +72,9 @@ struct FeedView: View {
         }
         .preferredColorScheme(.dark)
         .task { await viewModel.load() }
+        .sheet(item: $selectedItem) { item in
+            ItemDetailView(item: item)
+        }
         .alert("Error", isPresented: Binding(
             get: { viewModel.alertMessage != nil },
             set: { if !$0 { viewModel.alertMessage = nil } }
@@ -92,9 +96,12 @@ struct FeedView: View {
         } else {
             List {
                 ForEach(viewModel.displayedItems) { item in
-                    ItemRow(item: item) {
-                        Task { await viewModel.toggleCompleted(item) }
+                    Button { selectedItem = item } label: {
+                        ItemRow(item: item) {
+                            Task { await viewModel.toggleCompleted(item) }
+                        }
                     }
+                    .buttonStyle(.plain)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -108,6 +115,82 @@ struct FeedView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
         }
+    }
+}
+
+private struct ItemDetailView: View {
+    let item: Item
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Metadata row
+                        HStack(spacing: 10) {
+                            Image(systemName: item.type == .todo ? "checkmark.circle" : "note.text")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.white.opacity(0.4))
+                            Text(item.type == .todo ? "To-do" : "Note")
+                                .font(.system(.caption, design: .rounded, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.4))
+                            Spacer()
+                            Text(item.timestampLabel)
+                                .font(.system(.caption, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.3))
+                        }
+
+                        // Due date (todos only)
+                        if let due = item.dueDateFormatted {
+                            Label(due, systemImage: "calendar")
+                                .font(.system(.subheadline, design: .rounded, weight: .medium))
+                                .foregroundStyle(.yellow.opacity(0.85))
+                        }
+
+                        // Tags
+                        if !item.tags.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(item.tags, id: \.self) { tag in
+                                        Text(tag)
+                                            .font(.system(.caption2, design: .rounded, weight: .semibold))
+                                            .foregroundStyle(.white.opacity(0.6))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color.white.opacity(0.08))
+                                            .clipShape(Capsule())
+                                    }
+                                }
+                            }
+                        }
+
+                        Divider().overlay(Color.white.opacity(0.1))
+
+                        // Full content
+                        Text(item.content)
+                            .font(.system(.body, design: .serif))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle(item.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.black, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .tint(.white)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -155,6 +238,10 @@ private struct ItemRow: View {
             }
 
             Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.2))
         }
         .padding(14)
         .background(Color.white.opacity(0.06))
