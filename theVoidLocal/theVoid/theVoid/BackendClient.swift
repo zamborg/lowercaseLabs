@@ -134,6 +134,8 @@ final class BackendClient {
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await URLSession.shared.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw APIError.transport(error.localizedDescription)
         }
@@ -157,6 +159,8 @@ final class BackendClient {
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await URLSession.shared.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw APIError.transport(error.localizedDescription)
         }
@@ -333,7 +337,7 @@ final class BackendClient {
     }
 
     func createInvite(token: String) async throws -> APIInvite {
-        let payload = InvitePayload(expiresInDays: 7, maxUses: 1)
+        let payload = InvitePayload(expiresInDays: 7, maxUses: 25)
         let body = try encoder.encode(payload)
         guard let url = URL(string: "/friends/invite", relativeTo: baseURL) else {
             throw APIError.invalidURL

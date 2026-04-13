@@ -1,0 +1,2 @@
+"""blackhole domain package."""
+

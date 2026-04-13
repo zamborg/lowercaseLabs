@@ -409,11 +409,16 @@ struct EntryCard: View {
                     }
                 }
                 Spacer()
-                Text(statusLabel)
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.secondary.opacity(0.15), in: Capsule())
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text(statusLabel)
+                        .font(.caption)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.15), in: Capsule())
+                    if let healthSnapshot = entry.healthSnapshot {
+                        HealthScorePill(snapshot: healthSnapshot)
+                    }
+                }
             }
 
             if let tags = entry.insight?.moodTags, !tags.isEmpty {
@@ -536,6 +541,13 @@ struct EntryDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                EntryHealthSnapshotSection(
+                    snapshot: currentEntry.healthSnapshot,
+                    capturedAtLabel: currentEntry.healthSnapshot.flatMap { healthSnapshot in
+                        formattedHealthTimestamp(healthSnapshot.capturedAtISO8601)
+                    }
+                )
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Audio")
@@ -691,6 +703,26 @@ struct EntryDetailView: View {
         return String(format: "%02d:%02d", mins, secs)
     }
 
+    private func formattedHealthTimestamp(_ raw: String) -> String? {
+        let parsedDate = Self.iso8601WithFractional.date(from: raw) ?? Self.iso8601Basic.date(from: raw)
+        guard let parsedDate else {
+            return nil
+        }
+        return DateFormatter.clock.string(from: parsedDate)
+    }
+
+    private static let iso8601WithFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601Basic: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
     private func deleteEntry() async {
         guard !isDeletingEntry else {
             return
@@ -736,6 +768,204 @@ struct EntryDetailView: View {
             currentEntry = updated
         }
         isRetranscribing = false
+    }
+}
+
+private struct HealthScorePill: View {
+    let snapshot: EntryHealthSnapshot
+
+    var body: some View {
+        Group {
+            if let readinessScore = snapshot.readinessScore {
+                Text("Health \(readinessScore)")
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.mint.opacity(0.2), in: Capsule())
+            } else {
+                Text("Health --")
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.secondary.opacity(0.18), in: Capsule())
+            }
+        }
+    }
+}
+
+private struct EntryHealthSnapshotSection: View {
+    let snapshot: EntryHealthSnapshot?
+    let capturedAtLabel: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Health Snapshot")
+                .font(.headline)
+
+            if let snapshot {
+                HStack(alignment: .center, spacing: 14) {
+                    HealthScoreDial(score: snapshot.readinessScore)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let readinessScore = snapshot.readinessScore {
+                            Text("Readiness \(readinessScore)")
+                                .font(.title3.weight(.bold))
+                        } else {
+                            Text("Readiness unavailable")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if snapshot.confidence < 0.5 {
+                            Text("Low confidence (\(snapshot.confidencePercent)%)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.orange)
+                        } else {
+                            Text("Confidence \(snapshot.confidencePercent)%")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let capturedAtLabel {
+                            Text("Captured \(capturedAtLabel)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                }
+
+                if !snapshot.sortedComponents.isEmpty {
+                    HealthComponentScoreChart(components: snapshot.sortedComponents)
+
+                    ForEach(snapshot.sortedComponents, id: \.type) { component in
+                        HealthComponentRow(component: component)
+                    }
+                }
+            } else {
+                Text("No health snapshot was captured for this entry.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Wellness estimate only, not medical advice.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct HealthScoreDial: View {
+    let score: Int?
+
+    private var clampedScore: Double {
+        Double(max(0, min(100, score ?? 0)))
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 8)
+
+            Circle()
+                .trim(from: 0, to: clampedScore / 100)
+                .stroke(
+                    AngularGradient(
+                        gradient: Gradient(colors: [Color.teal, Color.cyan, Color.mint]),
+                        center: .center
+                    ),
+                    style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+
+            VStack(spacing: 1) {
+                Text(score.map(String.init) ?? "--")
+                    .font(.title3.weight(.bold))
+                Text("Readiness")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 92, height: 92)
+    }
+}
+
+private struct HealthComponentScoreChart: View {
+    let components: [HealthComponentSnapshot]
+
+    private let chartHeight: CGFloat = 72
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Component Scores")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(alignment: .bottom, spacing: 12) {
+                ForEach(components, id: \.type) { component in
+                    VStack(spacing: 5) {
+                        ZStack(alignment: .bottom) {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.secondary.opacity(0.14))
+                                .frame(width: 28, height: chartHeight)
+
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(component.isStale ? Color.orange.opacity(0.82) : Color.mint.opacity(0.85))
+                                .frame(
+                                    width: 28,
+                                    height: max(4, chartHeight * CGFloat(max(0, min(100, component.componentScore))) / 100)
+                                )
+                        }
+
+                        Text(shortLabel(for: component.type))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func shortLabel(for type: HealthMetricType) -> String {
+        switch type {
+        case .sleepHours:
+            return "Sleep"
+        case .hrvSdnnMs:
+            return "HRV"
+        case .restingHeartRateBpm:
+            return "RHR"
+        case .stepsToday:
+            return "Steps"
+        }
+    }
+}
+
+private struct HealthComponentRow: View {
+    let component: HealthComponentSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(component.type.displayName)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(component.formattedRawValue)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text("\(component.scorePercent)")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            ProgressView(value: component.componentScore / 100)
+                .tint(component.isStale ? .orange : .mint)
+            if component.isStale {
+                Text("Stale sample")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
     }
 }
 

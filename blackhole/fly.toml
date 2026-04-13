@@ -1,0 +1,42 @@
+app = 'blackhole-app'
+primary_region = 'sjc'
+
+[build]
+  dockerfile = 'backend/Dockerfile'
+
+[processes]
+  app = 'uvicorn app.main:app --host 0.0.0.0 --port 8080'
+
+[deploy]
+  release_command = 'alembic upgrade head'
+
+[env]
+  ENVIRONMENT = 'production'
+  OBJECT_STORAGE_ROOT = './storage'
+  ALLOW_DEV_AUTH = 'true'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '20s'
+    method = 'GET'
+    path = '/health'
+
+[mounts]
+  source = 'blackhole_data'
+  destination = '/app/backend/storage'
+  initial_size = '10gb'
+  processes = ['app']
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1

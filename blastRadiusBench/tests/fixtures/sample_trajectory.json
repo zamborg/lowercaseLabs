@@ -1,0 +1,76 @@
+{
+  "schema_version": "ATIF-v1.6",
+  "session_id": "session-1",
+  "agent": {
+    "name": "codex",
+    "version": "0.1",
+    "model_name": "gpt-5-codex"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "system",
+      "message": "Fix the rendering bug in src/app.py."
+    },
+    {
+      "step_id": 2,
+      "source": "agent",
+      "message": "Inspecting the target file",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-1",
+          "function_name": "open",
+          "arguments": {
+            "path": "/workspace/src/app.py"
+          }
+        }
+      ],
+      "metrics": {
+        "prompt_tokens": 11,
+        "completion_tokens": 5,
+        "cost_usd": 0.001
+      }
+    },
+    {
+      "step_id": 3,
+      "source": "agent",
+      "message": "Looking at a linked helper",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-2",
+          "function_name": "exec_command",
+          "arguments": {
+            "cmd": "sed -n '1,120p' src/helpers.py"
+          }
+        }
+      ],
+      "metrics": {
+        "prompt_tokens": 7,
+        "completion_tokens": 3,
+        "cost_usd": 0.0005
+      }
+    },
+    {
+      "step_id": 4,
+      "source": "agent",
+      "message": "Wandering into docs",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-3",
+          "function_name": "exec_command",
+          "arguments": {
+            "cmd": "cat docs/architecture.md && rg render src/"
+          }
+        }
+      ]
+    }
+  ],
+  "final_metrics": {
+    "total_prompt_tokens": 18,
+    "total_completion_tokens": 8,
+    "total_cached_tokens": 0,
+    "total_cost_usd": 0.0015,
+    "total_steps": 4
+  }
+}
+

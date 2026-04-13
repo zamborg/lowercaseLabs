@@ -34,6 +34,8 @@ enum SubmissionState: String {
 
 @MainActor
 final class AppModel: ObservableObject {
+    private static let socialHistoryLimit = 300
+
     @Published var apiBaseURL: String = BackendClient.defaultBaseURLString
     @Published var apiConnectionStatus: String?
     @Published var sessionToken: String?
@@ -60,6 +62,13 @@ final class AppModel: ObservableObject {
     @Published var liquidModelPreparationProgress: Double = 0
     @Published var liquidModelPreparationStatus: String = "Preparing on-device AI model..."
     @Published var liquidModelPreparationError: String?
+    @Published var healthAuthorizationState: HealthAuthorizationState = .notDetermined
+    @Published var liveHealthSnapshot: EntryHealthSnapshot?
+    @Published var isFetchingLiveHealthSnapshot: Bool = false
+    @Published var healthIntegrationEnabled: Bool = true
+    @Published var iCloudSyncEnabled: Bool = true
+    @Published var iCloudSyncStatus: ICloudSyncStatus = .idle
+    @Published var iCloudLastSyncAt: Date?
 
     @Published var inviteURL: String?
     @Published var inviteToken: String?
@@ -68,6 +77,8 @@ final class AppModel: ObservableObject {
     private let client = BackendClient()
     private let draftStore = DraftStore()
     private let localStore = LocalJournalStore()
+    private let healthKitManager = HealthKitManager()
+    private let iCloudSyncService: ICloudSyncService
     private var liquidModelPreparationTask: Task<Void, Never>?
     private var liquidModelPreparationOperationID: UUID?
 
@@ -84,17 +95,52 @@ final class AppModel: ObservableObject {
         static let reminderTimesByWeekday = "thevoid.reminderTimesByWeekday"
         static let onboardingComplete = "thevoid.onboardingComplete"
         static let liquidModelPrepared = "thevoid.liquidModelPrepared"
+        static let healthIntegrationEnabled = "thevoid.healthkit.enabled"
+        static let iCloudSyncEnabled = "thevoid.icloud.sync.enabled"
+        static let iCloudBootstrapSyncedUsers = "thevoid.icloud.bootstrap.synced_users"
     }
 
     var needsOnboarding: Bool {
         sessionToken == nil || !onboardingComplete
     }
 
+    var iCloudSyncStatusText: String {
+        switch iCloudSyncStatus {
+        case .disabled:
+            return "Disabled"
+        case .unavailable:
+            return "Unavailable"
+        case .idle:
+            return "Idle"
+        case .syncing:
+            return "Syncing..."
+        case .error(let message):
+            return "Error: \(message)"
+        }
+    }
+
     init() {
+        iCloudSyncService = ICloudSyncService(localJournalStore: localStore, draftStore: draftStore)
         loadPersistedState()
+        Task {
+            await iCloudSyncService.setStatusHandler { [weak self] status, lastSync in
+                guard let self else { return }
+                self.iCloudSyncStatus = status
+                self.iCloudLastSyncAt = lastSync
+            }
+        }
         reloadDrafts()
         if sessionToken != nil {
-            Task { await refreshAll() }
+            Task {
+                await configureICloudSyncForCurrentUser()
+                await refreshAll()
+            }
+        }
+        if healthIntegrationEnabled {
+            Task {
+                await refreshHealthAuthorizationState()
+                await refreshLiveHealthSnapshot()
+            }
         }
     }
 
@@ -134,6 +180,16 @@ final class AppModel: ObservableObject {
 
         try? client.updateBaseURL(apiBaseURL)
         liquidModelPrepared = defaults.bool(forKey: Keys.liquidModelPrepared)
+        if defaults.object(forKey: Keys.healthIntegrationEnabled) != nil {
+            healthIntegrationEnabled = defaults.bool(forKey: Keys.healthIntegrationEnabled)
+        } else {
+            healthIntegrationEnabled = true
+        }
+        if defaults.object(forKey: Keys.iCloudSyncEnabled) != nil {
+            iCloudSyncEnabled = defaults.bool(forKey: Keys.iCloudSyncEnabled)
+        } else {
+            iCloudSyncEnabled = true
+        }
     }
 
     func persistState() {
@@ -152,6 +208,8 @@ final class AppModel: ObservableObject {
         }
         defaults.set(reminderTimesPayload, forKey: Keys.reminderTimesByWeekday)
         defaults.set(onboardingComplete, forKey: Keys.onboardingComplete)
+        defaults.set(healthIntegrationEnabled, forKey: Keys.healthIntegrationEnabled)
+        defaults.set(iCloudSyncEnabled, forKey: Keys.iCloudSyncEnabled)
     }
 
     func signIn(identityToken: String, nonce: String? = nil, suggestedName: String?) async {
@@ -176,6 +234,7 @@ final class AppModel: ObservableObject {
             }
 
             persistState()
+            await configureICloudSyncForCurrentUser()
             await refreshAll()
         } catch {
             errorMessage = "\(error.localizedDescription)\nAPI: \(apiBaseURL)"
@@ -236,13 +295,49 @@ final class AppModel: ObservableObject {
         socialDots = []
         inviteURL = nil
         inviteToken = nil
+        liveHealthSnapshot = nil
+        healthAuthorizationState = .notDetermined
+        isFetchingLiveHealthSnapshot = false
+        iCloudLastSyncAt = nil
+        iCloudSyncStatus = .idle
         onboardingComplete = false
         persistState()
     }
 
     func refreshAll() async {
+        await configureICloudSyncForCurrentUser()
         await refreshEntries()
         await refreshSocialDots()
+        reloadDrafts()
+        await refreshHealthAuthorizationState()
+        await refreshLiveHealthSnapshot()
+    }
+
+    func setICloudSyncEnabled(_ enabled: Bool) {
+        iCloudSyncEnabled = enabled
+        persistState()
+        guard !userID.isEmpty else { return }
+        Task {
+            await iCloudSyncService.setEnabled(enabled, userID: userID)
+            if enabled {
+                await iCloudSyncService.syncNow(userID: userID, reason: "toggle_enable")
+                await refreshEntries()
+                reloadDrafts()
+            }
+        }
+    }
+
+    func syncNow() async {
+        guard !userID.isEmpty else { return }
+        await iCloudSyncService.syncNow(userID: userID, reason: "manual")
+        await refreshEntries()
+        reloadDrafts()
+    }
+
+    func handleAppDidBecomeActive() async {
+        guard iCloudSyncEnabled, !userID.isEmpty else { return }
+        await iCloudSyncService.syncNow(userID: userID, reason: "foreground")
+        await refreshEntries()
         reloadDrafts()
     }
 
@@ -260,9 +355,12 @@ final class AppModel: ObservableObject {
             let envelope = try await client.fetchSocialDots(
                 token: sessionToken,
                 history: true,
-                limit: 100
+                limit: Self.socialHistoryLimit
             )
             socialDots = envelope.dots.sorted(by: Self.socialDotIsMoreRecent)
+        } catch is CancellationError {
+            // Pull-to-refresh and view transitions can cancel in-flight tasks; keep last good state.
+            return
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -270,6 +368,13 @@ final class AppModel: ObservableObject {
 
     func reloadDrafts() {
         pendingDrafts = draftStore.listDrafts()
+        guard !userID.isEmpty else { return }
+        let draftIDs = pendingDrafts.map { $0.deletingPathExtension().lastPathComponent }.filter { !$0.isEmpty }
+        Task {
+            for draftID in draftIDs {
+                await iCloudSyncService.queueDraftUpsert(userID: userID, draftID: draftID)
+            }
+        }
     }
 
     func makeDraftURL() -> URL {
@@ -277,8 +382,75 @@ final class AppModel: ObservableObject {
     }
 
     func deleteDraft(_ url: URL) {
+        let draftID = url.deletingPathExtension().lastPathComponent
         draftStore.delete(url)
+        if !userID.isEmpty, !draftID.isEmpty {
+            Task {
+                await iCloudSyncService.queueDraftDelete(userID: userID, draftID: draftID)
+                await iCloudSyncService.syncNow(userID: userID, reason: "delete_draft")
+            }
+        }
         reloadDrafts()
+    }
+
+    func refreshHealthAuthorizationState() async {
+        guard healthIntegrationEnabled else {
+            healthAuthorizationState = .notDetermined
+            liveHealthSnapshot = nil
+            return
+        }
+        healthAuthorizationState = await healthKitManager.authorizationStatus()
+    }
+
+    func requestHealthAuthorization() async {
+        guard healthIntegrationEnabled else {
+            return
+        }
+        do {
+            healthAuthorizationState = try await healthKitManager.requestReadAuthorization()
+            if healthAuthorizationState.isAuthorized {
+                await refreshLiveHealthSnapshot()
+            } else if healthAuthorizationState == .denied {
+                liveHealthSnapshot = nil
+                errorMessage = "Health access is off. Open the Health app -> Sharing -> Apps -> theVoid to enable access."
+            }
+        } catch {
+            errorMessage = "Could not request Health access: \(error.localizedDescription)"
+            healthAuthorizationState = await healthKitManager.authorizationStatus()
+        }
+    }
+
+    func refreshLiveHealthSnapshot() async {
+        guard healthIntegrationEnabled else {
+            liveHealthSnapshot = nil
+            return
+        }
+
+        isFetchingLiveHealthSnapshot = true
+        defer { isFetchingLiveHealthSnapshot = false }
+
+        let snapshot = await captureHealthSnapshotForNote(at: Date())
+        liveHealthSnapshot = snapshot
+    }
+
+    func captureHealthSnapshotForNote(at timestamp: Date) async -> EntryHealthSnapshot? {
+        guard healthIntegrationEnabled else {
+            return nil
+        }
+        if !healthAuthorizationState.isAuthorized {
+            await refreshHealthAuthorizationState()
+            guard healthAuthorizationState.isAuthorized else {
+                return nil
+            }
+        }
+        do {
+            return try await fetchHealthSnapshotWithTimeout(
+                at: timestamp,
+                timeoutSeconds: 1.5
+            )
+        } catch {
+            return nil
+        }
     }
 
     func submitDraft(url: URL, durationSeconds: Int, shareToSocial: Bool = true) async {
@@ -292,14 +464,19 @@ final class AppModel: ObservableObject {
         }
         do {
             let normalizedDuration = max(1, min(durationSeconds, 300))
-            let localDate = DateFormatter.localDate.string(from: Date())
+            let noteTimestamp = Date()
+            let localDate = DateFormatter.localDate.string(from: noteTimestamp)
             submissionState = .transcribing
             lastInsightRuntimeSummary = nil
-            let (transcript, insight) = await LocalReflectionAnalyzer.analyze(
+
+            async let analysisTask = LocalReflectionAnalyzer.analyze(
                 audioURL: url,
                 durationSeconds: normalizedDuration,
                 useLiquidInsights: liquidModelPrepared
             )
+            async let healthSnapshotTask = captureHealthSnapshotForNote(at: noteTimestamp)
+
+            let ((transcript, insight, generatedTitle), healthSnapshot) = await (analysisTask, healthSnapshotTask)
             lastInsightRuntimeSummary = Self.insightRuntimeSummary(from: transcript?.providerMetadata)
             let stored = try localStore.saveReflection(
                 for: userID,
@@ -308,8 +485,14 @@ final class AppModel: ObservableObject {
                 transcript: transcript,
                 insight: insight,
                 localDate: localDate,
-                wasSharedToSocial: shareToSocial
+                wasSharedToSocial: shareToSocial,
+                healthSnapshot: healthSnapshot,
+                title: generatedTitle
             )
+            await iCloudSyncService.queueEntryUpsert(userID: userID, entryID: stored.id)
+            if let healthSnapshot {
+                liveHealthSnapshot = healthSnapshot
+            }
             activeEntryID = stored.id
             submissionState = insight == nil ? .idle : .insightsReady
 
@@ -332,6 +515,7 @@ final class AppModel: ObservableObject {
             await refreshEntries()
             await refreshSocialDots()
             reloadDrafts()
+            await iCloudSyncService.syncNow(userID: userID, reason: "submit_draft")
         } catch {
             submissionState = .failed
             errorMessage = error.localizedDescription
@@ -446,16 +630,16 @@ final class AppModel: ObservableObject {
     }
 
     private static func socialDotIsMoreRecent(_ lhs: APISocialDot, _ rhs: APISocialDot) -> Bool {
-        let lhsLocalDate = parseSocialDotLocalDate(lhs.localDate) ?? .distantPast
-        let rhsLocalDate = parseSocialDotLocalDate(rhs.localDate) ?? .distantPast
-        if lhsLocalDate != rhsLocalDate {
-            return lhsLocalDate > rhsLocalDate
-        }
-
         let lhsUpdatedAt = parseSocialDotUpdatedAt(lhs.updatedAt) ?? .distantPast
         let rhsUpdatedAt = parseSocialDotUpdatedAt(rhs.updatedAt) ?? .distantPast
         if lhsUpdatedAt != rhsUpdatedAt {
             return lhsUpdatedAt > rhsUpdatedAt
+        }
+
+        let lhsLocalDate = parseSocialDotLocalDate(lhs.localDate) ?? .distantPast
+        let rhsLocalDate = parseSocialDotLocalDate(rhs.localDate) ?? .distantPast
+        if lhsLocalDate != rhsLocalDate {
+            return lhsLocalDate > rhsLocalDate
         }
 
         return lhs.id < rhs.id
@@ -554,6 +738,7 @@ final class AppModel: ObservableObject {
                 entryID: entryID,
                 moodTags: normalizedTags
             )
+            await iCloudSyncService.queueEntryUpsert(userID: userID, entryID: entryID)
 
             if let sessionToken,
                updateResult.wasSharedToSocial,
@@ -575,6 +760,7 @@ final class AppModel: ObservableObject {
             if updateResult.wasSharedToSocial {
                 await refreshSocialDots()
             }
+            await iCloudSyncService.syncNow(userID: userID, reason: "update_entry_tags")
 
             return entries.first(where: { $0.id == entryID }) ?? updateResult.updatedEntry
         } catch {
@@ -596,7 +782,9 @@ final class AppModel: ObservableObject {
                 entryID: entryID,
                 title: title
             )
+            await iCloudSyncService.queueEntryUpsert(userID: userID, entryID: entryID)
             await refreshEntries()
+            await iCloudSyncService.syncNow(userID: userID, reason: "update_entry_title")
             return entries.first(where: { $0.id == entryID }) ?? updatedEntry
         } catch {
             errorMessage = error.localizedDescription
@@ -620,7 +808,7 @@ final class AppModel: ObservableObject {
         do {
             let audioURL = try localStore.audioURL(for: userID, entryID: entryID)
             let durationSeconds = max(1, min(baseEntry.durationSeconds, 300))
-            let (transcript, insight) = await LocalReflectionAnalyzer.analyze(
+            let (transcript, insight, generatedTitle) = await LocalReflectionAnalyzer.analyze(
                 audioURL: audioURL,
                 durationSeconds: durationSeconds,
                 useLiquidInsights: liquidModelPrepared
@@ -629,13 +817,16 @@ final class AppModel: ObservableObject {
                 errorMessage = "Could not transcribe this audio note. Try again."
                 return nil
             }
+            let replacementTitle = baseEntry.displayTitle == "Entry" ? generatedTitle : nil
 
             let updateResult = try localStore.updateEntryAnalysis(
                 for: userID,
                 entryID: entryID,
                 transcript: transcript,
-                insight: insight
+                insight: insight,
+                title: replacementTitle
             )
+            await iCloudSyncService.queueEntryUpsert(userID: userID, entryID: entryID)
 
             if let sessionToken,
                updateResult.wasSharedToSocial,
@@ -657,6 +848,7 @@ final class AppModel: ObservableObject {
             if updateResult.wasSharedToSocial {
                 await refreshSocialDots()
             }
+            await iCloudSyncService.syncNow(userID: userID, reason: "retranscribe_entry")
 
             return entries.first(where: { $0.id == entryID }) ?? updateResult.updatedEntry
         } catch {
@@ -673,6 +865,7 @@ final class AppModel: ObservableObject {
 
         do {
             let result = try localStore.deleteEntry(for: userID, entryID: entryID)
+            await iCloudSyncService.queueEntryDelete(userID: userID, entryID: entryID)
             if let sessionToken {
                 do {
                     if let replacement = result.replacementSharedEntryForDate,
@@ -698,6 +891,7 @@ final class AppModel: ObservableObject {
 
             await refreshEntries()
             await refreshSocialDots()
+            await iCloudSyncService.syncNow(userID: userID, reason: "delete_entry")
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -894,6 +1088,60 @@ final class AppModel: ObservableObject {
 
     func selectedReminderDays() -> [ReminderWeekday] {
         ReminderWeekday.ordered.filter { reminderWeekdays.contains($0.rawValue) }
+    }
+
+    private func configureICloudSyncForCurrentUser() async {
+        guard !userID.isEmpty else {
+            iCloudSyncStatus = iCloudSyncEnabled ? .unavailable : .disabled
+            return
+        }
+
+        await iCloudSyncService.setEnabled(iCloudSyncEnabled, userID: userID)
+        guard iCloudSyncEnabled else { return }
+
+        enqueueBootstrapICloudBackfillIfNeeded(for: userID)
+        await iCloudSyncService.syncNow(userID: userID, reason: "startup")
+    }
+
+    private func enqueueBootstrapICloudBackfillIfNeeded(for userID: String) {
+        guard !userID.isEmpty else { return }
+        let defaults = UserDefaults.standard
+        var syncedUserIDs = Set(defaults.stringArray(forKey: Keys.iCloudBootstrapSyncedUsers) ?? [])
+        if syncedUserIDs.contains(userID) {
+            return
+        }
+
+        Task {
+            await iCloudSyncService.queueBootstrapBackfill(userID: userID)
+            await iCloudSyncService.syncNow(userID: userID, reason: "bootstrap_backfill")
+        }
+
+        syncedUserIDs.insert(userID)
+        defaults.set(Array(syncedUserIDs).sorted(), forKey: Keys.iCloudBootstrapSyncedUsers)
+    }
+
+    private enum HealthSnapshotTimeoutError: Error {
+        case timedOut
+    }
+
+    private func fetchHealthSnapshotWithTimeout(
+        at timestamp: Date,
+        timeoutSeconds: Double
+    ) async throws -> EntryHealthSnapshot? {
+        try await withThrowingTaskGroup(of: EntryHealthSnapshot?.self) { group in
+            group.addTask { [healthKitManager] in
+                try await healthKitManager.fetchSnapshot(at: timestamp)
+            }
+            group.addTask {
+                let capped = max(0.2, timeoutSeconds)
+                try await Task.sleep(nanoseconds: UInt64((capped * 1_000_000_000).rounded()))
+                throw HealthSnapshotTimeoutError.timedOut
+            }
+
+            let firstCompleted = try await group.next() ?? nil
+            group.cancelAll()
+            return firstCompleted
+        }
     }
 
     private static func defaultReminderTimes(base: Date) -> [Int: Date] {

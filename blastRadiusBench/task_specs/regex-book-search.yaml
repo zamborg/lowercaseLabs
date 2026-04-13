@@ -1,0 +1,21 @@
+task_id: regex-book-search
+dataset: harbor-local
+description: Implement exact-word search in src/regex.py for a tiny books corpus.
+repo_root_aliases:
+  - /app
+gold_context:
+  required_files:
+    - src/regex.py
+    - src/modules/fold_map.py
+    - src/modules/tin_lantern.py
+  allowed_globs:
+    - assets/books/*.txt
+    - README.md
+  forbidden_files:
+    - src/semantic_search.py
+    - src/word_count.py
+    - src/modules/tea_kettle.py
+  forbidden_globs:
+    - docs/*
+  target_files:
+    - src/regex.py

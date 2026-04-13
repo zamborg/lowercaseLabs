@@ -93,6 +93,86 @@ struct APIInsight: Codable, Hashable {
     let safetyFlags: [String: JSONValue]?
 }
 
+enum HealthMetricType: String, Codable, Hashable, CaseIterable {
+    case sleepHours
+    case hrvSdnnMs
+    case restingHeartRateBpm
+    case stepsToday
+
+    var displayName: String {
+        switch self {
+        case .sleepHours:
+            return "Sleep"
+        case .hrvSdnnMs:
+            return "HRV"
+        case .restingHeartRateBpm:
+            return "Resting HR"
+        case .stepsToday:
+            return "Steps"
+        }
+    }
+
+    var displayOrder: Int {
+        switch self {
+        case .sleepHours:
+            return 0
+        case .hrvSdnnMs:
+            return 1
+        case .restingHeartRateBpm:
+            return 2
+        case .stepsToday:
+            return 3
+        }
+    }
+}
+
+struct HealthComponentSnapshot: Codable, Hashable {
+    let type: HealthMetricType
+    let rawValue: Double
+    let unit: String
+    let componentScore: Double
+    let sampledAtISO8601: String?
+    let isStale: Bool
+
+    var scorePercent: Int {
+        Int(max(0, min(100, componentScore)).rounded())
+    }
+
+    var formattedRawValue: String {
+        switch type {
+        case .sleepHours:
+            return String(format: "%.1fh", rawValue)
+        case .hrvSdnnMs:
+            return String(format: "%.0f ms", rawValue)
+        case .restingHeartRateBpm:
+            return String(format: "%.0f bpm", rawValue)
+        case .stepsToday:
+            return String(format: "%.0f", rawValue)
+        }
+    }
+}
+
+struct EntryHealthSnapshot: Codable, Hashable {
+    let capturedAtISO8601: String
+    let readinessScore: Int?
+    let confidence: Double
+    let components: [HealthComponentSnapshot]
+    let version: Int
+
+    var sortedComponents: [HealthComponentSnapshot] {
+        components.sorted { lhs, rhs in
+            if lhs.type.displayOrder != rhs.type.displayOrder {
+                return lhs.type.displayOrder < rhs.type.displayOrder
+            }
+            return lhs.type.rawValue < rhs.type.rawValue
+        }
+    }
+
+    var confidencePercent: Int {
+        Int((max(0, min(1, confidence)) * 100).rounded())
+    }
+}
+
 struct APIEntry: Codable, Identifiable, Hashable {
     let id: String
     let localDate: String
@@ -102,6 +182,7 @@ struct APIEntry: Codable, Identifiable, Hashable {
     let title: String
     let transcript: APITranscript?
     let insight: APIInsight?
+    let healthSnapshot: EntryHealthSnapshot?
 
     var displayTitle: String {
         Self.sanitizeTitle(title)
@@ -120,7 +201,8 @@ struct APIEntry: Codable, Identifiable, Hashable {
         createdAt: String,
         transcript: APITranscript?,
         insight: APIInsight?,
-        title: String = "Entry"
+        title: String = "Entry",
+        healthSnapshot: EntryHealthSnapshot? = nil
     ) {
         self.id = id
         self.localDate = localDate
@@ -130,6 +212,7 @@ struct APIEntry: Codable, Identifiable, Hashable {
         self.title = Self.sanitizeTitle(title)
         self.transcript = transcript
         self.insight = insight
+        self.healthSnapshot = healthSnapshot
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -141,6 +224,7 @@ struct APIEntry: Codable, Identifiable, Hashable {
         case title
         case transcript
         case insight
+        case healthSnapshot
     }
 
     init(from decoder: Decoder) throws {
@@ -153,6 +237,7 @@ struct APIEntry: Codable, Identifiable, Hashable {
         title = Self.sanitizeTitle(try container.decodeIfPresent(String.self, forKey: .title) ?? "Entry")
         transcript = try container.decodeIfPresent(APITranscript.self, forKey: .transcript)
         insight = try container.decodeIfPresent(APIInsight.self, forKey: .insight)
+        healthSnapshot = try container.decodeIfPresent(EntryHealthSnapshot.self, forKey: .healthSnapshot)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -165,6 +250,7 @@ struct APIEntry: Codable, Identifiable, Hashable {
         try container.encode(Self.sanitizeTitle(title), forKey: .title)
         try container.encodeIfPresent(transcript, forKey: .transcript)
         try container.encodeIfPresent(insight, forKey: .insight)
+        try container.encodeIfPresent(healthSnapshot, forKey: .healthSnapshot)
     }
 
     static func sanitizeTitle(_ raw: String) -> String {

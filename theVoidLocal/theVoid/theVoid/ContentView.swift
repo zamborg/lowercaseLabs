@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @StateObject private var model = AppModel()
@@ -21,6 +22,14 @@ struct ContentView: View {
             }
         }
         .environmentObject(model)
+        .task {
+            await model.handleAppDidBecomeActive()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            Task {
+                await model.handleAppDidBecomeActive()
+            }
+        }
         .alert("Error", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }

@@ -1,4 +1,4 @@
-# Liquid Insights: V0 and V1
+# Liquid Insights: V0
 
 ## V0 (implemented, always on)
 Flow:
@@ -9,9 +9,10 @@ Flow:
 5. If Liquid fails, keyword extraction fallback runs automatically.
 
 Output contract stays stable:
+- `title` is generated in V0 as a concise 2-5 word heading for the entry
 - `APIInsight.moodTags` max 4
-- `APIInsight.themes` is set to `[]` by local extraction (no theme extraction in V0/V1 local pipelines)
-- `APIInsight.safetyFlags` shape unchanged
+- `APIInsight.themes` is set to `[]` by local extraction (no local theme extraction in V0)
+- No warning/context sections are generated in local V0 output
 
 Runtime metadata is saved in `APITranscript.providerMetadata`:
 - `insight_provider`
@@ -20,6 +21,7 @@ Runtime metadata is saved in `APITranscript.providerMetadata`:
 - `insight_latency_ms`
 - `insight_model` (when available)
 - `insight_fallback_reason` (when fallback occurs)
+- `insight_title`
 
 ## App UX: model preparation gate
 - On first completed login/onboarding, app shows a full-screen model preparation page.
@@ -27,16 +29,6 @@ Runtime metadata is saved in `APITranscript.providerMetadata`:
 - A retry button appears if download/load fails.
 - In Settings, `Redownload Liquid Model` triggers the same full-screen preparation flow.
 - Prepared state is cached in `UserDefaults` key `thevoid.liquidModelPrepared`.
-
-## V1 (scaffolded)
-Target flow:
-1. Reflection audio is provided directly to multimodal Liquid extraction.
-2. Structured extraction returns tags/safety without transcript-first dependency.
-
-Current status:
-- V1 extraction method exists in code (`extractInsightV1LiquidAudio` and `extractV1Audio`).
-- V1 currently requires WAV mono input (16k recommended).
-- Recorder currently stores M4A, so audio conversion or recorder format changes are required before enabling V1 in production.
 
 ## Runtime configuration
 Optional `UserDefaults` keys used by Liquid runtime:

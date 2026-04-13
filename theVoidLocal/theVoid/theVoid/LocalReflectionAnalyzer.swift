@@ -21,11 +21,11 @@ private enum LiquidInsightsConfig {
 
 enum LocalInsightPipelineVersion: String {
     case v0TranscriptStructured = "v0_transcript_structured"
-    case v1AudioStructured = "v1_audio_structured"
 }
 
 private struct LocalInsightExtractionResult {
     let insight: APIInsight
+    let title: String
     let provider: String
     let pipelineVersion: LocalInsightPipelineVersion
     let latencyMilliseconds: Int
@@ -35,9 +35,8 @@ private struct LocalInsightExtractionResult {
 }
 
 private struct LiquidStructuredOutput {
+    let title: String
     let moodTags: [String]
-    let needsReview: Bool
-    let matchedSafetyTerms: [String]
     let modelID: String?
     let tokensPerSecond: Double?
 }
@@ -64,14 +63,6 @@ private struct AccumulatedSpeechSegment {
 
 enum LocalReflectionAnalyzer {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.lowercaseLabs.theVoid", category: "liquid-insights")
-
-    private static let safetyTerms = [
-        "suicide",
-        "kill myself",
-        "self harm",
-        "hopeless",
-        "want to disappear",
-    ]
 
     private static func verboseLoggingEnabled() -> Bool {
         let defaults = UserDefaults.standard
@@ -131,7 +122,7 @@ enum LocalReflectionAnalyzer {
         audioURL: URL,
         durationSeconds: Int,
         useLiquidInsights: Bool
-    ) async -> (APITranscript?, APIInsight?) {
+    ) async -> (APITranscript?, APIInsight?, String?) {
         debugLog("analyze start duration=\(durationSeconds) useLiquidInsights=\(useLiquidInsights)")
         // Warm model load while speech transcription runs so first-run latency is hidden when possible.
         if useLiquidInsights {
@@ -145,7 +136,7 @@ enum LocalReflectionAnalyzer {
             transcription = try await transcribeOnDevice(audioURL: audioURL)
         } catch {
             errorLog("analyze transcription failed reason=\(describeErrorChain(error))")
-            return (nil, nil)
+            return (nil, nil, nil)
         }
 
         let transcriptText = transcription.text
@@ -175,7 +166,7 @@ enum LocalReflectionAnalyzer {
                 text: transcript.text,
                 providerMetadata: metadata
             )
-            return (transcriptOnly, nil)
+            return (transcriptOnly, nil, nil)
         }
 
         let extracted = await extractInsight(
@@ -199,12 +190,13 @@ enum LocalReflectionAnalyzer {
         if let fallbackReason = extracted.fallbackReason {
             metadata["insight_fallback_reason"] = .string(fallbackReason)
         }
+        metadata["insight_title"] = .string(extracted.title)
 
         let transcriptWithInsightMetadata = APITranscript(
             text: transcript.text,
             providerMetadata: metadata
         )
-        return (transcriptWithInsightMetadata, extracted.insight)
+        return (transcriptWithInsightMetadata, extracted.insight, extracted.title)
     }
 
     private static func transcribeOnDevice(audioURL: URL) async throws -> LocalTranscriptionResult {
@@ -491,8 +483,7 @@ enum LocalReflectionAnalyzer {
         let startNanos = DispatchTime.now().uptimeNanoseconds
         let output = try await LiquidInsightsRuntime.shared.extractV0(
             transcriptText: transcriptText,
-            allowedTags: EmotionTaxonomy.tags.map(\.id),
-            safetyTerms: safetyTerms
+            allowedTags: EmotionTaxonomy.tags.map(\.id)
         )
 
         let lowered = transcriptText.lowercased()
@@ -500,72 +491,25 @@ enum LocalReflectionAnalyzer {
         if tags.isEmpty {
             tags = extractMoodTags(from: lowered)
         }
-
-        let safety = sanitizeSafetyTerms(output.matchedSafetyTerms, in: lowered)
-        let needsReview = output.needsReview || !safety.isEmpty
+        let title = normalizedGeneratedTitle(
+            output.title,
+            fallbackTranscript: transcriptText
+        )
 
         let insight = APIInsight(
             moodScore: EmotionTaxonomy.moodScore(for: tags),
             moodTags: tags,
             themes: [],
             signals: signals(from: lowered, tags: tags),
-            safetyFlags: [
-                "needs_review": .bool(needsReview),
-                "matched_terms": .array(safety.map { .string($0) }),
-            ]
+            safetyFlags: nil
         )
 
         let elapsed = elapsedMilliseconds(since: startNanos)
         return LocalInsightExtractionResult(
             insight: insight,
+            title: title,
             provider: "liquid_structured_v0",
             pipelineVersion: .v0TranscriptStructured,
-            latencyMilliseconds: elapsed,
-            modelID: output.modelID,
-            tokensPerSecond: output.tokensPerSecond,
-            fallbackReason: nil
-        )
-    }
-
-    // V1 scaffold: audio -> structured extraction with Liquid multimodal input.
-    // This path requires WAV mono audio (16k recommended), while current recorder stores M4A.
-    private static func extractInsightV1LiquidAudio(
-        audioURL: URL,
-        transcriptHint: String
-    ) async throws -> LocalInsightExtractionResult {
-        let startNanos = DispatchTime.now().uptimeNanoseconds
-        let output = try await LiquidInsightsRuntime.shared.extractV1Audio(
-            audioURL: audioURL,
-            transcriptHint: transcriptHint,
-            allowedTags: EmotionTaxonomy.tags.map(\.id),
-            safetyTerms: safetyTerms
-        )
-
-        let lowered = transcriptHint.lowercased()
-        var tags = sanitizeModelTags(output.moodTags)
-        if tags.isEmpty {
-            tags = extractMoodTags(from: lowered)
-        }
-
-        let safety = sanitizeSafetyTerms(output.matchedSafetyTerms, in: lowered)
-        let needsReview = output.needsReview || !safety.isEmpty
-
-        let insight = APIInsight(
-            moodScore: EmotionTaxonomy.moodScore(for: tags),
-            moodTags: tags,
-            themes: [],
-            signals: signals(from: lowered, tags: tags),
-            safetyFlags: [
-                "needs_review": .bool(needsReview),
-                "matched_terms": .array(safety.map { .string($0) }),
-            ]
-        )
-
-        let elapsed = elapsedMilliseconds(since: startNanos)
-        return LocalInsightExtractionResult(
-            insight: insight,
-            provider: "liquid_structured_v1_audio",
-            pipelineVersion: .v1AudioStructured,
             latencyMilliseconds: elapsed,
             modelID: output.modelID,
             tokensPerSecond: output.tokensPerSecond,
@@ -581,16 +525,18 @@ enum LocalReflectionAnalyzer {
         let startNanos = DispatchTime.now().uptimeNanoseconds
         let lowered = transcriptText.lowercased()
         let tags = extractMoodTags(from: lowered)
+        let title = fallbackTitle(from: transcriptText)
         let insight = APIInsight(
             moodScore: EmotionTaxonomy.moodScore(for: tags),
             moodTags: tags,
             themes: [],
             signals: signals(from: lowered, tags: tags),
-            safetyFlags: safetyFlags(from: lowered)
+            safetyFlags: nil
         )
 
         return LocalInsightExtractionResult(
             insight: insight,
+            title: title,
             provider: provider,
             pipelineVersion: .v0TranscriptStructured,
             latencyMilliseconds: elapsedMilliseconds(since: startNanos),
@@ -631,32 +577,6 @@ enum LocalReflectionAnalyzer {
         return tags
     }
 
-    private static func sanitizeSafetyTerms(_ rawTerms: [String], in loweredTranscript: String) -> [String] {
-        let allowedNormalized = Set(safetyTerms.map(EmotionTaxonomy.normalize))
-        var ordered: [String] = []
-
-        let lexicalMatches = safetyTerms.filter { containsPhrase(loweredTranscript, phrase: $0) }
-        for term in lexicalMatches {
-            let normalized = EmotionTaxonomy.normalize(term)
-            if !ordered.contains(normalized) {
-                ordered.append(normalized)
-            }
-        }
-
-        for term in rawTerms {
-            let normalized = EmotionTaxonomy.normalize(term)
-            guard allowedNormalized.contains(normalized) else {
-                continue
-            }
-            if ordered.contains(normalized) {
-                continue
-            }
-            ordered.append(normalized)
-        }
-
-        return ordered
-    }
-
     private static func extractMoodTags(from lowered: String) -> [String] {
         EmotionTaxonomy.matchedTags(in: lowered, maxCount: 4) { phrase in
             containsPhrase(lowered, phrase: phrase)
@@ -682,12 +602,54 @@ enum LocalReflectionAnalyzer {
         ]
     }
 
-    private static func safetyFlags(from lowered: String) -> [String: JSONValue] {
-        let matched = safetyTerms.filter { containsPhrase(lowered, phrase: $0) }
-        return [
-            "needs_review": .bool(!matched.isEmpty),
-            "matched_terms": .array(matched.map { .string($0) }),
-        ]
+    private static func normalizedGeneratedTitle(_ rawTitle: String, fallbackTranscript: String) -> String {
+        let extractedWords = titleWords(from: rawTitle)
+        guard !extractedWords.isEmpty else {
+            return fallbackTitle(from: fallbackTranscript)
+        }
+
+        let clamped = Array(extractedWords.prefix(5))
+        var outputWords = clamped
+        if outputWords.count == 1 {
+            outputWords.append("Reflection")
+        }
+        if outputWords.isEmpty {
+            return fallbackTitle(from: fallbackTranscript)
+        }
+        return formatTitleWords(outputWords)
+    }
+
+    private static func fallbackTitle(from transcriptText: String) -> String {
+        let words = titleWords(from: transcriptText)
+        if words.isEmpty {
+            return "Daily Reflection"
+        }
+        let count = words.count == 1 ? 1 : min(words.count, 5)
+        var selected = Array(words.prefix(count))
+        if selected.count == 1 {
+            selected.append("Reflection")
+        }
+        return formatTitleWords(selected)
+    }
+
+    private static func titleWords(from text: String) -> [String] {
+        let cleaned = text.replacingOccurrences(
+            of: "[^A-Za-z0-9' ]+",
+            with: " ",
+            options: .regularExpression
+        )
+        return cleaned
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func formatTitleWords(_ words: [String]) -> String {
+        let normalized = words
+            .prefix(5)
+            .map { $0.lowercased().capitalized }
+        return APIEntry.sanitizeTitle(normalized.joined(separator: " "))
     }
 }
 
@@ -695,7 +657,6 @@ private enum LiquidInsightsError: LocalizedError {
     case unavailable
     case emptyTranscript
     case modelOutputMissing
-    case unsupportedAudioInput
 
     var errorDescription: String? {
         switch self {
@@ -705,8 +666,6 @@ private enum LiquidInsightsError: LocalizedError {
             return "No transcript text was available for Liquid extraction."
         case .modelOutputMissing:
             return "Liquid model did not return structured output."
-        case .unsupportedAudioInput:
-            return "V1 audio extraction requires WAV mono input."
         }
     }
 }
@@ -866,8 +825,7 @@ private actor LiquidInsightsRuntime {
 
     func extractV0(
         transcriptText: String,
-        allowedTags: [String],
-        safetyTerms: [String]
+        allowedTags: [String]
     ) async throws -> LiquidStructuredOutput {
         let trimmed = transcriptText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -875,8 +833,7 @@ private actor LiquidInsightsRuntime {
         }
 
         let systemPrompt = Self.v0SystemPrompt(
-            allowedTags: allowedTags,
-            safetyTerms: safetyTerms
+            allowedTags: allowedTags
         )
 
         let requestBody = """
@@ -891,81 +848,29 @@ private actor LiquidInsightsRuntime {
             message: ChatMessage(role: .user, content: [.text(requestBody)])
         )
         debugLog(
-            "extractV0 result moodTags=\(result.moodTags) needsReview=\(result.needsReview) matchedSafetyTerms=\(result.matchedSafetyTerms) modelID=\(result.modelID ?? "nil") tokensPerSecond=\(result.tokensPerSecond?.description ?? "nil")"
+            "extractV0 result title=\(result.title) moodTags=\(result.moodTags) modelID=\(result.modelID ?? "nil") tokensPerSecond=\(result.tokensPerSecond?.description ?? "nil")"
         )
         return result
     }
 
-    func extractV1Audio(
-        audioURL: URL,
-        transcriptHint: String,
-        allowedTags: [String],
-        safetyTerms: [String]
-    ) async throws -> LiquidStructuredOutput {
-        let wavData = try loadWAVData(url: audioURL)
-
-        let systemPrompt = Self.v1SystemPrompt(
-            allowedTags: allowedTags,
-            safetyTerms: safetyTerms
-        )
-
-        let userText = transcriptHint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "Extract structured insight directly from the attached audio reflection."
-            : "Extract structured insight from the attached audio reflection. Transcript hint: \(transcriptHint)"
-
-        return try await generateStructured(
-            systemPrompt: systemPrompt,
-            message: ChatMessage(
-                role: .user,
-                content: [.text(userText), .audio(wavData)]
-            )
-        )
-    }
-
-    private func loadWAVData(url: URL) throws -> Data {
-        guard url.pathExtension.lowercased() == "wav" else {
-            throw LiquidInsightsError.unsupportedAudioInput
-        }
-        return try Data(contentsOf: url)
-    }
-
     private static func v0SystemPrompt(
-        allowedTags: [String],
-        safetyTerms: [String]
+        allowedTags: [String]
     ) -> String {
         """
-        You are an analysis engine for user transcripts. You should extract emotional insights restricted to moodTags according to the user's transcript!
-        Extract emotional insight and return strict JSON only.
-        
-        Be as accurate as possible identifying the emotional tags from the user's transcript exactly.
+        You are an analysis engine for private reflection transcripts.
+        Return strict JSON only.
 
         Rules:
+        - Return exactly two keys: title and moodTags.
+        - title must be 2 to 5 words.
+        - A good title is specific, emotionally grounded, and reflects the reflection's main moment or shift.
+        - Avoid generic titles like "My Day", "Journal Entry", or "Reflection".
+        - Use plain language, no emojis, no punctuation-heavy styling.
         - Select 1 to 4 moodTags from this exact allowed list: \(allowedTags.joined(separator: ", ")).
         - moodTags must be lowercase canonical tags from the list, no new tags.
-        - needsReview is true only for clear self-harm, suicide intent, or severe safety concern.
-        - matchedSafetyTerms must only include exact terms from: \(safetyTerms.joined(separator: ", ")).
         - If uncertain, choose conservative output with moodTags ["reflective"].
 
-        Never return prose, markdown, or extra keys.
-        """
-    }
-
-    private static func v1SystemPrompt(
-        allowedTags: [String],
-        safetyTerms: [String]
-    ) -> String {
-        """
-        You are an on-device multimodal extractor for private voice reflections.
-        Use audio-first evidence and return strict JSON only.
-
-        Rules:
-        - Select 1 to 4 moodTags from this exact allowed list: \(allowedTags.joined(separator: ", ")).
-        - moodTags must be lowercase canonical tags from the list, no new tags.
-        - needsReview is true only for clear self-harm, suicide intent, or severe safety concern.
-        - matchedSafetyTerms must only include exact terms from: \(safetyTerms.joined(separator: ", ")).
-        - If uncertain, choose conservative output with moodTags ["reflective"].
-
-        Never return prose, markdown, or extra keys.
+        Never return prose, markdown, context fields, warning fields, or extra keys.
         """
     }
 
@@ -1043,12 +948,11 @@ private actor LiquidInsightsRuntime {
         do {
             let decoded = try decodeLiquidInsightPayload(from: jsonText)
             debugLog(
-                "generateStructured decoded moodTags=\(decoded.moodTags) needsReview=\(decoded.needsReview) matchedSafetyTerms=\(decoded.matchedSafetyTerms)"
+                "generateStructured decoded title=\(decoded.title) moodTags=\(decoded.moodTags)"
             )
             let output = LiquidStructuredOutput(
+                title: decoded.title,
                 moodTags: decoded.moodTags,
-                needsReview: decoded.needsReview,
-                matchedSafetyTerms: decoded.matchedSafetyTerms,
                 modelID: activeModelDescriptor,
                 tokensPerSecond: tokensPerSecond
             )
@@ -1112,24 +1016,34 @@ private actor LiquidInsightsRuntime {
     }
 
     private func liquidInsightPayload(from dictionary: [String: Any]) -> LiquidInsightPayload {
+        let title = stringValue(
+            from: dictionary,
+            keys: ["title", "entryTitle", "entry_title", "headline"]
+        ) ?? "Daily Reflection"
         let moodTags = stringArray(
             from: dictionary,
             keys: ["moodTags", "mood_tags", "tags", "mood"]
         )
-        let needsReview = boolValue(
-            from: dictionary,
-            keys: ["needsReview", "needs_review", "needsreview"]
-        ) ?? false
-        let matchedSafetyTerms = stringArray(
-            from: dictionary,
-            keys: ["matchedSafetyTerms", "matched_safety_terms", "matched_terms", "safetyTerms", "safety_terms"]
-        )
 
         return LiquidInsightPayload(
-            moodTags: moodTags,
-            needsReview: needsReview,
-            matchedSafetyTerms: matchedSafetyTerms
+            title: title,
+            moodTags: moodTags
         )
+    }
+
+    private func stringValue(from dictionary: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let raw = dictionary[key] else {
+                continue
+            }
+            if let text = raw as? String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return nil
     }
 
     private func stringArray(from dictionary: [String: Any], keys: [String]) -> [String] {
@@ -1157,30 +1071,6 @@ private actor LiquidInsightsRuntime {
             }
         }
         return []
-    }
-
-    private func boolValue(from dictionary: [String: Any], keys: [String]) -> Bool? {
-        for key in keys {
-            guard let raw = dictionary[key] else {
-                continue
-            }
-            if let value = raw as? Bool {
-                return value
-            }
-            if let number = raw as? NSNumber {
-                return number.boolValue
-            }
-            if let text = raw as? String {
-                let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                if normalized == "true" || normalized == "1" || normalized == "yes" {
-                    return true
-                }
-                if normalized == "false" || normalized == "0" || normalized == "no" {
-                    return false
-                }
-            }
-        }
-        return nil
     }
 
     private func normalizedStrings(_ values: [String]) -> [String] {
@@ -2314,29 +2204,25 @@ private actor LiquidInsightsRuntime {
 }
 
 #if canImport(LeapSDK)
-@Generatable("Structured extraction for mood tags and safety flags.")
+@Generatable("Structured extraction for entry title and mood tags.")
 private struct LiquidInsightPayload: Codable {
+    @Guide("A concise 2 to 5 word reflection title.")
+    let title: String
+
     @Guide("1 to 4 canonical mood tags from the allowed list.")
     let moodTags: [String]
-
-    @Guide("True only when reflection indicates safety review concerns.")
-    let needsReview: Bool
-
-    @Guide("Matched safety terms from the supplied safety vocabulary.")
-    let matchedSafetyTerms: [String]
 }
 #else
-private struct ChatMessage {
-    enum Role {
-        case user
-    }
+    private struct ChatMessage {
+        enum Role {
+            case user
+        }
 
-    enum Content {
-        case text(String)
-        case audio(Data)
-    }
+        enum Content {
+            case text(String)
+        }
 
-    let role: Role
-    let content: [Content]
+        let role: Role
+        let content: [Content]
 }
 #endif

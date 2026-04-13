@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Codex Usage</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">Local Codex Usage</p>
+      <h1>Scheduler-facing live rate limits</h1>
+      <p class="lede">Polling local Codex session files and a Claude tmux usage modal for the latest 5h and weekly percentages.</p>
+      <div class="meta">
+        <span id="last-updated">Waiting for first read…</span>
+        <span id="source-file"></span>
+      </div>
+    </section>
+
+    <section class="service">
+      <div class="service-head">
+        <div class="service-title">
+          <p class="service-name">Codex</p>
+          <p class="service-state" id="codex-state">Waiting…</p>
+        </div>
+        <div class="service-actions">
+          <button class="action-btn" id="codex-refresh-btn" type="button">Refresh Codex</button>
+          <p class="action-meta" id="codex-last-checked">Not checked yet</p>
+        </div>
+      </div>
+      <section class="grid">
+        <article class="card">
+          <p class="label">5h Limit</p>
+          <div class="value-row">
+            <strong id="short-pct">--%</strong>
+            <span class="subtle">left</span>
+          </div>
+          <div class="bar"><div class="fill" id="short-fill"></div></div>
+          <p class="tag" id="short-reset">reset --</p>
+        </article>
+
+        <article class="card">
+          <p class="label">Weekly Limit</p>
+          <div class="value-row">
+            <strong id="long-pct">--%</strong>
+            <span class="subtle">left</span>
+          </div>
+          <div class="bar"><div class="fill" id="long-fill"></div></div>
+          <p class="tag" id="long-reset">reset --</p>
+        </article>
+      </section>
+    </section>
+
+    <section class="service">
+      <div class="service-head">
+        <div class="service-title">
+          <p class="service-name">Claude Code</p>
+          <p class="service-state" id="claude-state">Idle</p>
+        </div>
+        <div class="service-actions">
+          <button class="action-btn" id="claude-check-btn" type="button">Check Claude Now</button>
+          <p class="action-meta" id="claude-last-checked">Not checked yet</p>
+        </div>
+      </div>
+      <section class="grid">
+        <article class="card">
+          <p class="label">5h Limit</p>
+          <div class="value-row">
+            <strong id="claude-short-pct">--%</strong>
+            <span class="subtle">left</span>
+          </div>
+          <div class="bar"><div class="fill" id="claude-short-fill"></div></div>
+          <p class="tag" id="claude-short-reset">reset --</p>
+        </article>
+
+        <article class="card">
+          <p class="label">Weekly Limit</p>
+          <div class="value-row">
+            <strong id="claude-long-pct">--%</strong>
+            <span class="subtle">left</span>
+          </div>
+          <div class="bar"><div class="fill" id="claude-long-fill"></div></div>
+          <p class="tag" id="claude-long-reset">reset --</p>
+        </article>
+      </section>
+      <section class="detail-card service-detail">
+        <div class="detail-row">
+          <span>tmux target</span>
+          <strong id="claude-target">--</strong>
+        </div>
+        <div class="detail-row">
+          <span>state</span>
+          <strong id="claude-state-detail">--</strong>
+        </div>
+        <div class="detail-row">
+          <span>reason</span>
+          <strong id="claude-reason">--</strong>
+        </div>
+      </section>
+    </section>
+
+    <section class="detail-card">
+      <div class="detail-row">
+        <span>Plan</span>
+        <strong id="plan-type">--</strong>
+      </div>
+      <div class="detail-row">
+        <span>5h window</span>
+        <strong id="short-window">--</strong>
+      </div>
+      <div class="detail-row">
+        <span>Weekly window</span>
+        <strong id="long-window">--</strong>
+      </div>
+      <div class="detail-row">
+        <span>Event timestamp</span>
+        <strong id="event-ts">--</strong>
+      </div>
+    </section>
+
+    <section class="raw-card">
+      <pre id="raw-json">Loading…</pre>
+    </section>
+  </main>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

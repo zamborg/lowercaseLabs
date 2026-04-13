@@ -1,0 +1,16 @@
+task_id: sample.single-file-fix
+dataset: harbor-local
+description: Fix the rendering bug in src/app.py.
+repo_root_aliases:
+  - /workspace
+  - /app
+gold_context:
+  required_files:
+    - src/app.py
+  allowed_files:
+    - src/helpers.py
+  forbidden_files:
+    - docs/architecture.md
+  target_files:
+    - src/app.py
+

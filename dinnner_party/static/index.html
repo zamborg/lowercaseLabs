@@ -1,0 +1,859 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dinner Party</title>
+    <style>
+      :root {
+        --paper: rgba(255, 251, 244, 0.8);
+        --paper-strong: rgba(255, 251, 244, 0.96);
+        --ink: #2f241d;
+        --muted: #6e5b4d;
+        --accent: #b44c2b;
+        --olive: #68734d;
+        --line: rgba(47, 36, 29, 0.12);
+        --shadow: 0 18px 40px rgba(84, 53, 34, 0.15);
+        --good: #2f6d52;
+        --warn: #8b5a1f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+        background:
+          radial-gradient(circle at top left, rgba(230, 184, 111, 0.6), transparent 28%),
+          radial-gradient(circle at bottom right, rgba(180, 76, 43, 0.18), transparent 24%),
+          linear-gradient(180deg, #f7efd8 0%, #eadcc3 100%);
+      }
+
+      .shell {
+        width: min(1420px, calc(100vw - 32px));
+        margin: 24px auto;
+        display: grid;
+        grid-template-columns: 460px 1fr;
+        gap: 20px;
+      }
+
+      .panel {
+        background: var(--paper);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+      }
+
+      .sidebar {
+        padding: 22px;
+        display: grid;
+        gap: 18px;
+        align-content: start;
+      }
+
+      .content {
+        min-height: 82vh;
+        display: grid;
+        grid-template-rows: auto auto 1fr auto;
+        overflow: hidden;
+      }
+
+      .hero,
+      .runner-bar {
+        padding: 22px 24px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .runner-bar {
+        background: rgba(255, 250, 243, 0.82);
+        display: grid;
+        gap: 14px;
+      }
+
+      .eyebrow {
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        font-size: 12px;
+        color: var(--olive);
+        margin-bottom: 6px;
+      }
+
+      h1, h2, h3, p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(30px, 4vw, 44px);
+        line-height: 0.95;
+      }
+
+      .subhead {
+        margin-top: 10px;
+        max-width: 60ch;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.45;
+      }
+
+      .card {
+        background: var(--paper-strong);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 16px;
+      }
+
+      .card-grid,
+      .mini-list,
+      .agent-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      input,
+      textarea,
+      select,
+      button {
+        font: inherit;
+      }
+
+      input,
+      textarea,
+      select {
+        width: 100%;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--ink);
+      }
+
+      textarea {
+        min-height: 140px;
+        resize: vertical;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 11px 16px;
+        cursor: pointer;
+        transition: transform 120ms ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+      }
+
+      button.primary {
+        background: var(--accent);
+        color: #fff8f2;
+      }
+
+      button.secondary {
+        background: rgba(104, 115, 77, 0.12);
+        color: var(--olive);
+      }
+
+      button.ghost {
+        background: rgba(47, 36, 29, 0.06);
+        color: var(--ink);
+      }
+
+      .button-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .agent-card,
+      .mini-item {
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.45);
+        border: 1px solid var(--line);
+      }
+
+      .agent-card header {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        gap: 12px;
+      }
+
+      .agent-card h3 {
+        font-size: 20px;
+      }
+
+      .agent-card pre,
+      .exec-pattern,
+      .output-snippet {
+        margin: 10px 0 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+
+      .mini-label {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+
+      .status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(47, 36, 29, 0.06);
+        color: var(--muted);
+      }
+
+      .status-chip.running,
+      .status-chip.good {
+        background: rgba(47, 109, 82, 0.12);
+        color: var(--good);
+      }
+
+      .status-chip.warn {
+        background: rgba(139, 90, 31, 0.12);
+        color: var(--warn);
+      }
+
+      .chat-log {
+        padding: 20px 24px;
+        overflow: auto;
+        display: grid;
+        gap: 12px;
+        align-content: start;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.1)),
+          repeating-linear-gradient(
+            180deg,
+            transparent 0,
+            transparent 27px,
+            rgba(47, 36, 29, 0.04) 27px,
+            rgba(47, 36, 29, 0.04) 28px
+          );
+      }
+
+      .message {
+        max-width: 80%;
+        padding: 12px 14px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.74);
+        box-shadow: 0 8px 22px rgba(54, 38, 28, 0.08);
+      }
+
+      .message.system {
+        max-width: 100%;
+        background: rgba(104, 115, 77, 0.11);
+        color: var(--olive);
+      }
+
+      .message-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 6px;
+        font-size: 13px;
+      }
+
+      .sender {
+        font-weight: 700;
+        text-transform: capitalize;
+      }
+
+      .timestamp,
+      .muted {
+        color: var(--muted);
+      }
+
+      .composer {
+        padding: 18px 24px 24px;
+        border-top: 1px solid var(--line);
+        background: rgba(255, 250, 243, 0.82);
+        display: grid;
+        gap: 12px;
+      }
+
+      .composer-row,
+      .run-row,
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .run-row {
+        grid-template-columns: 220px auto;
+        align-items: end;
+      }
+
+      .composer-row {
+        grid-template-columns: 180px 1fr auto;
+      }
+
+      @media (max-width: 1040px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .composer-row,
+        .run-row,
+        .form-row {
+          grid-template-columns: 1fr;
+        }
+
+        .message,
+        .message.system {
+          max-width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="panel sidebar">
+        <section class="card card-grid">
+          <div>
+            <div class="eyebrow">Agent Setup</div>
+            <h2>Register yourself</h2>
+          </div>
+          <p class="muted">Each person makes one agent with a soul prompt and a unique Google Calendar MCP server name, like `google-calendar-zubin`.</p>
+          <form id="agent-form">
+            <div class="form-row">
+              <label>
+                Display Name
+                <input id="display-name" name="display_name" placeholder="Zubin">
+              </label>
+              <label>
+                Agent ID
+                <input id="agent-id" name="id" placeholder="zubin">
+              </label>
+            </div>
+            <div class="form-row">
+              <label>
+                Calendar Identity
+                <input id="calendar-identity" name="calendar_identity" placeholder="zubin@gmail.com">
+              </label>
+              <label>
+                Calendar MCP Server
+                <input id="calendar-mcp-server" name="calendar_mcp_server" placeholder="google-calendar-zubin">
+              </label>
+            </div>
+            <label>
+              Soul / System Prompt
+              <textarea id="soul" name="soul" placeholder="I want spicy noodles, I hate huge waits, and I prefer 7:30 PM or later."></textarea>
+            </label>
+            <div class="button-row">
+              <button class="primary" type="submit">Save Agent</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card">
+          <div class="eyebrow">Google Calendar MCP</div>
+          <div id="connector-summary" class="mini-list"></div>
+        </section>
+
+        <section class="card">
+          <div class="eyebrow">Registered Agents</div>
+          <div id="agent-list" class="agent-list"></div>
+        </section>
+      </aside>
+
+      <section class="panel content">
+        <header class="hero">
+          <div>
+            <div class="eyebrow">Run Room</div>
+            <h1>Dinner Party</h1>
+            <p class="subhead">Save agents, connect each one to its own Google Calendar MCP config from this page, then run the current set with whatever model string you want.</p>
+          </div>
+          <div class="button-row">
+            <button id="copy-spec" class="secondary" type="button">Copy API URL</button>
+            <button id="reset-chat" class="ghost" type="button">Reset Chat</button>
+          </div>
+        </header>
+
+        <div class="runner-bar">
+          <div class="run-row">
+            <label>
+              Exec Model
+              <input id="run-model" value="gpt-5.1">
+            </label>
+            <div class="button-row">
+              <button id="start-agents" class="primary" type="button">Run Registered Agents</button>
+              <button id="stop-agents" class="secondary" type="button">Stop Run</button>
+            </div>
+          </div>
+          <div class="button-row">
+            <div id="run-summary" class="status-chip">Idle</div>
+          </div>
+          <div class="mini-item">
+            <div class="mini-label">Execution Pattern</div>
+            <pre id="exec-pattern" class="exec-pattern"></pre>
+          </div>
+        </div>
+
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
+
+        <form id="composer" class="composer">
+          <div class="eyebrow">Manual Message</div>
+          <div class="composer-row">
+            <select id="sender" aria-label="Sender"></select>
+            <textarea id="message-text" placeholder="Post a message into the room for testing..."></textarea>
+            <button class="primary" type="submit">Send</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script>
+      const state = {
+        lastId: 0,
+        people: {},
+        mcpStatuses: {},
+        connector: null,
+        defaults: {
+          run_model: "gpt-5.1",
+          calendar_mcp_server_prefix: "google-calendar-",
+        },
+      };
+
+      async function apiGet(path) {
+        const response = await fetch(path, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`GET ${path} failed`);
+        }
+        return response.json();
+      }
+
+      async function apiPost(path, body) {
+        const response = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body || {}),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error || `POST ${path} failed`);
+        }
+        return response.json();
+      }
+
+      async function apiDelete(path) {
+        const response = await fetch(path, { method: "DELETE" });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error || `DELETE ${path} failed`);
+        }
+        return response.json();
+      }
+
+      function sleep(ms) {
+        return new Promise((resolve) => window.setTimeout(resolve, ms));
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML.replace(/\n/g, "<br>");
+      }
+
+      function formatTime(value) {
+        return new Date(value).toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit",
+        });
+      }
+
+      function renderMessage(message) {
+        const article = document.createElement("article");
+        article.className = `message ${message.sender === "system" ? "system" : ""}`.trim();
+        article.innerHTML = `
+          <div class="message-head">
+            <span class="sender">${message.sender}</span>
+            <span class="timestamp">${formatTime(message.created_at)}</span>
+          </div>
+          <div>${escapeHtml(message.text)}</div>
+        `;
+        return article;
+      }
+
+      function replaceMessages(messages) {
+        const chatLog = document.getElementById("chat-log");
+        chatLog.innerHTML = "";
+        for (const message of messages) {
+          chatLog.appendChild(renderMessage(message));
+        }
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function appendMessages(messages) {
+        if (!messages.length) {
+          return;
+        }
+        const chatLog = document.getElementById("chat-log");
+        for (const message of messages) {
+          chatLog.appendChild(renderMessage(message));
+        }
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function statusLabelForMcp(status) {
+        if (!status || !status.configured) {
+          return { text: "Not configured", className: "warn" };
+        }
+        if (status.auth === "Logged in") {
+          return { text: "Connected", className: "good" };
+        }
+        if (status.login_session && status.login_session.running) {
+          return { text: "Waiting for browser auth", className: "warn" };
+        }
+        return { text: status.auth || "Needs login", className: "warn" };
+      }
+
+      function renderPeople(people, mcpStatuses) {
+        state.people = people;
+        state.mcpStatuses = mcpStatuses;
+        const target = document.getElementById("agent-list");
+        target.innerHTML = "";
+
+        const entries = Object.values(people);
+        if (!entries.length) {
+          target.innerHTML = `<div class="mini-item"><div class="muted">No agents yet. Fill out the form and save one.</div></div>`;
+          return;
+        }
+
+        for (const person of entries) {
+          const mcp = mcpStatuses[person.calendar_mcp_server];
+          const status = statusLabelForMcp(mcp);
+          const authUrl = mcp && mcp.login_session ? mcp.login_session.auth_url : null;
+          const outputTail = mcp && mcp.login_session ? mcp.login_session.output_tail : "";
+
+          const card = document.createElement("article");
+          card.className = "agent-card";
+          card.innerHTML = `
+            <header>
+              <div>
+                <h3>${person.display_name}</h3>
+                <div class="muted">${person.id}</div>
+              </div>
+              <button class="ghost" type="button" data-delete-agent="${person.id}">Delete</button>
+            </header>
+            <div class="button-row">
+              <span class="status-chip ${status.className}">${status.text}</span>
+              <button class="secondary" type="button" data-connect-agent="${person.id}">Connect MCP</button>
+              ${authUrl ? `<button class="ghost" type="button" data-open-auth="${person.id}">Open Auth URL</button>` : ""}
+            </div>
+            <pre>mcp_server: ${person.calendar_mcp_server}
+calendar_identity: ${person.calendar_identity || "(blank)"}
+preferred_model: ${person.preferred_model}
+
+${person.soul}</pre>
+            ${outputTail ? `<pre class="output-snippet">${escapeHtml(outputTail)}</pre>` : ""}
+          `;
+          target.appendChild(card);
+        }
+      }
+
+      function renderSenderOptions() {
+        const sender = document.getElementById("sender");
+        sender.innerHTML = "";
+        for (const person of Object.values(state.people)) {
+          const option = document.createElement("option");
+          option.value = person.id;
+          option.textContent = person.id;
+          sender.appendChild(option);
+        }
+        const system = document.createElement("option");
+        system.value = "system";
+        system.textContent = "system";
+        sender.appendChild(system);
+      }
+
+      function renderConnectorSummary(connector) {
+        state.connector = connector;
+        const target = document.getElementById("connector-summary");
+        target.innerHTML = "";
+
+        const rows = [
+          ["provider", connector.provider],
+          ["url", connector.remote_url],
+          ["auth", connector.auth],
+          ["fallback", connector.current_mode],
+        ];
+
+        for (const [label, value] of rows) {
+          const item = document.createElement("div");
+          item.className = "mini-item";
+          item.innerHTML = `
+            <div class="mini-label">${label}</div>
+            <div>${value}</div>
+          `;
+          target.appendChild(item);
+        }
+
+        const note = document.createElement("div");
+        note.className = "mini-item";
+        note.innerHTML = `
+          <div class="mini-label">demo rule</div>
+          <div>Use a unique MCP server name per person and complete OAuth in a separate browser profile if you need different Google accounts.</div>
+        `;
+        target.appendChild(note);
+      }
+
+      function renderRunStatus(runStatus) {
+        const summary = document.getElementById("run-summary");
+        const startButton = document.getElementById("start-agents");
+        const stopButton = document.getElementById("stop-agents");
+
+        summary.className = `status-chip ${runStatus.running ? "running" : ""}`.trim();
+        summary.textContent = runStatus.running ? `Running ${runStatus.run_id || ""}`.trim() : "Idle";
+        startButton.disabled = runStatus.running || Object.keys(state.people).length === 0;
+        stopButton.disabled = !runStatus.running;
+      }
+
+      function renderExecPattern() {
+        const model = document.getElementById("run-model").value.trim() || state.defaults.run_model;
+        const people = Object.values(state.people);
+        const target = document.getElementById("exec-pattern");
+        if (!people.length) {
+          target.textContent = "Register at least one agent to generate the execution pattern.";
+          return;
+        }
+
+        target.textContent = [
+          `model: ${model}`,
+          `agents: ${people.map((person) => person.id).join(", ")}`,
+          "",
+          "for each registered agent:",
+          `  codex exec -m ${model} ...`,
+          "  task = task.md + person.json + soul.md",
+          "  auth = person-specific MCP server name",
+          "  coordination = local room HTTP API",
+        ].join("\n");
+      }
+
+      async function bootstrap() {
+        const payload = await apiGet("/api/state");
+        state.lastId = payload.last_id;
+        state.defaults = payload.defaults;
+        document.getElementById("run-model").value ||= payload.defaults.run_model;
+        replaceMessages(payload.messages);
+        renderConnectorSummary(payload.calendar_connector);
+        renderPeople(payload.people, payload.mcp_statuses || {});
+        renderSenderOptions();
+        renderRunStatus(payload.agent_run);
+        renderExecPattern();
+      }
+
+      async function pollMessages() {
+        const payload = await apiGet(`/api/read_messages?after=${state.lastId}`);
+        appendMessages(payload.messages);
+        state.lastId = payload.last_id;
+      }
+
+      async function pollRunStatus() {
+        const payload = await apiGet("/api/agent_runs/status");
+        renderRunStatus(payload);
+      }
+
+      async function pollMcpStatuses() {
+        const names = Object.values(state.people).map((person) => person.calendar_mcp_server);
+        if (!names.length) {
+          return;
+        }
+        const query = names.map((name) => `name=${encodeURIComponent(name)}`).join("&");
+        const payload = await apiGet(`/api/mcp/status?${query}`);
+        renderPeople(state.people, payload.mcp_statuses || {});
+      }
+
+      async function saveAgent(event) {
+        event.preventDefault();
+        const agentId = document.getElementById("agent-id").value.trim();
+        const payload = {
+          display_name: document.getElementById("display-name").value.trim(),
+          id: agentId,
+          calendar_identity: document.getElementById("calendar-identity").value.trim(),
+          calendar_mcp_server: document.getElementById("calendar-mcp-server").value.trim(),
+          preferred_model: document.getElementById("run-model").value.trim() || state.defaults.run_model,
+          soul: document.getElementById("soul").value.trim(),
+        };
+
+        if (!payload.calendar_mcp_server && agentId) {
+          payload.calendar_mcp_server = `${state.defaults.calendar_mcp_server_prefix}${agentId}`;
+        }
+
+        await apiPost("/api/people", payload);
+        event.target.reset();
+        await bootstrap();
+      }
+
+      async function deleteAgent(agentId) {
+        await apiDelete(`/api/people/${agentId}`);
+        await bootstrap();
+      }
+
+      async function connectMcp(agentId) {
+        const person = state.people[agentId];
+        const payload = {
+          name: person.calendar_mcp_server,
+          url: state.connector.remote_url,
+          scopes: "",
+        };
+        await apiPost("/api/mcp/connect", payload);
+
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          const query = `name=${encodeURIComponent(person.calendar_mcp_server)}`;
+          const statusPayload = await apiGet(`/api/mcp/status?${query}`);
+          const status = statusPayload.mcp_statuses[person.calendar_mcp_server];
+          if (status && status.login_session && status.login_session.auth_url) {
+            window.open(status.login_session.auth_url, "_blank", "noopener");
+            break;
+          }
+          await sleep(250);
+        }
+        await bootstrap();
+      }
+
+      function openAuth(agentId) {
+        const person = state.people[agentId];
+        const status = state.mcpStatuses[person.calendar_mcp_server];
+        const authUrl = status && status.login_session ? status.login_session.auth_url : null;
+        if (authUrl) {
+          window.open(authUrl, "_blank", "noopener");
+        }
+      }
+
+      async function sendManualMessage(event) {
+        event.preventDefault();
+        const sender = document.getElementById("sender").value;
+        const textArea = document.getElementById("message-text");
+        const text = textArea.value.trim();
+        if (!text) {
+          return;
+        }
+        await apiPost("/api/send_message", { sender, text });
+        textArea.value = "";
+        await pollMessages();
+      }
+
+      async function resetChat() {
+        await apiPost("/api/reset", {});
+        await bootstrap();
+      }
+
+      async function startAgents() {
+        const model = document.getElementById("run-model").value.trim() || state.defaults.run_model;
+        await apiPost("/api/agent_runs/start", { model, reset_room: true });
+        await bootstrap();
+      }
+
+      async function stopAgents() {
+        await apiPost("/api/agent_runs/stop", {});
+        await pollRunStatus();
+      }
+
+      async function copySpec() {
+        await navigator.clipboard.writeText(`${window.location.origin}/api/spec`);
+      }
+
+      function maybeSuggestMcpName() {
+        const agentId = document.getElementById("agent-id").value.trim();
+        const field = document.getElementById("calendar-mcp-server");
+        if (!field.value.trim() && agentId) {
+          field.value = `${state.defaults.calendar_mcp_server_prefix}${agentId}`;
+        }
+      }
+
+      document.getElementById("agent-form").addEventListener("submit", (event) => {
+        saveAgent(event).catch((error) => alert(error.message));
+      });
+
+      document.getElementById("display-name").addEventListener("input", () => {
+        const idField = document.getElementById("agent-id");
+        if (!idField.value.trim()) {
+          idField.value = document.getElementById("display-name").value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+          maybeSuggestMcpName();
+        }
+      });
+
+      document.getElementById("agent-id").addEventListener("input", maybeSuggestMcpName);
+
+      document.getElementById("agent-list").addEventListener("click", (event) => {
+        const deleteButton = event.target.closest("[data-delete-agent]");
+        if (deleteButton) {
+          deleteAgent(deleteButton.dataset.deleteAgent).catch((error) => alert(error.message));
+          return;
+        }
+
+        const connectButton = event.target.closest("[data-connect-agent]");
+        if (connectButton) {
+          connectMcp(connectButton.dataset.connectAgent).catch((error) => alert(error.message));
+          return;
+        }
+
+        const openButton = event.target.closest("[data-open-auth]");
+        if (openButton) {
+          openAuth(openButton.dataset.openAuth);
+        }
+      });
+
+      document.getElementById("composer").addEventListener("submit", (event) => {
+        sendManualMessage(event).catch((error) => console.error(error));
+      });
+
+      document.getElementById("run-model").addEventListener("input", renderExecPattern);
+      document.getElementById("reset-chat").addEventListener("click", () => {
+        resetChat().catch((error) => alert(error.message));
+      });
+      document.getElementById("copy-spec").addEventListener("click", () => {
+        copySpec().catch((error) => alert(error.message));
+      });
+      document.getElementById("start-agents").addEventListener("click", () => {
+        startAgents().catch((error) => alert(error.message));
+      });
+      document.getElementById("stop-agents").addEventListener("click", () => {
+        stopAgents().catch((error) => alert(error.message));
+      });
+
+      bootstrap().then(() => {
+        window.setInterval(() => {
+          pollMessages().catch((error) => console.error(error));
+        }, 1000);
+
+        window.setInterval(() => {
+          pollRunStatus().catch((error) => console.error(error));
+        }, 2000);
+
+        window.setInterval(() => {
+          pollMcpStatuses().catch((error) => console.error(error));
+        }, 2500);
+      });
+    </script>
+  </body>
+  </html>

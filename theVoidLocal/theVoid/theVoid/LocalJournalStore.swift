@@ -32,12 +32,6 @@ enum LocalReflectionError: LocalizedError {
     }
 }
 
-private struct StoredLocalEntry: Codable {
-    let entry: APIEntry
-    let audioFileName: String
-    let wasSharedToSocial: Bool?
-}
-
 struct LocalDeleteResult {
     let deletedEntry: APIEntry
     let replacementSharedEntryForDate: APIEntry?
@@ -58,12 +52,15 @@ struct LocalJournalStore {
     private let fileManager = FileManager.default
     private let formatter = ISO8601DateFormatter()
 
-    init() {
-        let root = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
-        rootDirectory = root.appendingPathComponent("VoidLocalJournal", isDirectory: true)
+    init(rootDirectoryOverride: URL? = nil) {
+        let root = rootDirectoryOverride ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        rootDirectory = rootDirectoryOverride == nil
+            ? root.appendingPathComponent("VoidLocalJournal", isDirectory: true)
+            : root
         if !fileManager.fileExists(atPath: rootDirectory.path) {
             try? fileManager.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
         }
+        excludeFromBackup(rootDirectory)
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     }
 
@@ -72,8 +69,17 @@ struct LocalJournalStore {
             return []
         }
         return payload
+            .filter { !$0.isDeleted }
             .map(\.entry)
             .sorted(by: Self.sortNewestFirst)
+    }
+
+    func storedEntries(for userID: String) -> [StoredLocalEntry] {
+        loadPayload(for: userID) ?? []
+    }
+
+    func storedEntry(for userID: String, entryID: String) -> StoredLocalEntry? {
+        loadPayload(for: userID)?.first(where: { $0.entry.id == entryID })
     }
 
     func saveReflection(
@@ -83,7 +89,9 @@ struct LocalJournalStore {
         transcript: APITranscript?,
         insight: APIInsight?,
         localDate: String,
-        wasSharedToSocial: Bool
+        wasSharedToSocial: Bool,
+        healthSnapshot: EntryHealthSnapshot? = nil,
+        title: String? = nil
     ) throws -> APIEntry {
         guard !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw LocalReflectionError.invalidUserID
@@ -115,7 +123,8 @@ struct LocalJournalStore {
             createdAt: createdAt,
             transcript: transcript,
             insight: insight,
-            title: "Entry"
+            title: title ?? "Entry",
+            healthSnapshot: healthSnapshot
         )
 
         var payload = loadPayload(for: userID) ?? []
@@ -124,7 +133,10 @@ struct LocalJournalStore {
             StoredLocalEntry(
                 entry: entry,
                 audioFileName: fileName,
-                wasSharedToSocial: effectiveSharedToSocial
+                wasSharedToSocial: effectiveSharedToSocial,
+                updatedAt: createdAt,
+                cloudRecordChangeTag: nil,
+                isDeleted: false
             )
         )
         try savePayload(payload, for: userID)
@@ -149,7 +161,7 @@ struct LocalJournalStore {
 
         let replacement = payload
             .filter { record in
-                record.entry.localDate == removed.entry.localDate && (record.wasSharedToSocial ?? false)
+                record.entry.localDate == removed.entry.localDate && (record.wasSharedToSocial ?? false) && !record.isDeleted
             }
             .map(\.entry)
             .sorted(by: Self.sortNewestFirst)
@@ -160,6 +172,32 @@ struct LocalJournalStore {
             deletedEntry: removed.entry,
             replacementSharedEntryForDate: replacement
         )
+    }
+
+    func deleteEntryForSync(for userID: String, entryID: String) throws {
+        guard !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LocalReflectionError.invalidUserID
+        }
+        var payload = loadPayload(for: userID) ?? []
+        guard let index = payload.firstIndex(where: { $0.entry.id == entryID }) else {
+            return
+        }
+        let removed = payload.remove(at: index)
+        let audioURL = ensureUserDirectory(for: userID).appendingPathComponent(removed.audioFileName)
+        if fileManager.fileExists(atPath: audioURL.path) {
+            try? fileManager.removeItem(at: audioURL)
+        }
+        try savePayload(payload, for: userID)
+    }
+
+    func deleteAudioForSync(for userID: String, entryID: String) throws {
+        guard let record = loadPayload(for: userID)?.first(where: { $0.entry.id == entryID }) else {
+            return
+        }
+        let url = ensureUserDirectory(for: userID).appendingPathComponent(record.audioFileName)
+        if fileManager.fileExists(atPath: url.path) {
+            try? fileManager.removeItem(at: url)
+        }
     }
 
     func updateEntryTags(
@@ -197,13 +235,17 @@ struct LocalJournalStore {
             createdAt: originalEntry.createdAt,
             transcript: originalEntry.transcript,
             insight: updatedInsight,
-            title: originalEntry.title
+            title: originalEntry.title,
+            healthSnapshot: originalEntry.healthSnapshot
         )
 
         payload[index] = StoredLocalEntry(
             entry: updatedEntry,
             audioFileName: payload[index].audioFileName,
-            wasSharedToSocial: payload[index].wasSharedToSocial
+            wasSharedToSocial: payload[index].wasSharedToSocial,
+            updatedAt: formatter.string(from: Date()),
+            cloudRecordChangeTag: nil,
+            isDeleted: false
         )
         try savePayload(payload, for: userID)
 
@@ -217,7 +259,8 @@ struct LocalJournalStore {
         for userID: String,
         entryID: String,
         transcript: APITranscript,
-        insight: APIInsight?
+        insight: APIInsight?,
+        title: String? = nil
     ) throws -> LocalEntryAnalysisUpdateResult {
         guard !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw LocalReflectionError.invalidUserID
@@ -238,13 +281,17 @@ struct LocalJournalStore {
             createdAt: originalEntry.createdAt,
             transcript: transcript,
             insight: mergedInsight,
-            title: originalEntry.title
+            title: title ?? originalEntry.title,
+            healthSnapshot: originalEntry.healthSnapshot
         )
 
         payload[index] = StoredLocalEntry(
             entry: updatedEntry,
             audioFileName: payload[index].audioFileName,
-            wasSharedToSocial: payload[index].wasSharedToSocial
+            wasSharedToSocial: payload[index].wasSharedToSocial,
+            updatedAt: formatter.string(from: Date()),
+            cloudRecordChangeTag: nil,
+            isDeleted: false
         )
         try savePayload(payload, for: userID)
 
@@ -277,16 +324,64 @@ struct LocalJournalStore {
             createdAt: originalEntry.createdAt,
             transcript: originalEntry.transcript,
             insight: originalEntry.insight,
-            title: APIEntry.sanitizeTitle(title)
+            title: APIEntry.sanitizeTitle(title),
+            healthSnapshot: originalEntry.healthSnapshot
         )
 
         payload[index] = StoredLocalEntry(
             entry: updatedEntry,
             audioFileName: payload[index].audioFileName,
-            wasSharedToSocial: payload[index].wasSharedToSocial
+            wasSharedToSocial: payload[index].wasSharedToSocial,
+            updatedAt: formatter.string(from: Date()),
+            cloudRecordChangeTag: nil,
+            isDeleted: false
         )
         try savePayload(payload, for: userID)
         return updatedEntry
+    }
+
+    func upsertStoredEntry(for userID: String, record: StoredLocalEntry) throws {
+        guard !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LocalReflectionError.invalidUserID
+        }
+
+        var payload = loadPayload(for: userID) ?? []
+        payload.removeAll(where: { $0.entry.id == record.entry.id })
+        payload.append(record)
+        try savePayload(payload, for: userID)
+    }
+
+    func updateCloudChangeTag(for userID: String, entryID: String, changeTag: String?) throws {
+        guard !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LocalReflectionError.invalidUserID
+        }
+
+        var payload = loadPayload(for: userID) ?? []
+        guard let index = payload.firstIndex(where: { $0.entry.id == entryID }) else {
+            return
+        }
+
+        let current = payload[index]
+        payload[index] = StoredLocalEntry(
+            entry: current.entry,
+            audioFileName: current.audioFileName,
+            wasSharedToSocial: current.wasSharedToSocial,
+            updatedAt: current.updatedAt,
+            cloudRecordChangeTag: changeTag,
+            isDeleted: current.isDeleted
+        )
+        try savePayload(payload, for: userID)
+    }
+
+    func saveAudioDataForSync(for userID: String, entryID: String, data: Data) throws {
+        guard !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LocalReflectionError.invalidUserID
+        }
+
+        let audioFileName = loadPayload(for: userID)?.first(where: { $0.entry.id == entryID })?.audioFileName
+            ?? "\(entryID).m4a"
+        let url = ensureUserDirectory(for: userID).appendingPathComponent(audioFileName)
+        try data.write(to: url, options: [.atomic])
     }
 
     func audioData(for userID: String, entryID: String) throws -> Data {
@@ -310,6 +405,7 @@ struct LocalJournalStore {
         if !fileManager.fileExists(atPath: directory.path) {
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
+        excludeFromBackup(directory)
         return directory
     }
 
@@ -367,5 +463,12 @@ struct LocalJournalStore {
             return ["reflective"]
         }
         return ordered
+    }
+
+    private func excludeFromBackup(_ url: URL) {
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var mutableURL = url
+        try? mutableURL.setResourceValues(values)
     }
 }
