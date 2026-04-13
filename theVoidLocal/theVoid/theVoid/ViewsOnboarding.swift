@@ -243,10 +243,6 @@ struct OnboardingView: View {
         .background(Color.black.ignoresSafeArea())
         .foregroundStyle(.white)
         .onAppear {
-            if model.apiBaseURL != BackendClient.productionBaseURLString {
-                model.apiBaseURL = BackendClient.productionBaseURLString
-                model.applyAPIBaseURL()
-            }
             micGranted = AVAudioSession.sharedInstance().recordPermission == .granted
             speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
             Task {

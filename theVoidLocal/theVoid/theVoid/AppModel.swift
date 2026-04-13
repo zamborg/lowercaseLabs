@@ -73,6 +73,9 @@ final class AppModel: ObservableObject {
     @Published var inviteURL: String?
     @Published var inviteToken: String?
     @Published var errorMessage: String?
+    @Published var needsSessionReauthentication: Bool = false
+    @Published var showsSessionReauthenticationPrompt: Bool = false
+    @Published var sessionReauthenticationMessage: String?
 
     private let client = BackendClient()
     private let draftStore = DraftStore()
@@ -146,7 +149,13 @@ final class AppModel: ObservableObject {
 
     func loadPersistedState() {
         let defaults = UserDefaults.standard
-        apiBaseURL = BackendClient.productionBaseURLString
+        let persistedBaseURL = defaults.string(forKey: Keys.apiBaseURL) ?? BackendClient.defaultBaseURLString
+        if (try? client.updateBaseURL(persistedBaseURL)) != nil {
+            apiBaseURL = client.baseURLString
+        } else {
+            apiBaseURL = BackendClient.defaultBaseURLString
+            try? client.updateBaseURL(apiBaseURL)
+        }
         sessionToken = defaults.string(forKey: Keys.sessionToken)
         userID = defaults.string(forKey: Keys.userID) ?? ""
         displayName = defaults.string(forKey: Keys.displayName) ?? ""
@@ -178,7 +187,6 @@ final class AppModel: ObservableObject {
             }
         }
 
-        try? client.updateBaseURL(apiBaseURL)
         liquidModelPrepared = defaults.bool(forKey: Keys.liquidModelPrepared)
         if defaults.object(forKey: Keys.healthIntegrationEnabled) != nil {
             healthIntegrationEnabled = defaults.bool(forKey: Keys.healthIntegrationEnabled)
@@ -228,6 +236,9 @@ final class AppModel: ObservableObject {
             anonymousHandle = session.user.anonymousHandle
             notificationEnabled = session.user.notificationEnabled
             timezone = session.user.timezone
+            needsSessionReauthentication = false
+            showsSessionReauthenticationPrompt = false
+            sessionReauthenticationMessage = nil
 
             if let parsed = DateFormatter.hhmm.date(from: session.user.dailyCheckinTimeLocal) {
                 dailyCheckin = parsed
@@ -273,7 +284,11 @@ final class AppModel: ObservableObject {
             }
             persistState()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = describeRemoteError(
+                error,
+                includeAPIBaseURL: true,
+                authenticationFailureMessage: sessionRefreshMessage(for: "profile updates")
+            )
         }
     }
 
@@ -300,6 +315,9 @@ final class AppModel: ObservableObject {
         isFetchingLiveHealthSnapshot = false
         iCloudLastSyncAt = nil
         iCloudSyncStatus = .idle
+        needsSessionReauthentication = false
+        showsSessionReauthenticationPrompt = false
+        sessionReauthenticationMessage = nil
         onboardingComplete = false
         persistState()
     }
@@ -362,7 +380,10 @@ final class AppModel: ObservableObject {
             // Pull-to-refresh and view transitions can cancel in-flight tasks; keep last good state.
             return
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = describeRemoteError(
+                error,
+                authenticationFailureMessage: sessionRefreshMessage(for: "social features")
+            )
         }
     }
 
@@ -506,7 +527,10 @@ final class AppModel: ObservableObject {
                         dotColor: EmotionColorMixer.mixedHex(for: insight.moodTags)
                     )
                 } catch {
-                    errorMessage = "Saved locally, but could not sync social dot: \(error.localizedDescription)"
+                    errorMessage = describeRemoteError(
+                        error,
+                        authenticationFailureMessage: "Saved locally, but the backend session for \(apiBaseURL) is no longer valid. Reconnect with Sign in with Apple to restore social sync."
+                    )
                 }
             } else if shareToSocial {
                 errorMessage = "Saved audio note locally without tags. Retranscribe from the entry to generate dots."
@@ -518,7 +542,7 @@ final class AppModel: ObservableObject {
             await iCloudSyncService.syncNow(userID: userID, reason: "submit_draft")
         } catch {
             submissionState = .failed
-            errorMessage = error.localizedDescription
+            errorMessage = describeRemoteError(error)
             reloadDrafts()
         }
     }
@@ -752,7 +776,10 @@ final class AppModel: ObservableObject {
                         dotColor: EmotionColorMixer.mixedHex(for: insight.moodTags)
                     )
                 } catch {
-                    errorMessage = "Tags updated locally, but social sync failed: \(error.localizedDescription)"
+                    errorMessage = describeRemoteError(
+                        error,
+                        authenticationFailureMessage: "Tags updated locally, but the backend session for \(apiBaseURL) is no longer valid. Reconnect with Sign in with Apple to restore social sync."
+                    )
                 }
             }
 
@@ -764,7 +791,7 @@ final class AppModel: ObservableObject {
 
             return entries.first(where: { $0.id == entryID }) ?? updateResult.updatedEntry
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = describeRemoteError(error)
             return nil
         }
     }
@@ -840,7 +867,10 @@ final class AppModel: ObservableObject {
                         dotColor: EmotionColorMixer.mixedHex(for: updatedInsight.moodTags)
                     )
                 } catch {
-                    errorMessage = "Retranscribed locally, but social sync failed: \(error.localizedDescription)"
+                    errorMessage = describeRemoteError(
+                        error,
+                        authenticationFailureMessage: "Retranscribed locally, but the backend session for \(apiBaseURL) is no longer valid. Reconnect with Sign in with Apple to restore social sync."
+                    )
                 }
             }
 
@@ -852,7 +882,7 @@ final class AppModel: ObservableObject {
 
             return entries.first(where: { $0.id == entryID }) ?? updateResult.updatedEntry
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = describeRemoteError(error)
             return nil
         }
     }
@@ -885,7 +915,10 @@ final class AppModel: ObservableObject {
                         )
                     }
                 } catch {
-                    errorMessage = "Entry deleted locally, but social sync failed: \(error.localizedDescription)"
+                    errorMessage = describeRemoteError(
+                        error,
+                        authenticationFailureMessage: "Entry deleted locally, but the backend session for \(apiBaseURL) is no longer valid. Reconnect with Sign in with Apple to restore social sync."
+                    )
                 }
             }
 
@@ -893,7 +926,7 @@ final class AppModel: ObservableObject {
             await refreshSocialDots()
             await iCloudSyncService.syncNow(userID: userID, reason: "delete_entry")
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = describeRemoteError(error)
         }
     }
 
@@ -934,7 +967,11 @@ final class AppModel: ObservableObject {
             inviteURL = invite.inviteUrl
             inviteToken = invite.inviteToken
         } catch {
-            errorMessage = "\(error.localizedDescription)\nAPI: \(apiBaseURL)"
+            errorMessage = describeRemoteError(
+                error,
+                includeAPIBaseURL: true,
+                authenticationFailureMessage: sessionRefreshMessage(for: "social features")
+            )
         }
     }
 
@@ -949,7 +986,11 @@ final class AppModel: ObservableObject {
             try await client.acceptInvite(token: sessionToken, inviteToken: inviteToken)
             await refreshSocialDots()
         } catch {
-            errorMessage = "\(error.localizedDescription)\nAPI: \(apiBaseURL)"
+            errorMessage = describeRemoteError(
+                error,
+                includeAPIBaseURL: true,
+                authenticationFailureMessage: sessionRefreshMessage(for: "social features")
+            )
         }
     }
 
@@ -970,7 +1011,11 @@ final class AppModel: ObservableObject {
             try await client.submitFeedback(token: sessionToken, kind: kind, message: trimmed)
             return true
         } catch {
-            errorMessage = "\(error.localizedDescription)\nAPI: \(apiBaseURL)"
+            errorMessage = describeRemoteError(
+                error,
+                includeAPIBaseURL: true,
+                authenticationFailureMessage: sessionRefreshMessage(for: "feedback")
+            )
             return false
         }
     }
@@ -1005,10 +1050,18 @@ final class AppModel: ObservableObject {
     }
 
     func applyAPIBaseURL() {
+        let previousBaseURL = client.baseURLString
         do {
             try client.updateBaseURL(apiBaseURL)
             apiBaseURL = client.baseURLString
-            apiConnectionStatus = "API URL saved"
+            if sessionToken != nil, apiBaseURL != previousBaseURL {
+                presentSessionReauthenticationPrompt(
+                    message: "You changed the backend to \(apiBaseURL). Sign in again so social features use a valid session on this server."
+                )
+                apiConnectionStatus = "API URL saved. Reconnect session."
+            } else {
+                apiConnectionStatus = "API URL saved"
+            }
             persistState()
         } catch {
             errorMessage = "Invalid API base URL"
@@ -1021,8 +1074,54 @@ final class AppModel: ObservableObject {
             apiConnectionStatus = "Connected (\(health.status))"
         } catch {
             apiConnectionStatus = "Connection failed"
-            errorMessage = "\(error.localizedDescription)\nAPI: \(apiBaseURL)"
+            errorMessage = describeRemoteError(error, includeAPIBaseURL: true)
         }
+    }
+
+    func dismissSessionReauthenticationPrompt() {
+        showsSessionReauthenticationPrompt = false
+    }
+
+#if DEBUG
+    func simulateExpiredSessionForTesting() async {
+        guard sessionToken != nil else {
+            errorMessage = "Sign in required"
+            return
+        }
+
+        sessionToken = "expired-test-\(UUID().uuidString)"
+        persistState()
+        await refreshSocialDots()
+    }
+#endif
+
+    private func sessionRefreshMessage(for featureName: String) -> String {
+        "Your backend session is no longer valid for \(apiBaseURL). Reconnect with Sign in with Apple to restore \(featureName)."
+    }
+
+    private func presentSessionReauthenticationPrompt(message: String) {
+        needsSessionReauthentication = true
+        showsSessionReauthenticationPrompt = true
+        sessionReauthenticationMessage = message
+    }
+
+    private func describeRemoteError(
+        _ error: Error,
+        includeAPIBaseURL: Bool = false,
+        authenticationFailureMessage: String? = nil
+    ) -> String? {
+        if let apiError = error as? APIError, apiError.isAuthenticationFailure {
+            presentSessionReauthenticationPrompt(
+                message: authenticationFailureMessage ?? sessionRefreshMessage(for: "social features")
+            )
+            return nil
+        }
+
+        let message = error.localizedDescription
+        if includeAPIBaseURL {
+            return "\(message)\nAPI: \(apiBaseURL)"
+        }
+        return message
     }
 
     func configureDailyReminder() async {

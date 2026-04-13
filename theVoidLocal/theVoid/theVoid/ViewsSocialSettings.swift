@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 import UIKit
 
@@ -341,6 +342,7 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var acceptInviteToken: String = ""
     @State private var clipboardStatus: String?
+    @State private var currentAppleNonce: String?
     @State private var feedbackKind: FeedbackKind = .idea
     @State private var feedbackMessage: String = ""
     @State private var feedbackStatus: String?
@@ -493,6 +495,71 @@ struct SettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+
+                if model.needsSessionReauthentication {
+                    Section("Backend Session") {
+                        Text(
+                            model.sessionReauthenticationMessage
+                                ?? "Social features need a fresh Apple sign-in for \(model.apiBaseURL). This usually means the backend token expired or the selected server changed."
+                        )
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        SignInWithAppleButton(.signIn) { request in
+                            request.requestedScopes = [.fullName]
+                            let nonce = AppleNonce.random()
+                            currentAppleNonce = nonce
+                            request.nonce = AppleNonce.sha256(nonce)
+                        } onCompletion: { result in
+                            switch result {
+                            case .failure(let error):
+                                model.errorMessage = error.localizedDescription
+                            case .success(let auth):
+                                guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                                      let tokenData = credential.identityToken,
+                                      let token = String(data: tokenData, encoding: .utf8) else {
+                                    model.errorMessage = "Unable to read Apple identity token"
+                                    return
+                                }
+
+                                let fullName = [credential.fullName?.givenName, credential.fullName?.familyName]
+                                    .compactMap { $0 }
+                                    .joined(separator: " ")
+                                let nonce = currentAppleNonce
+                                currentAppleNonce = nil
+                                Task {
+                                    await model.signIn(
+                                        identityToken: token,
+                                        nonce: nonce,
+                                        suggestedName: fullName.isEmpty ? nil : fullName
+                                    )
+                                }
+                            }
+                        }
+                        .signInWithAppleButtonStyle(.black)
+                        .frame(height: 46)
+
+                        Button("Dismiss Prompt") {
+                            model.dismissSessionReauthenticationPrompt()
+                        }
+                    }
+                }
+
+#if DEBUG
+                if model.sessionToken != nil {
+                    Section("Developer") {
+                        Button("Simulate Expired Session") {
+                            Task {
+                                await model.simulateExpiredSessionForTesting()
+                            }
+                        }
+
+                        Text("Forces the next backend-backed social request to fail auth so you can test the reconnect prompt immediately.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+#endif
 
                 Section("Social") {
                     Button("Create Invite Link") {
