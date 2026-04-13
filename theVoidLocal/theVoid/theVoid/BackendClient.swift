@@ -8,6 +8,19 @@ enum APIError: LocalizedError {
     case server(Int, String)
     case decoding
 
+    var statusCode: Int? {
+        switch self {
+        case .server(let statusCode, _):
+            return statusCode
+        case .invalidURL, .transport, .decoding:
+            return nil
+        }
+    }
+
+    var isAuthenticationFailure: Bool {
+        statusCode == 401
+    }
+
     var errorDescription: String? {
         switch self {
         case .invalidURL:
@@ -130,13 +143,26 @@ final class BackendClient {
         return .server(statusCode, fallback)
     }
 
+    private func rethrowIfCancelled(_ error: Error) throws {
+        if error is CancellationError {
+            throw CancellationError()
+        }
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            throw CancellationError()
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == URLError.cancelled.rawValue {
+            throw CancellationError()
+        }
+    }
+
     private func send<T: Decodable>(_ request: URLRequest, decode: T.Type) async throws -> T {
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await URLSession.shared.data(for: request)
-        } catch is CancellationError {
-            throw CancellationError()
         } catch {
+            try rethrowIfCancelled(error)
             throw APIError.transport(error.localizedDescription)
         }
 
@@ -159,9 +185,8 @@ final class BackendClient {
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await URLSession.shared.data(for: request)
-        } catch is CancellationError {
-            throw CancellationError()
         } catch {
+            try rethrowIfCancelled(error)
             throw APIError.transport(error.localizedDescription)
         }
 
@@ -265,6 +290,7 @@ final class BackendClient {
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch {
+            try rethrowIfCancelled(error)
             throw APIError.transport(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else {
