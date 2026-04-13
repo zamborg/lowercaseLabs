@@ -1,28 +1,31 @@
-from datetime import datetime
+from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
-
-
-class APIMessage(BaseModel):
-    message: str
+from pydantic import BaseModel
 
 
-class UserRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class AppleSignInRequest(BaseModel):
+    identity_token: str
 
+
+class CreateItemRequest(BaseModel):
+    content: str
+
+
+class UpdateItemRequest(BaseModel):
+    completed: Optional[bool] = None
+
+
+class Item(BaseModel):
     id: str
-    display_name: str
-    email: str | None
-    auth_provider: str
-    created_at: datetime
+    content: str
+    title: str
+    type: str
+    due_date: Optional[str] = None
+    completed: bool
+    tags: list[str]
+    created_at: str
+    updated_at: str
 
 
-class AuthSession(BaseModel):
-    access_token: str
-    user: UserRead
-
-
-class DevAuthRequest(BaseModel):
-    display_name: str
-    email: str | None = None
-
+class SearchRequest(BaseModel):
+    query: str

@@ -1,51 +1,51 @@
-from datetime import UTC, datetime, timedelta
+import json
+import os
+import time
 
+import httpx
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from jwt.algorithms import RSAAlgorithm
 
-from app.config import get_settings
-from app.db import get_db
-from app.models import User
-
-security = HTTPBearer(auto_error=False)
+APPLE_KEYS_URL = "https://appleid.apple.com/auth/keys"
+APPLE_ISSUER = "https://appleid.apple.com"
+APPLE_AUDIENCE = os.getenv("APPLE_BUNDLE_ID", "com.lowercaselabs.blackhole")
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_DAYS = 90
 
 
-def issue_access_token(user: User) -> str:
-    settings = get_settings()
-    now = datetime.now(UTC)
+async def verify_apple_token(identity_token: str) -> str:
+    async with httpx.AsyncClient() as client:
+        response = await client.get(APPLE_KEYS_URL)
+        keys_data = response.json()
+
+    unverified_header = jwt.get_unverified_header(identity_token)
+    kid = unverified_header.get("kid")
+
+    matching_key = next((k for k in keys_data["keys"] if k["kid"] == kid), None)
+    if not matching_key:
+        raise ValueError("No matching Apple public key found")
+
+    public_key = RSAAlgorithm.from_jwk(json.dumps(matching_key))
+    payload = jwt.decode(
+        identity_token,
+        public_key,
+        algorithms=["RS256"],
+        audience=APPLE_AUDIENCE,
+        issuer=APPLE_ISSUER,
+    )
+    return payload["sub"]
+
+
+def create_session_token(user_id: str) -> str:
     payload = {
-        "sub": user.id,
-        "exp": now + timedelta(hours=settings.access_token_expiry_hours),
-        "iat": now,
+        "sub": user_id,
+        "iat": int(time.time()),
+        "exp": int(time.time()) + JWT_EXPIRY_DAYS * 86400,
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-def decode_access_token(token: str) -> dict[str, object]:
-    settings = get_settings()
-    try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token") from exc
-
-
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: Session = Depends(get_db),
-) -> User:
-    if credentials is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
-
-    payload = decode_access_token(credentials.credentials)
-    user_id = payload.get("sub")
-    if not isinstance(user_id, str):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
-
-    user = db.scalar(select(User).where(User.id == user_id))
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    return user
-
+def verify_session_token(token: str) -> str:
+    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    return payload["sub"]

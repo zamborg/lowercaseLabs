@@ -1,0 +1,44 @@
+name: blackhole
+
+options:
+  minimumXcodeGenVersion: 2.38.0
+
+packages:
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit.git
+    revision: c71c5ed607c3853c041b8fd3c1042e6e5b5a29a3
+
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    IPHONEOS_DEPLOYMENT_TARGET: 17.0
+
+targets:
+  blackhole:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: App
+      - path: Sources
+    resources:
+      - path: Assets.xcassets
+    dependencies:
+      - package: WhisperKit
+        product: WhisperKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.blackhole
+        PRODUCT_NAME: blackhole
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: NO
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 1.0
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: blackhole
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: blackhole uses the microphone to capture your voice.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: blackhole transcribes your speech to create notes and to-dos.
+        CODE_SIGN_ENTITLEMENTS: blackhole.entitlements
