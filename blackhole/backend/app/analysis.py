@@ -15,6 +15,7 @@ def get_client() -> OpenAI:
 
 
 _ANALYSIS_SYSTEM = "You classify voice transcripts and extract structured data. Respond with valid JSON only, no prose."
+ANALYSIS_MODEL = "gpt-5.4-mini-2026-03-17"
 
 _ANALYSIS_PROMPT = """Classify this voice transcript.
 
@@ -30,21 +31,55 @@ JSON response only:
 }}"""
 
 
-def analyze_transcript(transcript: str) -> dict:
+def run_transcript_analysis(transcript: str) -> tuple[dict | None, dict]:
     client = get_client()
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    user_prompt = _ANALYSIS_PROMPT.format(transcript=transcript, now=now)
+    raw_response = None
 
-    response = client.chat.completions.create(
-        model="gpt-5.4-mini-2026-03-17",
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": _ANALYSIS_SYSTEM},
-            {"role": "user", "content": _ANALYSIS_PROMPT.format(transcript=transcript, now=now)},
-        ],
-        max_tokens=300,
-    )
+    try:
+        response = client.chat.completions.create(
+            model=ANALYSIS_MODEL,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": _ANALYSIS_SYSTEM},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=300,
+        )
+        raw_response = response.choices[0].message.content
+        parsed = json.loads(raw_response)
+    except Exception as exc:
+        return None, {
+            "operation": "analyze_transcript",
+            "model": ANALYSIS_MODEL,
+            "input_text": transcript,
+            "system_prompt": _ANALYSIS_SYSTEM,
+            "user_prompt": user_prompt,
+            "raw_response": raw_response,
+            "parsed_response": None,
+            "status": "error",
+            "error": str(exc),
+        }
 
-    return json.loads(response.choices[0].message.content)
+    return parsed, {
+        "operation": "analyze_transcript",
+        "model": ANALYSIS_MODEL,
+        "input_text": transcript,
+        "system_prompt": _ANALYSIS_SYSTEM,
+        "user_prompt": user_prompt,
+        "raw_response": raw_response,
+        "parsed_response": json.dumps(parsed),
+        "status": "success",
+        "error": None,
+    }
+
+
+def analyze_transcript(transcript: str) -> dict:
+    result, log = run_transcript_analysis(transcript)
+    if result is None:
+        raise RuntimeError(log["error"] or "Transcript analysis failed")
+    return result
 
 
 _SEARCH_SYSTEM = "You find relevant items matching a search query. Respond with JSON only."
@@ -69,7 +104,7 @@ def search_items(query: str, items: list) -> list:
     )
 
     response = client.chat.completions.create(
-        model="gpt-5.4-mini-2026-03-17",
+        model=ANALYSIS_MODEL,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": _SEARCH_SYSTEM},
