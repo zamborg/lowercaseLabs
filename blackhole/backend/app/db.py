@@ -91,6 +91,14 @@ def list_items(user_id: str) -> list:
     ).fetchall()
 
 
+def list_items_recent(user_id: str, limit: int = 25) -> list:
+    conn = get_conn()
+    return conn.execute(
+        "SELECT * FROM items WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+        (user_id, limit),
+    ).fetchall()
+
+
 def list_all_users() -> list:
     conn = get_conn()
     return conn.execute(

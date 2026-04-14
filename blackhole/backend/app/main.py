@@ -92,7 +92,11 @@ async def sign_in_apple(body: schemas.AppleSignInRequest):
 @app.post("/items", response_model=schemas.Item)
 async def create_item(body: schemas.CreateItemRequest, user_id: str = Depends(get_user_id)):
     item_id = str(uuid.uuid4())
-    result, llm_log = await asyncio.to_thread(analysis.run_transcript_analysis, body.content)
+    prior_rows = await asyncio.to_thread(db.list_items_recent, user_id, 25)
+    prior_items = [dict(r) for r in prior_rows]
+    result, llm_log = await asyncio.to_thread(
+        analysis.run_transcript_analysis, body.content, prior_items
+    )
     if result is None:
         result = {"type": "note", "title": body.content[:60], "tags": [], "due_date": None}
 

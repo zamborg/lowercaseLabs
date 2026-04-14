@@ -144,6 +144,62 @@ class AnalysisClientContractTests(unittest.TestCase):
         self.assertEqual(recorded["max_completion_tokens"], 200)
         self.assertNotIn("max_tokens", recorded)
 
+    def test_prior_items_context_injected_into_messages(self):
+        """Context messages are inserted when prior_items are provided."""
+        recorded = {}
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                recorded.update(kwargs)
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(
+                        content='{"type":"todo","title":"Buy oat milk","tags":["errand"],"due_date":null}'
+                    ))]
+                )
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+        prior = [
+            {"type": "todo", "title": "Get groceries", "content": "buy eggs and bread", "completed": 0, "tags": '["errand"]', "due_date": None},
+            {"type": "note", "title": "Recipe idea", "content": "pancakes", "completed": 0, "tags": "[]", "due_date": None},
+        ]
+
+        with patch.object(self.analysis, "get_client", return_value=fake_client):
+            result, log = self.analysis.run_transcript_analysis("also pick up oat milk", prior_items=prior)
+
+        self.assertEqual(log["status"], "success")
+        messages = recorded["messages"]
+        # system + context-user + context-ack + classify-user = 4
+        self.assertEqual(len(messages), 4)
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertEqual(messages[1]["role"], "user")
+        self.assertIn("Get groceries", messages[1]["content"])
+        self.assertEqual(messages[2]["role"], "assistant")
+        self.assertEqual(messages[3]["role"], "user")
+        self.assertIn("also pick up oat milk", messages[3]["content"])
+
+    def test_no_prior_items_sends_two_messages(self):
+        """Without prior context only system + classify-user are sent."""
+        recorded = {}
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                recorded.update(kwargs)
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(
+                        content='{"type":"note","title":"Test","tags":[],"due_date":null}'
+                    ))]
+                )
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+        with patch.object(self.analysis, "get_client", return_value=fake_client):
+            self.analysis.run_transcript_analysis("just a note", prior_items=None)
+
+        messages = recorded["messages"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertEqual(messages[1]["role"], "user")
+
     @unittest.skipUnless(
         os.getenv("BLACKHOLE_RUN_OPENAI_TESTS") == "1" and os.getenv("OPENAI_API_KEY"),
         "Set BLACKHOLE_RUN_OPENAI_TESTS=1 and OPENAI_API_KEY to run the live OpenAI smoke test.",
