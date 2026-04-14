@@ -7,7 +7,7 @@ struct VoidExperienceView: View {
     @EnvironmentObject private var model: AppModel
     @StateObject private var recorder = RecorderEngine()
     @State private var pendingSubmission: PendingSubmission?
-    @State private var showDecisionSheet = false
+    @State private var showTranscriptReview = false
     @State private var showWelcomeOverlay = false
     @State private var showModelDownloadPrompt = false
     @State private var hasPresentedModelDownloadPrompt = false
@@ -146,12 +146,16 @@ struct VoidExperienceView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showDecisionSheet, onDismiss: { pendingSubmission = nil }) {
-                RecordingDecisionSheet(
-                    onShare: { submitPending(shareToSocial: true) },
-                    onLocalOnly: { submitPending(shareToSocial: false) }
+            .sheet(isPresented: $showTranscriptReview, onDismiss: {
+                pendingSubmission = nil
+                model.submissionState = .idle
+                model.cancelTranscriptionForReview()
+            }) {
+                TranscriptReviewSheet(
+                    onShare: { transcript in submitPending(shareToSocial: true, transcript: transcript) },
+                    onLocalOnly: { transcript in submitPending(shareToSocial: false, transcript: transcript) }
                 )
-                .presentationDetents([.fraction(0.32)])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
             .alert("Download On-Device AI Model?", isPresented: $showModelDownloadPrompt) {
@@ -176,9 +180,10 @@ struct VoidExperienceView: View {
                 }
                 recorder.onAutoStop = { url, duration in
                     pendingSubmission = PendingSubmission(url: url, durationSeconds: duration)
-                    model.submissionState = .uploading
-                    showDecisionSheet = true
                     isRecordingLocked = false
+                    model.submissionState = .transcribing
+                    showTranscriptReview = true
+                    model.beginTranscriptionForReview(url: url)
                 }
                 model.reloadDrafts()
                 maybePresentWelcomeOverlayIfNeeded()
@@ -242,22 +247,25 @@ struct VoidExperienceView: View {
         isRecordingLocked = false
         let duration = max(1, Int(recorder.elapsed))
         pendingSubmission = PendingSubmission(url: recordedURL, durationSeconds: duration)
-        model.submissionState = .uploading
-        showDecisionSheet = true
+        model.submissionState = .transcribing
+        showTranscriptReview = true
+        model.beginTranscriptionForReview(url: recordedURL)
     }
 
-    private func submitPending(shareToSocial: Bool) {
+    private func submitPending(shareToSocial: Bool, transcript: String) {
         guard let pendingSubmission else {
             return
         }
         let payload = pendingSubmission
         self.pendingSubmission = nil
-        showDecisionSheet = false
+        showTranscriptReview = false
+        let override = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             await model.submitDraft(
                 url: payload.url,
                 durationSeconds: payload.durationSeconds,
-                shareToSocial: shareToSocial
+                shareToSocial: shareToSocial,
+                overrideTranscript: override.isEmpty ? nil : override
             )
         }
     }
@@ -378,7 +386,7 @@ struct VoidExperienceView: View {
             .overlay {
                 PressAndHoldCaptureView(
                     onPressStart: {
-                        guard !showDecisionSheet else { return }
+                        guard !showTranscriptReview else { return }
                         if recorder.isRecording {
                             if isRecordingLocked {
                                 finalizeRecordingForChoice()
@@ -533,38 +541,70 @@ struct PulsingSignalDot: View {
     }
 }
 
-struct RecordingDecisionSheet: View {
-    let onShare: () -> Void
-    let onLocalOnly: () -> Void
+struct TranscriptReviewSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var editedTranscript: String = ""
+    @State private var hasPopulated = false
+
+    let onShare: (String) -> Void
+    let onLocalOnly: (String) -> Void
 
     var body: some View {
-        VStack(spacing: 18) {
-            Text("Save This Reflection")
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Your Reflection")
                 .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            if model.isTranscribingForReview {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Transcribing…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 100)
+            } else {
+                TextEditor(text: $editedTranscript)
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .padding(10)
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .frame(minHeight: 140, maxHeight: 260)
+            }
+
             HStack(spacing: 14) {
-                decisionButton(
+                actionButton(
                     icon: "person.2.circle.fill",
                     title: "Share Dot",
                     subtitle: "Post to friends",
                     tint: .teal,
-                    action: onShare
+                    action: { onShare(editedTranscript) }
                 )
-                decisionButton(
+                actionButton(
                     icon: "iphone.gen3.radiowaves.left.and.right",
                     title: "Local Only",
                     subtitle: "Keep it private",
                     tint: .indigo,
-                    action: onLocalOnly
+                    action: { onLocalOnly(editedTranscript) }
                 )
             }
-            Text("Shared entries publish the color wheel dot to all friends.")
+            .disabled(model.isTranscribingForReview)
+            .opacity(model.isTranscribingForReview ? 0.4 : 1)
+
+            Text("Shared entries publish your color dot to all friends.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(20)
+        .onChange(of: model.liveTranscript) { _, newValue in
+            guard !hasPopulated, !newValue.isEmpty else { return }
+            editedTranscript = newValue
+            hasPopulated = true
+        }
     }
 
-    private func decisionButton(
+    private func actionButton(
         icon: String,
         title: String,
         subtitle: String,

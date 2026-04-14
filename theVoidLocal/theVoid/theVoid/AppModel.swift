@@ -66,6 +66,8 @@ final class AppModel: ObservableObject {
     @Published var whisperModelPrepared: Bool = false
     @Published var isPreparingWhisperModel: Bool = false
     @Published var whisperModelPreparationError: String?
+    @Published var liveTranscript: String = ""
+    @Published var isTranscribingForReview: Bool = false
     @Published var healthAuthorizationState: HealthAuthorizationState = .notDetermined
     @Published var liveHealthSnapshot: EntryHealthSnapshot?
     @Published var isFetchingLiveHealthSnapshot: Bool = false
@@ -89,6 +91,7 @@ final class AppModel: ObservableObject {
     private var liquidModelPreparationTask: Task<Void, Never>?
     private var liquidModelPreparationOperationID: UUID?
     private var whisperModelPreparationTask: Task<Void, Never>?
+    private var transcriptionForReviewTask: Task<Void, Never>?
 
     private enum Keys {
         static let apiBaseURL = "thevoid.apiBaseURL"
@@ -484,7 +487,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func submitDraft(url: URL, durationSeconds: Int, shareToSocial: Bool = true) async {
+    func submitDraft(url: URL, durationSeconds: Int, shareToSocial: Bool = true, overrideTranscript: String? = nil) async {
         guard let sessionToken else {
             errorMessage = "Sign in required"
             return
@@ -503,7 +506,8 @@ final class AppModel: ObservableObject {
             async let analysisTask = LocalReflectionAnalyzer.analyze(
                 audioURL: url,
                 durationSeconds: normalizedDuration,
-                useLiquidInsights: liquidModelPrepared
+                useLiquidInsights: liquidModelPrepared,
+                overrideTranscriptText: overrideTranscript
             )
             async let healthSnapshotTask = captureHealthSnapshotForNote(at: noteTimestamp)
 
@@ -675,7 +679,6 @@ final class AppModel: ObservableObject {
             do {
                 try await WhisperTranscriptionRuntime.shared.prepare()
                 await MainActor.run {
-                    guard let self else { return }
                     self.isPreparingWhisperModel = false
                     self.setWhisperModelPrepared(true)
                     self.whisperModelPreparationError = nil
@@ -683,7 +686,6 @@ final class AppModel: ObservableObject {
             } catch {
                 if error is CancellationError { return }
                 await MainActor.run {
-                    guard let self else { return }
                     self.isPreparingWhisperModel = false
                     self.whisperModelPreparationError = error.localizedDescription
                 }
@@ -696,6 +698,32 @@ final class AppModel: ObservableObject {
         whisperModelPreparationTask = nil
         isPreparingWhisperModel = false
         whisperModelPreparationError = nil
+    }
+
+    func beginTranscriptionForReview(url: URL) {
+        transcriptionForReviewTask?.cancel()
+        isTranscribingForReview = true
+        liveTranscript = ""
+        transcriptionForReviewTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let text = try await WhisperTranscriptionRuntime.shared.transcribe(audioURL: url)
+                guard !Task.isCancelled else { return }
+                self.liveTranscript = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.isTranscribingForReview = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.isTranscribingForReview = false
+            }
+            self.transcriptionForReviewTask = nil
+        }
+    }
+
+    func cancelTranscriptionForReview() {
+        transcriptionForReviewTask?.cancel()
+        transcriptionForReviewTask = nil
+        isTranscribingForReview = false
+        liveTranscript = ""
     }
 
     private func setWhisperModelPrepared(_ prepared: Bool) {

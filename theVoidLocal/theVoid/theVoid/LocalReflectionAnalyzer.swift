@@ -100,9 +100,10 @@ enum LocalReflectionAnalyzer {
     static func analyze(
         audioURL: URL,
         durationSeconds: Int,
-        useLiquidInsights: Bool
+        useLiquidInsights: Bool,
+        overrideTranscriptText: String? = nil
     ) async -> (APITranscript?, APIInsight?, String?) {
-        debugLog("analyze start duration=\(durationSeconds) useLiquidInsights=\(useLiquidInsights)")
+        debugLog("analyze start duration=\(durationSeconds) useLiquidInsights=\(useLiquidInsights) override=\(overrideTranscriptText != nil)")
         // Warm model load while speech transcription runs so first-run latency is hidden when possible.
         if useLiquidInsights {
             Task {
@@ -111,11 +112,22 @@ enum LocalReflectionAnalyzer {
         }
 
         let transcription: LocalTranscriptionResult
-        do {
-            transcription = try await transcribeOnDevice(audioURL: audioURL)
-        } catch {
-            errorLog("analyze transcription failed reason=\(describeErrorChain(error))")
-            return (nil, nil, nil)
+        if let override = overrideTranscriptText {
+            let audioDuration = audioDurationSeconds(for: audioURL)
+            transcription = LocalTranscriptionResult(
+                text: override,
+                strategy: "whisperkit_tiny_en_edited",
+                audioDurationSeconds: audioDuration,
+                coverageSeconds: audioDuration,
+                chunkFallbackUsed: false
+            )
+        } else {
+            do {
+                transcription = try await transcribeOnDevice(audioURL: audioURL)
+            } catch {
+                errorLog("analyze transcription failed reason=\(describeErrorChain(error))")
+                return (nil, nil, nil)
+            }
         }
 
         let transcriptText = transcription.text
