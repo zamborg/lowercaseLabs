@@ -45,7 +45,7 @@ def run_transcript_analysis(transcript: str) -> tuple[dict | None, dict]:
                 {"role": "system", "content": _ANALYSIS_SYSTEM},
                 {"role": "user", "content": user_prompt},
             ],
-            max_tokens=300,
+            max_completion_tokens=300,
         )
         raw_response = response.choices[0].message.content
         parsed = json.loads(raw_response)
@@ -110,7 +110,7 @@ def search_items(query: str, items: list) -> list:
             {"role": "system", "content": _SEARCH_SYSTEM},
             {"role": "user", "content": _SEARCH_PROMPT.format(query=query, items_list=items_list)},
         ],
-        max_tokens=200,
+        max_completion_tokens=200,
     )
 
     result = json.loads(response.choices[0].message.content)
