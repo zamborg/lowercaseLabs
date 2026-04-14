@@ -7,7 +7,6 @@ from threading import Event
 from .config import settings
 from .db import Base, SessionLocal, engine
 from .jobs import claim_next_job, mark_job_failed, mark_job_succeeded, process_job
-from .storage import LocalObjectStorage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,7 +17,6 @@ logger = logging.getLogger("thevoid.worker")
 
 def run_forever(stop_event: Event | None = None) -> None:
     Base.metadata.create_all(bind=engine)
-    storage = LocalObjectStorage(settings.object_storage_root, settings.jwt_secret)
 
     logger.info("worker_started")
     while stop_event is None or not stop_event.is_set():
@@ -40,7 +38,7 @@ def run_forever(stop_event: Event | None = None) -> None:
                 },
             )
 
-            process_job(db, storage, job)
+            process_job(db, job)
             mark_job_succeeded(db, job)
         except Exception as exc:
             logger.exception("job_failed", extra={"job_id": getattr(job, "id", None)})

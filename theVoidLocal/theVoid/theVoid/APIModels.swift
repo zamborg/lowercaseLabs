@@ -18,14 +18,6 @@ struct APIAuthSession: Codable {
     let user: APIUserProfile
 }
 
-struct APIEntryCreate: Codable {
-    let entryId: String
-    let uploadUrl: String
-    let uploadMethod: String
-    let objectKey: String
-    let expiresAt: String
-}
-
 enum JSONValue: Codable, Hashable {
     case string(String)
     case int(Int)

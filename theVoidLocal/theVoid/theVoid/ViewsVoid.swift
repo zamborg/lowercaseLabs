@@ -11,6 +11,8 @@ struct VoidExperienceView: View {
     @State private var showWelcomeOverlay = false
     @State private var showModelDownloadPrompt = false
     @State private var hasPresentedModelDownloadPrompt = false
+    @State private var showWhisperDownloadPrompt = false
+    @State private var hasPresentedWhisperDownloadPrompt = false
     @State private var autoWelcomePendingAck = false
     @State private var isRecordingLocked = false
 
@@ -160,6 +162,14 @@ struct VoidExperienceView: View {
             } message: {
                 Text("Download Liquid on this device to enable mood tags and dots. This is a one-time setup.")
             }
+            .alert("Download Transcription Model?", isPresented: $showWhisperDownloadPrompt) {
+                Button("Not Now", role: .cancel) {}
+                Button("Download") {
+                    model.prepareWhisperModelIfNeeded()
+                }
+            } message: {
+                Text("theVoid uses an on-device model to transcribe your voice. Download it once to enable recording.")
+            }
             .onAppear {
                 recorder.onWarning = { _ in
                     UINotificationFeedbackGenerator().notificationOccurred(.warning)
@@ -173,6 +183,7 @@ struct VoidExperienceView: View {
                 model.reloadDrafts()
                 maybePresentWelcomeOverlayIfNeeded()
                 maybePresentModelDownloadPromptIfNeeded()
+                maybePresentWhisperDownloadPromptIfNeeded()
             }
             .onChange(of: model.userID) { _, _ in
                 hasPresentedModelDownloadPrompt = false
@@ -184,12 +195,26 @@ struct VoidExperienceView: View {
                     maybePresentModelDownloadPromptIfNeeded()
                 }
             }
+            .onChange(of: model.whisperModelPrepared) { _, prepared in
+                if prepared {
+                    showWhisperDownloadPrompt = false
+                }
+            }
             .animation(.easeInOut(duration: 0.2), value: showWelcomeOverlay)
         }
     }
 
     private func startRecording() {
         Task { @MainActor in
+            guard model.whisperModelPrepared else {
+                if model.isPreparingWhisperModel {
+                    model.errorMessage = "Transcription model is still downloading. Try again in a moment."
+                } else {
+                    showWhisperDownloadPrompt = true
+                }
+                return
+            }
+
             if recorder.recordPermissionStatus() == .denied {
                 model.errorMessage = "Microphone permission is denied. Enable it in iOS Settings > Privacy & Security > Microphone."
                 return
@@ -289,6 +314,16 @@ struct VoidExperienceView: View {
         showModelDownloadPrompt = true
     }
 
+    private func maybePresentWhisperDownloadPromptIfNeeded() {
+        guard !showWelcomeOverlay else { return }
+        guard !model.userID.isEmpty else { return }
+        guard !model.whisperModelPrepared else { return }
+        guard !model.isPreparingWhisperModel else { return }
+        guard !hasPresentedWhisperDownloadPrompt else { return }
+        hasPresentedWhisperDownloadPrompt = true
+        showWhisperDownloadPrompt = true
+    }
+
     private var recordingInstructionTitle: String {
         if recorder.isRecording {
             return isRecordingLocked
@@ -304,7 +339,7 @@ struct VoidExperienceView: View {
                 ? "Recording continues until you touch the pad again."
                 : "Slide outside and lift to keep recording hands-free."
         }
-        return "Max 5:00."
+        return model.isPreparingWhisperModel ? "Downloading transcription model…" : "Max 2:30."
     }
 
     private var touchAndHoldPad: some View {

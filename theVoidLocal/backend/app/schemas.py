@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from .models import EntryStatus, RevealMode
+from .models import RevealMode
 
 
 class UserProfile(BaseModel):
@@ -38,47 +38,6 @@ class UpdateProfileRequest(BaseModel):
     daily_checkin_time_local: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     timezone: str | None = Field(default=None, max_length=64)
     notification_enabled: bool | None = None
-
-
-class EntryCreateRequest(BaseModel):
-    local_date: date
-    duration_seconds: int = Field(ge=1, le=300)
-
-
-class EntryCreateResponse(BaseModel):
-    entry_id: str
-    upload_url: str
-    upload_method: Literal["PUT"] = "PUT"
-    object_key: str
-    expires_at: datetime
-
-
-class CompleteUploadRequest(BaseModel):
-    content_type: str | None = None
-
-
-class TranscriptPayload(BaseModel):
-    text: str
-    provider_metadata: dict = Field(default_factory=dict)
-
-
-class InsightPayload(BaseModel):
-    mood_score: float
-    mood_tags: list[str] = Field(default_factory=list)
-    summary: str
-    themes: list[str] = Field(default_factory=list)
-    signals: dict = Field(default_factory=dict)
-    safety_flags: dict = Field(default_factory=dict)
-
-
-class EntryResponse(BaseModel):
-    id: str
-    local_date: date
-    duration_seconds: int
-    status: EntryStatus
-    created_at: datetime
-    transcript: TranscriptPayload | None = None
-    insight: InsightPayload | None = None
 
 
 class FriendInviteRequest(BaseModel):
@@ -137,7 +96,6 @@ class FeedbackCreateRequest(BaseModel):
 
 
 class MetricsResponse(BaseModel):
-    uploads_today: int
     avg_job_latency_seconds: float
     failed_jobs_last_24h: int
 

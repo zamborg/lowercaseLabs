@@ -62,6 +62,10 @@ final class AppModel: ObservableObject {
     @Published var liquidModelPreparationProgress: Double = 0
     @Published var liquidModelPreparationStatus: String = "Preparing on-device AI model..."
     @Published var liquidModelPreparationError: String?
+
+    @Published var whisperModelPrepared: Bool = false
+    @Published var isPreparingWhisperModel: Bool = false
+    @Published var whisperModelPreparationError: String?
     @Published var healthAuthorizationState: HealthAuthorizationState = .notDetermined
     @Published var liveHealthSnapshot: EntryHealthSnapshot?
     @Published var isFetchingLiveHealthSnapshot: Bool = false
@@ -84,6 +88,7 @@ final class AppModel: ObservableObject {
     private let iCloudSyncService: ICloudSyncService
     private var liquidModelPreparationTask: Task<Void, Never>?
     private var liquidModelPreparationOperationID: UUID?
+    private var whisperModelPreparationTask: Task<Void, Never>?
 
     private enum Keys {
         static let apiBaseURL = "thevoid.apiBaseURL"
@@ -98,6 +103,7 @@ final class AppModel: ObservableObject {
         static let reminderTimesByWeekday = "thevoid.reminderTimesByWeekday"
         static let onboardingComplete = "thevoid.onboardingComplete"
         static let liquidModelPrepared = "thevoid.liquidModelPrepared"
+        static let whisperModelPrepared = "thevoid.whisperModelPrepared"
         static let healthIntegrationEnabled = "thevoid.healthkit.enabled"
         static let iCloudSyncEnabled = "thevoid.icloud.sync.enabled"
         static let iCloudBootstrapSyncedUsers = "thevoid.icloud.bootstrap.synced_users"
@@ -145,6 +151,9 @@ final class AppModel: ObservableObject {
                 await refreshLiveHealthSnapshot()
             }
         }
+        if !whisperModelPrepared {
+            prepareWhisperModelIfNeeded()
+        }
     }
 
     func loadPersistedState() {
@@ -188,6 +197,7 @@ final class AppModel: ObservableObject {
         }
 
         liquidModelPrepared = defaults.bool(forKey: Keys.liquidModelPrepared)
+        whisperModelPrepared = defaults.bool(forKey: Keys.whisperModelPrepared)
         if defaults.object(forKey: Keys.healthIntegrationEnabled) != nil {
             healthIntegrationEnabled = defaults.bool(forKey: Keys.healthIntegrationEnabled)
         } else {
@@ -653,6 +663,46 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.set(prepared, forKey: Keys.liquidModelPrepared)
     }
 
+    // MARK: - WhisperKit model
+
+    func prepareWhisperModelIfNeeded() {
+        guard !isPreparingWhisperModel, !whisperModelPrepared else { return }
+        isPreparingWhisperModel = true
+        whisperModelPreparationError = nil
+        whisperModelPreparationTask?.cancel()
+        whisperModelPreparationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await WhisperTranscriptionRuntime.shared.prepare()
+                await MainActor.run {
+                    guard let self else { return }
+                    self.isPreparingWhisperModel = false
+                    self.setWhisperModelPrepared(true)
+                    self.whisperModelPreparationError = nil
+                }
+            } catch {
+                if error is CancellationError { return }
+                await MainActor.run {
+                    guard let self else { return }
+                    self.isPreparingWhisperModel = false
+                    self.whisperModelPreparationError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func cancelWhisperModelPreparation() {
+        whisperModelPreparationTask?.cancel()
+        whisperModelPreparationTask = nil
+        isPreparingWhisperModel = false
+        whisperModelPreparationError = nil
+    }
+
+    private func setWhisperModelPrepared(_ prepared: Bool) {
+        whisperModelPrepared = prepared
+        UserDefaults.standard.set(prepared, forKey: Keys.whisperModelPrepared)
+    }
+
     private static func socialDotIsMoreRecent(_ lhs: APISocialDot, _ rhs: APISocialDot) -> Bool {
         let lhsUpdatedAt = parseSocialDotUpdatedAt(lhs.updatedAt) ?? .distantPast
         let rhsUpdatedAt = parseSocialDotUpdatedAt(rhs.updatedAt) ?? .distantPast
@@ -928,20 +978,6 @@ final class AppModel: ObservableObject {
         } catch {
             errorMessage = describeRemoteError(error)
         }
-    }
-
-    private func pollUntilReady(entryID: String, token: String) async throws {
-        for _ in 0..<24 {
-            let entry = try await client.fetchEntry(entryID: entryID, token: token)
-            if entry.status == "ready" {
-                return
-            }
-            if entry.status == "failed" {
-                throw APIError.server(500, "Insight pipeline failed")
-            }
-            try await Task.sleep(nanoseconds: 3_000_000_000)
-        }
-        throw APIError.server(408, "Timed out waiting for insights")
     }
 
     func audioDurationForDraft(_ url: URL) -> Int {

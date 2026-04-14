@@ -2,7 +2,6 @@ import AVFoundation
 import CryptoKit
 import Foundation
 import os
-import Speech
 
 #if canImport(LeapSDK)
 import LeapSDK
@@ -49,18 +48,6 @@ private struct LocalTranscriptionResult {
     let chunkFallbackUsed: Bool
 }
 
-private struct TranscriptionPassResult {
-    let text: String
-    let coverageSeconds: Double
-    let segmentCount: Int
-}
-
-private struct AccumulatedSpeechSegment {
-    let timestamp: Double
-    let duration: Double
-    let text: String
-}
-
 enum LocalReflectionAnalyzer {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.lowercaseLabs.theVoid", category: "liquid-insights")
 
@@ -80,14 +67,6 @@ enum LocalReflectionAnalyzer {
     private static func errorLog(_ message: String) {
         guard verboseLoggingEnabled() else { return }
         logger.error("\(message, privacy: .public)")
-    }
-
-    static func requestSpeechPermission() async -> Bool {
-        await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status == .authorized)
-            }
-        }
     }
 
     @discardableResult
@@ -142,10 +121,9 @@ enum LocalReflectionAnalyzer {
         let transcriptText = transcription.text
         let normalized = transcriptText.trimmingCharacters(in: .whitespacesAndNewlines)
         var metadata: [String: JSONValue] = [
-            "provider": .string("ios_speech"),
-            "duration_seconds": .int(max(1, min(durationSeconds, 300))),
+            "provider": .string("whisperkit"),
+            "duration_seconds": .int(max(1, min(durationSeconds, 150))),
             "transcription_strategy": .string(transcription.strategy),
-            "transcription_chunk_fallback_used": .bool(false),
         ]
 
         if let audioDurationSeconds = transcription.audioDurationSeconds {
@@ -200,214 +178,15 @@ enum LocalReflectionAnalyzer {
     }
 
     private static func transcribeOnDevice(audioURL: URL) async throws -> LocalTranscriptionResult {
-        let authorization = SFSpeechRecognizer.authorizationStatus()
-        guard authorization == .authorized else {
-            throw LocalReflectionError.speechPermissionDenied
-        }
-
-        let locales = [Locale.current, Locale(identifier: "en_US")]
-        var lastError: Error?
         let audioDuration = audioDurationSeconds(for: audioURL)
-
-        for locale in locales {
-            guard let recognizer = SFSpeechRecognizer(locale: locale) else {
-                continue
-            }
-            if !recognizer.isAvailable {
-                lastError = LocalReflectionError.speechRecognizerUnavailable
-                continue
-            }
-            if !recognizer.supportsOnDeviceRecognition {
-                lastError = LocalReflectionError.onDeviceRecognitionUnavailable
-                continue
-            }
-            do {
-                let primary = try await transcribeSinglePass(audioURL: audioURL, recognizer: recognizer)
-                return LocalTranscriptionResult(
-                    text: primary.text,
-                    strategy: "ios_speech_single_pass",
-                    audioDurationSeconds: audioDuration,
-                    coverageSeconds: primary.coverageSeconds,
-                    chunkFallbackUsed: false
-                )
-            } catch {
-                errorLog("transcribeOnDevice locale=\(locale.identifier) failed reason=\(describeErrorChain(error))")
-                lastError = error
-            }
-        }
-
-        throw lastError ?? LocalReflectionError.transcriptionFailed
-    }
-
-    private static func transcribeSinglePass(
-        audioURL: URL,
-        recognizer: SFSpeechRecognizer
-    ) async throws -> TranscriptionPassResult {
-        let request = SFSpeechURLRecognitionRequest(url: audioURL)
-        request.requiresOnDeviceRecognition = true
-        request.shouldReportPartialResults = true
-        request.taskHint = .dictation
-        if #available(iOS 16.0, *) {
-            request.addsPunctuation = true
-        }
-
-        let timeoutSeconds = transcriptionTimeoutSeconds(for: audioDurationSeconds(for: audioURL))
-
-        return try await withCheckedThrowingContinuation { continuation in
-            let stateQueue = DispatchQueue(label: "com.lowercaseLabs.theVoid.transcription.singlepass")
-            var resumed = false
-            var task: SFSpeechRecognitionTask?
-            var latestResult: SFSpeechRecognitionResult?
-            var accumulatedSegments: [Int: AccumulatedSpeechSegment] = [:]
-            var timeoutWorkItem: DispatchWorkItem?
-
-            func finishSuccess(using result: SFSpeechRecognitionResult?, reason: String) {
-                guard !resumed else { return }
-                resumed = true
-                timeoutWorkItem?.cancel()
-                task?.cancel()
-
-                let directPass = result.map(transcriptionPassResult(from:))
-                let aggregatePass = transcriptionPassResult(from: accumulatedSegments)
-                guard let selected = selectBestTranscriptionPass(direct: directPass, aggregate: aggregatePass) else {
-                    continuation.resume(throwing: LocalReflectionError.transcriptionFailed)
-                    return
-                }
-                continuation.resume(returning: selected)
-            }
-
-            func finishFailure(_ error: Error) {
-                guard !resumed else { return }
-                resumed = true
-                timeoutWorkItem?.cancel()
-                task?.cancel()
-                continuation.resume(throwing: error)
-            }
-
-            let timeout = DispatchWorkItem {
-                if let latestResult {
-                    debugLog("transcribeSinglePass timed out after \(formatSeconds(timeoutSeconds))s; selecting best available transcript")
-                    finishSuccess(using: latestResult, reason: "timeout_latest_result")
-                } else if !accumulatedSegments.isEmpty {
-                    debugLog("transcribeSinglePass timed out after \(formatSeconds(timeoutSeconds))s; selecting accumulated transcript")
-                    finishSuccess(using: nil, reason: "timeout_accumulated")
-                } else {
-                    finishFailure(LocalReflectionError.transcriptionFailed)
-                }
-            }
-            timeoutWorkItem = timeout
-            stateQueue.asyncAfter(deadline: .now() + timeoutSeconds, execute: timeout)
-
-            task = recognizer.recognitionTask(with: request) { result, error in
-                stateQueue.async {
-                    if let result {
-                        latestResult = result
-                        mergeTranscriptionSegments(
-                            result.bestTranscription.segments,
-                            into: &accumulatedSegments
-                        )
-                        if result.isFinal {
-                            finishSuccess(using: result, reason: "final_result")
-                            return
-                        }
-                    }
-
-                    if let error {
-                        if let latestResult {
-                            debugLog("transcribeSinglePass finished with trailing error; selecting best transcript reason=\(describeErrorChain(error))")
-                            finishSuccess(using: latestResult, reason: "error_with_latest")
-                        } else if !accumulatedSegments.isEmpty {
-                            debugLog("transcribeSinglePass finished with trailing error and no latest result; selecting accumulated transcript reason=\(describeErrorChain(error))")
-                            finishSuccess(using: nil, reason: "error_with_accumulated")
-                        } else {
-                            finishFailure(error)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private static func mergeTranscriptionSegments(
-        _ segments: [SFTranscriptionSegment],
-        into store: inout [Int: AccumulatedSpeechSegment]
-    ) {
-        for segment in segments {
-            let timestamp = max(0, segment.timestamp)
-            let duration = max(0, segment.duration)
-            let key = Int((timestamp * 1000).rounded())
-            store[key] = AccumulatedSpeechSegment(
-                timestamp: timestamp,
-                duration: duration,
-                text: segment.substring
-            )
-        }
-    }
-
-    private static func transcriptionPassResult(from result: SFSpeechRecognitionResult) -> TranscriptionPassResult {
-        TranscriptionPassResult(
-            text: normalizeTranscriptSpacing(result.bestTranscription.formattedString),
-            coverageSeconds: transcriptionCoverageSeconds(from: result.bestTranscription.segments),
-            segmentCount: result.bestTranscription.segments.count
+        let text = try await WhisperTranscriptionRuntime.shared.transcribe(audioURL: audioURL)
+        return LocalTranscriptionResult(
+            text: text,
+            strategy: "whisperkit_tiny_en",
+            audioDurationSeconds: audioDuration,
+            coverageSeconds: audioDuration,
+            chunkFallbackUsed: false
         )
-    }
-
-    private static func transcriptionPassResult(
-        from segmentsByTimestamp: [Int: AccumulatedSpeechSegment]
-    ) -> TranscriptionPassResult? {
-        guard !segmentsByTimestamp.isEmpty else {
-            return nil
-        }
-
-        let ordered = segmentsByTimestamp.values.sorted { lhs, rhs in
-            if lhs.timestamp == rhs.timestamp {
-                return lhs.duration < rhs.duration
-            }
-            return lhs.timestamp < rhs.timestamp
-        }
-        let joined = ordered.map(\.text).joined(separator: " ")
-        let coverage = ordered.reduce(0.0) { partial, segment in
-            max(partial, segment.timestamp + segment.duration)
-        }
-
-        return TranscriptionPassResult(
-            text: normalizeTranscriptSpacing(joined),
-            coverageSeconds: coverage,
-            segmentCount: ordered.count
-        )
-    }
-
-    private static func selectBestTranscriptionPass(
-        direct: TranscriptionPassResult?,
-        aggregate: TranscriptionPassResult?
-    ) -> TranscriptionPassResult? {
-        switch (direct, aggregate) {
-        case (nil, nil):
-            return nil
-        case let (value?, nil):
-            return value
-        case let (nil, value?):
-            return value
-        case let (directValue?, aggregateValue?):
-            let directCoverage = max(0.1, directValue.coverageSeconds)
-            if aggregateValue.coverageSeconds > (directCoverage * 1.2) {
-                return aggregateValue
-            }
-            if aggregateValue.segmentCount > (directValue.segmentCount + 8) {
-                return aggregateValue
-            }
-            if aggregateValue.text.count > (directValue.text.count + 40) {
-                return aggregateValue
-            }
-            return directValue
-        }
-    }
-
-    private static func transcriptionCoverageSeconds(from segments: [SFTranscriptionSegment]) -> Double {
-        guard let last = segments.last else {
-            return 0
-        }
-        return max(0, last.timestamp + last.duration)
     }
 
     private static func normalizeTranscriptSpacing(_ text: String) -> String {
@@ -430,13 +209,6 @@ enum LocalReflectionAnalyzer {
             return nil
         }
         return seconds
-    }
-
-    private static func transcriptionTimeoutSeconds(for audioDurationSeconds: Double?) -> TimeInterval {
-        guard let audioDurationSeconds, audioDurationSeconds.isFinite, audioDurationSeconds > 0 else {
-            return 90
-        }
-        return min(420, max(45, (audioDurationSeconds * 2.0) + 20.0))
     }
 
     private static func formatSeconds(_ seconds: Double?) -> String {

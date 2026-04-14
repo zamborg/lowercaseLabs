@@ -274,17 +274,17 @@ final class RecorderEngine: NSObject, ObservableObject {
         elapsed = Date().timeIntervalSince(startDate)
         amplitude = normalized
 
-        if elapsed >= 270, !warned430 {
+        if elapsed >= 120, !warned430 {
             warned430 = true
-            onWarning?(270)
+            onWarning?(120)
         }
 
-        if elapsed >= 295, !warned455 {
+        if elapsed >= 145, !warned455 {
             warned455 = true
-            onWarning?(295)
+            onWarning?(145)
         }
 
-        if elapsed >= 300 {
+        if elapsed >= 150 {
             let duration = max(1, Int(elapsed.rounded()))
             if let finishedURL = stopRecording() {
                 onAutoStop?(finishedURL, duration)

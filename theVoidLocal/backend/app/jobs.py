@@ -19,8 +19,6 @@ from .models import (
     Transcript,
 )
 from .social import mood_to_dot_color
-from .storage import LocalObjectStorage
-from .transcription import transcribe_entry
 
 logger = logging.getLogger(__name__)
 
@@ -87,37 +85,6 @@ def mark_job_failed(db: Session, job: Job, error: str) -> None:
         job.finished_at = now_utc()
     db.add(job)
     db.commit()
-
-
-def process_transcription_job(db: Session, storage: LocalObjectStorage, payload: dict, trace_id: str) -> None:
-    entry_id = payload["entry_id"]
-    entry = db.get(Entry, entry_id)
-    if entry is None:
-        logger.warning("missing_entry_for_transcription", extra={"trace_id": trace_id, "entry_id": entry_id})
-        return
-
-    entry.status = EntryStatus.TRANSCRIBING
-    db.add(entry)
-    db.commit()
-
-    transcript_text, metadata = transcribe_entry(entry, storage)
-
-    transcript = db.get(Transcript, entry.id)
-    if transcript is None:
-        transcript = Transcript(entry_id=entry.id, text=transcript_text, provider_metadata=metadata)
-    else:
-        transcript.text = transcript_text
-        transcript.provider_metadata = metadata
-
-    db.add(transcript)
-    db.commit()
-
-    enqueue_job(
-        db,
-        job_type=JobType.INSIGHTS,
-        payload={"entry_id": entry.id, "user_id": entry.user_id},
-        trace_id=trace_id,
-    )
 
 
 def process_insights_job(db: Session, payload: dict, trace_id: str) -> None:
@@ -214,11 +181,7 @@ def process_social_aggregation_job(db: Session, payload: dict, trace_id: str) ->
     db.commit()
 
 
-def process_job(db: Session, storage: LocalObjectStorage, job: Job) -> None:
-    if job.job_type == JobType.TRANSCRIPTION:
-        process_transcription_job(db, storage, job.payload, job.trace_id)
-        return
-
+def process_job(db: Session, job: Job) -> None:
     if job.job_type == JobType.INSIGHTS:
         process_insights_job(db, job.payload, job.trace_id)
         return

@@ -64,15 +64,6 @@ final class BackendClient {
         let timezone: String
     }
 
-    struct EntryCreatePayload: Encodable {
-        let localDate: String
-        let durationSeconds: Int
-    }
-
-    struct CompleteUploadPayload: Encodable {
-        let contentType: String?
-    }
-
     struct UpdateProfilePayload: Encodable {
         let displayName: String?
         let dailyCheckinTimeLocal: String
@@ -228,78 +219,6 @@ final class BackendClient {
         }
         let request = buildRequest(url: url, method: "PATCH", token: token, body: body)
         return try await send(request, decode: APIUserProfile.self)
-    }
-
-    func createEntry(token: String, localDate: String, durationSeconds: Int) async throws -> APIEntryCreate {
-        let payload = EntryCreatePayload(localDate: localDate, durationSeconds: durationSeconds)
-        let body = try encoder.encode(payload)
-        guard let url = URL(string: "/entries", relativeTo: baseURL) else {
-            throw APIError.invalidURL
-        }
-        let request = buildRequest(url: url, method: "POST", token: token, body: body)
-        return try await send(request, decode: APIEntryCreate.self)
-    }
-
-    func uploadAudio(uploadURL: String, token: String, audioData: Data) async throws {
-        guard let url = URL(string: uploadURL) else {
-            throw APIError.invalidURL
-        }
-        let request = buildRequest(
-            url: url,
-            method: "PUT",
-            token: token,
-            body: audioData,
-            contentType: "application/octet-stream"
-        )
-        try await sendVoid(request)
-    }
-
-    func completeUpload(entryID: String, token: String) async throws {
-        let payload = CompleteUploadPayload(contentType: "audio/m4a")
-        let body = try encoder.encode(payload)
-        guard let url = URL(string: "/entries/\(entryID)/complete_upload", relativeTo: baseURL) else {
-            throw APIError.invalidURL
-        }
-        let request = buildRequest(url: url, method: "POST", token: token, body: body)
-        _ = try await send(request, decode: APIMessage.self)
-    }
-
-    func fetchEntries(token: String) async throws -> [APIEntry] {
-        guard let url = URL(string: "/entries", relativeTo: baseURL) else {
-            throw APIError.invalidURL
-        }
-        let request = buildRequest(url: url, method: "GET", token: token)
-        return try await send(request, decode: [APIEntry].self)
-    }
-
-    func fetchEntry(entryID: String, token: String) async throws -> APIEntry {
-        guard let url = URL(string: "/entries/\(entryID)", relativeTo: baseURL) else {
-            throw APIError.invalidURL
-        }
-        let request = buildRequest(url: url, method: "GET", token: token)
-        return try await send(request, decode: APIEntry.self)
-    }
-
-    func fetchAudio(entryID: String, token: String) async throws -> Data {
-        guard let url = URL(string: "/entries/\(entryID)/audio", relativeTo: baseURL) else {
-            throw APIError.invalidURL
-        }
-        let request = buildRequest(url: url, method: "GET", token: token)
-
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            try rethrowIfCancelled(error)
-            throw APIError.transport(error.localizedDescription)
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.transport("Invalid response")
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw decodeError(data, statusCode: http.statusCode)
-        }
-        return data
     }
 
     func fetchSocialDots(

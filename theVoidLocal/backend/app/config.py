@@ -14,10 +14,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_exp_minutes: int = 60 * 24 * 30
 
-    upload_token_ttl_seconds: int = 60 * 15
     invite_base_url: str = "thevoid://invite"
 
-    object_storage_root: str = "./backend/storage"
     model_assets_root: str = "/data/model_assets"
     worker_poll_interval_seconds: float = 2.0
     inline_worker_enabled: bool = False
@@ -27,8 +25,6 @@ class Settings(BaseSettings):
     admin_password: str = "admin"
 
     openai_api_key: str | None = None
-    openai_transcription_model: str = "gpt-4o-mini-transcribe"
-    openai_transcription_language: str | None = None
     openai_insights_model: str = "gpt-4.1-mini"
     openai_request_timeout_seconds: float = 90.0
 

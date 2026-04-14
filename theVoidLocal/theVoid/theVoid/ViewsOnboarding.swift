@@ -1,5 +1,4 @@
 import AuthenticationServices
-import Speech
 import SwiftUI
 import UIKit
 
@@ -104,7 +103,6 @@ struct OnboardingView: View {
     @EnvironmentObject private var model: AppModel
 
     @State private var micGranted = false
-    @State private var speechGranted = false
     @State private var currentAppleNonce: String?
 
     var body: some View {
@@ -203,17 +201,6 @@ struct OnboardingView: View {
                     }
 
                     HStack {
-                        Label("Speech Recognition", systemImage: speechGranted ? "checkmark.circle.fill" : "circle")
-                        Spacer()
-                        Button(speechGranted ? "Granted" : "Allow") {
-                            Task {
-                                speechGranted = await LocalReflectionAnalyzer.requestSpeechPermission()
-                            }
-                        }
-                        .disabled(speechGranted)
-                    }
-
-                    HStack {
                         Label("Health", systemImage: healthIconName)
                         Spacer()
                         Button(healthActionLabel) {
@@ -244,7 +231,6 @@ struct OnboardingView: View {
         .foregroundStyle(.white)
         .onAppear {
             micGranted = AVAudioSession.sharedInstance().recordPermission == .granted
-            speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
             Task {
                 await model.refreshHealthAuthorizationState()
             }
