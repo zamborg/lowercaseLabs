@@ -16,7 +16,16 @@ def load_backend_modules(db_path: str):
     os.environ["DB_PATH"] = db_path
     os.environ.setdefault("JWT_SECRET", "test-secret-with-32-bytes-length")
 
-    for module_name in ["app.db", "app.auth", "app.analysis", "app.main"]:
+    for module_name in [
+        "app.db",
+        "app.auth",
+        "app.agent.responses.tools",
+        "app.agent.responses.client",
+        "app.agent.responses.logging",
+        "app.agent.responses.prompts",
+        "app.analysis",
+        "app.main",
+    ]:
         if module_name in sys.modules:
             importlib.reload(sys.modules[module_name])
         else:
@@ -45,20 +54,22 @@ class BackendIntegrationTests(unittest.TestCase):
 
     def test_create_item_persists_llm_log_and_exposes_it_in_admin(self):
         fake_analysis = (
-            {
-                "type": "todo",
-                "title": "Buy milk",
-                "tags": ["errand"],
-                "due_date": "2026-04-14T17:00:00",
-            },
+            [
+                {
+                    "type": "todo",
+                    "title": "Buy milk",
+                    "tags": ["errand"],
+                    "due_date": "2026-04-14T17:00:00",
+                }
+            ],
             {
                 "operation": "analyze_transcript",
                 "model": "gpt-5.4-mini-2026-03-17",
                 "input_text": "buy milk tomorrow at 5",
                 "system_prompt": "system prompt",
                 "user_prompt": "user prompt",
-                "raw_response": '{"type":"todo","title":"Buy milk","tags":["errand"]}',
-                "parsed_response": '{"type":"todo","title":"Buy milk","tags":["errand"]}',
+                "raw_response": '{"items":[{"type":"todo","title":"Buy milk","tags":["errand"]}]}',
+                "parsed_response": '[{"type":"todo","title":"Buy milk","tags":["errand"]}]',
                 "status": "success",
                 "error": None,
             },
@@ -72,7 +83,7 @@ class BackendIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["title"], "Buy milk")
+        self.assertEqual(response.json()[0]["title"], "Buy milk")
 
         login = self.client.post(
             "/admin/login",
@@ -94,6 +105,48 @@ class BackendIntegrationTests(unittest.TestCase):
         self.assertIn("LLM Analysis Logs", dashboard.text)
         self.assertIn("buy milk tomorrow at 5", dashboard.text)
 
+    def test_search_persists_llm_log_and_falls_back_on_error(self):
+        now = "2026-04-14T17:00:00"
+        self.db.create_item({
+            "id": "item-1",
+            "user_id": "user-1",
+            "content": "Buy milk from the corner store",
+            "title": "Buy milk",
+            "type": "todo",
+            "due_date": None,
+            "completed": 0,
+            "tags": '["errand"]',
+            "created_at": now,
+            "updated_at": now,
+        })
+        fake_search = (
+            None,
+            {
+                "operation": "search_items",
+                "model": "gpt-5.4-mini-2026-03-17",
+                "input_text": "errand",
+                "system_prompt": "system prompt",
+                "user_prompt": "user prompt",
+                "raw_response": None,
+                "parsed_response": None,
+                "status": "error",
+                "error": "boom",
+            },
+        )
+
+        with patch.object(self.main.analysis, "run_search_items", return_value=fake_search):
+            response = self.client.post(
+                "/search",
+                headers={"Authorization": f"Bearer {self.token}"},
+                json={"query": "errand"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()[0]["title"], "Buy milk")
+        logs = [dict(row) for row in self.db.list_llm_logs()]
+        self.assertEqual(logs[0]["operation"], "search_items")
+        self.assertEqual(logs[0]["status"], "error")
+
 
 class AnalysisClientContractTests(unittest.TestCase):
     def setUp(self):
@@ -104,101 +157,139 @@ class AnalysisClientContractTests(unittest.TestCase):
     def tearDown(self):
         self.tempdir.cleanup()
 
-    def test_run_transcript_analysis_uses_max_completion_tokens(self):
+    def test_run_transcript_analysis_uses_responses_contract(self):
         recorded = {}
 
-        class FakeCompletions:
+        class FakeResponses:
             def create(self, **kwargs):
                 recorded.update(kwargs)
-                return SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"type":"note","title":"Test","tags":[],"due_date":null}'))]
-                )
+                return SimpleNamespace(output_text='{"items":[{"type":"note","title":"Test","tags":[],"due_date":null}]}')
 
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+        fake_client = SimpleNamespace(responses=FakeResponses())
 
         with patch.object(self.analysis, "get_client", return_value=fake_client):
             result, log = self.analysis.run_transcript_analysis("capture this")
 
         self.assertEqual(log["status"], "success")
-        self.assertEqual(result["title"], "Test")
-        self.assertEqual(recorded["max_completion_tokens"], 300)
+        self.assertEqual(result[0]["title"], "Test")
+        self.assertEqual(recorded["max_output_tokens"], 500)
+        self.assertEqual(recorded["text"]["format"]["type"], "json_schema")
+        self.assertEqual(recorded["text"]["format"]["name"], "transcript_items")
+        self.assertIn("epic", recorded["text"]["format"]["schema"]["properties"]["items"]["items"]["properties"]["type"]["enum"])
+        self.assertIn("Do not create a duplicate raw note", recorded["instructions"])
+        self.assertIn("input", recorded)
+        self.assertIn("instructions", recorded)
         self.assertNotIn("max_tokens", recorded)
+        self.assertNotIn("max_completion_tokens", recorded)
 
-    def test_search_items_uses_max_completion_tokens(self):
+    def test_search_items_uses_max_output_tokens(self):
         recorded = {}
 
-        class FakeCompletions:
+        class FakeResponses:
             def create(self, **kwargs):
                 recorded.update(kwargs)
-                return SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"indices":[0]}'))]
-                )
+                return SimpleNamespace(output_text='{"indices":[0]}')
 
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
-        items = [{"title": "Groceries", "content": "Buy milk"}]
+        fake_client = SimpleNamespace(responses=FakeResponses())
+        items = [
+            {
+                "title": "Groceries",
+                "content": "Buy milk",
+                "type": "todo",
+                "completed": 0,
+                "due_date": "2026-04-15T17:00:00",
+                "tags": '["errand"]',
+            }
+        ]
 
         with patch.object(self.analysis, "get_client", return_value=fake_client):
             results = self.analysis.search_items("milk", items)
 
         self.assertEqual(results, items)
-        self.assertEqual(recorded["max_completion_tokens"], 200)
+        self.assertEqual(recorded["max_output_tokens"], 200)
+        self.assertEqual(recorded["text"]["format"]["name"], "search_indices")
+        self.assertIn("todo | Groceries | open due:2026-04-15T17:00:00 tags:errand", recorded["input"][0]["content"])
         self.assertNotIn("max_tokens", recorded)
+        self.assertNotIn("max_completion_tokens", recorded)
+
+    def test_registered_tools_are_not_exposed_without_prompt_opt_in(self):
+        recorded = {}
+        tools = sys.modules["app.agent.responses.tools"]
+        tools.register_tool(tools.ResponseTool(
+            name="lookup",
+            definition={
+                "type": "function",
+                "name": "lookup",
+                "description": "Test lookup tool.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+            },
+        ))
+
+        class FakeResponses:
+            def create(self, **kwargs):
+                recorded.update(kwargs)
+                return SimpleNamespace(output_text='{"indices":[0]}')
+
+        fake_client = SimpleNamespace(responses=FakeResponses())
+        items = [{"title": "Groceries", "content": "Buy milk"}]
+
+        with patch.object(self.analysis, "get_client", return_value=fake_client):
+            self.analysis.search_items("milk", items)
+
+        self.assertNotIn("tools", recorded)
 
     def test_prior_items_context_injected_into_messages(self):
         """Context messages are inserted when prior_items are provided."""
         recorded = {}
 
-        class FakeCompletions:
+        class FakeResponses:
             def create(self, **kwargs):
                 recorded.update(kwargs)
-                return SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(
-                        content='{"type":"todo","title":"Buy oat milk","tags":["errand"],"due_date":null}'
-                    ))]
-                )
+                return SimpleNamespace(output_text='{"items":[{"type":"todo","title":"Buy oat milk","tags":["errand"],"due_date":null}]}')
 
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+        fake_client = SimpleNamespace(responses=FakeResponses())
         prior = [
             {"type": "todo", "title": "Get groceries", "content": "buy eggs and bread", "completed": 0, "tags": '["errand"]', "due_date": None},
             {"type": "note", "title": "Recipe idea", "content": "pancakes", "completed": 0, "tags": "[]", "due_date": None},
         ]
 
         with patch.object(self.analysis, "get_client", return_value=fake_client):
-            result, log = self.analysis.run_transcript_analysis("also pick up oat milk", prior_items=prior)
+            results, log = self.analysis.run_transcript_analysis("also pick up oat milk", prior_items=prior)
 
         self.assertEqual(log["status"], "success")
-        messages = recorded["messages"]
-        # system + context-user + context-ack + classify-user = 4
-        self.assertEqual(len(messages), 4)
-        self.assertEqual(messages[0]["role"], "system")
-        self.assertEqual(messages[1]["role"], "user")
-        self.assertIn("Get groceries", messages[1]["content"])
-        self.assertEqual(messages[2]["role"], "assistant")
-        self.assertEqual(messages[3]["role"], "user")
-        self.assertIn("also pick up oat milk", messages[3]["content"])
+        self.assertEqual(results[0]["title"], "Buy oat milk")
+        messages = recorded["input"]
+        # context-user + context-ack + classify-user = 3; system prompt is instructions
+        self.assertEqual(len(messages), 3)
+        self.assertIn("existing notes, todos, and epics", recorded["instructions"])
+        self.assertEqual(messages[0]["role"], "user")
+        self.assertIn("Get groceries", messages[0]["content"])
+        self.assertEqual(messages[1]["role"], "assistant")
+        self.assertEqual(messages[2]["role"], "user")
+        self.assertIn("also pick up oat milk", messages[2]["content"])
 
     def test_no_prior_items_sends_two_messages(self):
         """Without prior context only system + classify-user are sent."""
         recorded = {}
 
-        class FakeCompletions:
+        class FakeResponses:
             def create(self, **kwargs):
                 recorded.update(kwargs)
-                return SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(
-                        content='{"type":"note","title":"Test","tags":[],"due_date":null}'
-                    ))]
-                )
+                return SimpleNamespace(output_text='{"items":[{"type":"note","title":"Test","tags":[],"due_date":null}]}')
 
-        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+        fake_client = SimpleNamespace(responses=FakeResponses())
 
         with patch.object(self.analysis, "get_client", return_value=fake_client):
             self.analysis.run_transcript_analysis("just a note", prior_items=None)
 
-        messages = recorded["messages"]
-        self.assertEqual(len(messages), 2)
-        self.assertEqual(messages[0]["role"], "system")
-        self.assertEqual(messages[1]["role"], "user")
+        messages = recorded["input"]
+        self.assertEqual(len(messages), 1)
+        self.assertIn("classify text submitted to blackhole", recorded["instructions"])
+        self.assertEqual(messages[0]["role"], "user")
 
     @unittest.skipUnless(
         os.getenv("BLACKHOLE_RUN_OPENAI_TESTS") == "1" and os.getenv("OPENAI_API_KEY"),
@@ -210,10 +301,11 @@ class AnalysisClientContractTests(unittest.TestCase):
         )
 
         self.assertEqual(log["status"], "success")
-        self.assertIn(result["type"], {"note", "todo"})
-        self.assertIsInstance(result["title"], str)
-        self.assertIsInstance(result["tags"], list)
-        self.assertIn("due_date", result)
+        self.assertGreaterEqual(len(result), 1)
+        self.assertIn(result[0]["type"], {"note", "todo", "epic"})
+        self.assertIsInstance(result[0]["title"], str)
+        self.assertIsInstance(result[0]["tags"], list)
+        self.assertIn("due_date", result[0])
 
 
 if __name__ == "__main__":

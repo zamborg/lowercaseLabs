@@ -16,7 +16,7 @@ struct SignInView: View {
                         .font(.system(.largeTitle, design: .monospaced, weight: .bold))
                         .foregroundStyle(.white)
 
-                    Text("notes & to-dos, captured by voice")
+                    Text("notes, epics & to-dos, captured by voice")
                         .font(.system(.subheadline, design: .rounded))
                         .foregroundStyle(.white.opacity(0.45))
                 }

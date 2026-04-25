@@ -11,8 +11,10 @@ final class AuthViewModel: ObservableObject {
 
     init() {
         if let token = UserDefaults.standard.string(forKey: tokenKey) {
-            Task { await APIClient.shared.setSessionToken(token) }
-            isSignedIn = true
+            Task {
+                await APIClient.shared.setSessionToken(token)
+                isSignedIn = true
+            }
         }
     }
 
@@ -43,7 +45,10 @@ final class AuthViewModel: ObservableObject {
 
     func signOut() {
         UserDefaults.standard.removeObject(forKey: tokenKey)
-        Task { await APIClient.shared.setSessionToken(nil) }
+        Task {
+            await APIClient.shared.clearCachedItems()
+            await APIClient.shared.setSessionToken(nil)
+        }
         isSignedIn = false
     }
 }

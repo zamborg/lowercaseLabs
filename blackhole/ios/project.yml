@@ -40,5 +40,5 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: blackhole
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_NSMicrophoneUsageDescription: blackhole uses the microphone to capture your voice.
-        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: blackhole transcribes your speech to create notes and to-dos.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: blackhole transcribes your speech to create notes, epics, and to-dos.
         CODE_SIGN_ENTITLEMENTS: blackhole.entitlements

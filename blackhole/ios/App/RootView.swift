@@ -22,8 +22,12 @@ private struct MainTabView: View {
                 .tabItem { Label("Void", systemImage: "mic.fill") }
             FeedView()
                 .tabItem { Label("Feed", systemImage: "list.bullet") }
-            SearchView()
-                .tabItem { Label("Search", systemImage: "magnifyingglass") }
+            EpicsView()
+                .tabItem { Label("Epics", systemImage: "square.stack.3d.up") }
+            NotesView()
+                .tabItem { Label("Notes", systemImage: "note.text") }
+            TodosView()
+                .tabItem { Label("Todos", systemImage: "checkmark.circle") }
         }
         .preferredColorScheme(.dark)
         .tint(.white)

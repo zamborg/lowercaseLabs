@@ -38,25 +38,32 @@ final class IngestViewModel: ObservableObject {
 
         var holdInstruction: String {
             switch self {
-            case .idle: return "Press and hold to dictate."
-            case .starting: return "Keep holding…"
-            case .listening: return "Release to stop."
+            case .idle: return "Press and hold to dictate. Release outside to lock."
+            case .starting: return "Keep holding, or release outside to lock."
+            case .listening: return "Release to stop, drag off to lock."
             case .finalizing, .uploading: return "Processing…"
             }
         }
     }
 
+    private static let engineKindKey = "blackhole.engineKind"
+
     @Published private(set) var status: Status = .idle
     @Published var transcriptText = ""
-    @Published var selectedEngineKind: DictationEngineKind = .apple
+    @Published var selectedEngineKind: DictationEngineKind =
+        DictationEngineKind(rawValue: UserDefaults.standard.string(forKey: "blackhole.engineKind") ?? "") ?? .whisperKit
     @Published var alertMessage: String?
-    @Published var lastPostedItem: Item?
+    @Published var lastPostedItems: [Item]?
     @Published private(set) var isSwitchingEngine = false
+    @Published private(set) var isRecordingLocked = false
 
     var isBusy: Bool { status == .starting || status == .finalizing || status == .uploading || isSwitchingEngine }
     var isListening: Bool { status == .listening }
     var areControlsLocked: Bool { isBusy || isListening }
     var canSubmit: Bool { status == .idle && !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var holdInstruction: String {
+        isRecordingLocked ? "Recording is locked. Tap to stop." : status.holdInstruction
+    }
 
     private let audioCapture = AudioCapturePipeline()
     private let engineCoordinator = DictationEngineCoordinator()
@@ -65,10 +72,12 @@ final class IngestViewModel: ObservableObject {
     private var engineSwitchTask: Task<Void, Never>?
     private var isHoldActive = false
     private var pendingStopAfterStart = false
+    private var pendingLockAfterStart = false
 
     func selectEngine(_ kind: DictationEngineKind) {
         guard selectedEngineKind != kind else { return }
         selectedEngineKind = kind
+        UserDefaults.standard.set(kind.rawValue, forKey: Self.engineKindKey)
         guard status == .idle else { return }
         engineSwitchTask?.cancel()
         isSwitchingEngine = true
@@ -76,18 +85,37 @@ final class IngestViewModel: ObservableObject {
     }
 
     func pressDidStart() {
+        if status == .listening, isRecordingLocked {
+            Task { [weak self] in await self?.stopDictation() }
+            return
+        }
         guard status == .idle else { return }
         isHoldActive = true
         pendingStopAfterStart = false
+        pendingLockAfterStart = false
         startTask?.cancel()
         startTask = Task { [weak self] in await self?.startDictation() }
     }
 
-    func pressDidEnd() {
+    func pressDidEndInside() {
         isHoldActive = false
         switch status {
-        case .starting: pendingStopAfterStart = true
-        case .listening: Task { [weak self] in await self?.stopDictation() }
+        case .starting:
+            pendingStopAfterStart = true
+        case .listening:
+            guard !isRecordingLocked else { return }
+            Task { [weak self] in await self?.stopDictation() }
+        default: break
+        }
+    }
+
+    func pressDidEndOutside() {
+        isHoldActive = false
+        switch status {
+        case .starting:
+            pendingLockAfterStart = true
+        case .listening:
+            isRecordingLocked = true
         default: break
         }
     }
@@ -126,7 +154,11 @@ final class IngestViewModel: ObservableObject {
             }
             currentSession = session
             status = .listening
-            if pendingStopAfterStart || !isHoldActive { await stopDictation() }
+            if pendingLockAfterStart {
+                isRecordingLocked = true
+            } else if pendingStopAfterStart || !isHoldActive {
+                await stopDictation()
+            }
         } catch {
             alertMessage = error.localizedDescription
             currentSession?.cancel()
@@ -160,8 +192,8 @@ final class IngestViewModel: ObservableObject {
     private func uploadItem(text: String) async {
         status = .uploading
         do {
-            let item = try await APIClient.shared.createItem(content: text)
-            lastPostedItem = item
+            let items = try await APIClient.shared.createItem(content: text)
+            lastPostedItems = items.isEmpty ? nil : items
             transcriptText = ""
             resetState()
         } catch {
@@ -174,6 +206,8 @@ final class IngestViewModel: ObservableObject {
         status = .idle
         isHoldActive = false
         pendingStopAfterStart = false
+        pendingLockAfterStart = false
+        isRecordingLocked = false
         startTask = nil
         if !keepTranscript { transcriptText = "" }
     }

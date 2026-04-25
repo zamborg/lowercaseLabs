@@ -66,13 +66,16 @@ sequenceDiagram
     API->>DB: SELECT * WHERE user_id ORDER BY created_at DESC
     DB-->>API: rows
     API-->>iOS: [Item]
-    iOS-->>iOS: render FeedView (notes + todos, filterable)
+    iOS->>iOS: replace local item cache
+    iOS-->>iOS: render FeedView (all items, searchable)
     Note over iOS: swipe to delete → DELETE /items/{id}<br/>tap circle → PATCH /items/{id} {completed}
 ```
 
+Feed, Epics, Notes, and Todos hydrate from the local item cache first, then refresh from `/items`. If the refresh fails, cached content remains visible.
+
 ---
 
-## Search (natural language query)
+## Feed search (natural language query)
 
 ```mermaid
 sequenceDiagram
@@ -83,7 +86,7 @@ sequenceDiagram
     participant LLM as gpt-5.4-mini
     participant DB as SQLite
 
-    User->>iOS: hold mic / type query
+    User->>iOS: use Feed search bar
     iOS->>Engine: dictate (optional)
     Engine-->>iOS: query text
     iOS->>API: POST /search {query}
@@ -94,6 +97,8 @@ sequenceDiagram
     API-->>iOS: [Item] (sorted by relevance)
     iOS-->>User: results list
 ```
+
+If `/search` is unavailable, Feed search falls back to simple local matching over cached title, content, tags, and item type.
 
 ---
 
@@ -106,8 +111,8 @@ blackhole/
 │   │   ├── AppleSpeechDictationEngine   uses SFSpeechRecognizer
 │   │   └── WhisperKitDictationEngine    uses Core ML (tiny.en model)
 │   ├── Sources/Ingest/         hold-to-dictate + submit flow
-│   ├── Sources/Feed/           notes + todos list
-│   ├── Sources/Search/         voice/text search UI
+│   ├── Sources/Feed/           feed search + notes list + shared item detail
+│   ├── Sources/Search/         legacy search screen, not mounted in tabs
 │   ├── Sources/Auth/           Sign in with Apple
 │   └── Sources/API/            HTTP client → blackhole.fly.dev
 │
@@ -115,11 +120,12 @@ blackhole/
     └── app/
         ├── main.py             routes: /auth/apple /items /search
         ├── auth.py             Apple JWT verification + session JWT
-        ├── analysis.py         gpt-5.4-mini: classify + search rank
+        ├── analysis.py         compatibility facade for LLM operations
+        ├── agent/responses/    OpenAI Responses client, prompts, logs, tool registry
         └── db.py               SQLite via stdlib sqlite3, WAL mode
 ```
 
-## Note vs todo classification
+## Item classification
 
 The model (`gpt-5.4-mini`) decides based on the raw transcript. No hard rules — it reads intent. Signals it uses in practice:
 
@@ -129,5 +135,8 @@ The model (`gpt-5.4-mini`) decides based on the raw transcript. No hard rules �
 | Explicit date/time ("by Friday", "tomorrow at 3") | todo + extracts due_date |
 | Informational / reflective content | note |
 | Ideas, observations, references | note |
+| Project/workstream/goal language ("create an epic", "Q2 launch") | epic |
 
-To tune this, edit the `_ANALYSIS_PROMPT` in `backend/app/analysis.py`.
+Document-like captures should generally stay as one note because the raw user content is the source of truth. The model only splits when the user clearly gives distinct todos or asks for separate notes/items.
+
+To tune this, edit the prompts in `backend/app/agent/responses/prompts.py`.

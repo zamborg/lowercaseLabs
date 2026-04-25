@@ -13,6 +13,11 @@ class CreateItemRequest(BaseModel):
 
 class UpdateItemRequest(BaseModel):
     completed: Optional[bool] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    type: Optional[str] = None
+    due_date: Optional[str] = None
+    tags: Optional[list[str]] = None
 
 
 class Item(BaseModel):

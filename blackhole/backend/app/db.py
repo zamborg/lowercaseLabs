@@ -1,6 +1,6 @@
 import os
 import threading
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 DB_PATH = Path(os.getenv("DB_PATH", "/data/blackhole.db"))
@@ -68,7 +68,7 @@ def upsert_user(user_id: str):
     conn = get_conn()
     conn.execute(
         "INSERT OR IGNORE INTO users(id, created_at) VALUES (?, ?)",
-        (user_id, datetime.utcnow().isoformat()),
+        (user_id, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 

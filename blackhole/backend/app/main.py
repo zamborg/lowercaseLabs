@@ -1,5 +1,6 @@
 import asyncio
 from collections import Counter
+from contextlib import asynccontextmanager
 import html
 import hmac
 import json
@@ -15,7 +16,14 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from . import analysis, auth, db, schemas
 
-app = FastAPI(title="blackhole")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await asyncio.to_thread(db.init_db)
+    yield
+
+
+app = FastAPI(title="blackhole", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,11 +38,6 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 ADMIN_SESSION_HOURS = 24 * 30
 ADMIN_ITEM_LIMIT = int(os.getenv("ADMIN_ITEM_LIMIT", "2000"))
-
-
-@app.on_event("startup")
-async def startup():
-    await asyncio.to_thread(db.init_db)
 
 
 async def get_user_id(authorization: str = Header(None)) -> str:
@@ -89,46 +92,38 @@ async def sign_in_apple(body: schemas.AppleSignInRequest):
     return {"session_token": session_token}
 
 
-@app.post("/items", response_model=schemas.Item)
+@app.post("/items", response_model=list[schemas.Item])
 async def create_item(body: schemas.CreateItemRequest, user_id: str = Depends(get_user_id)):
-    item_id = str(uuid.uuid4())
     prior_rows = await asyncio.to_thread(db.list_items_recent, user_id, 25)
     prior_items = [dict(r) for r in prior_rows]
-    result, llm_log = await asyncio.to_thread(
+    results, llm_log = await asyncio.to_thread(
         analysis.run_transcript_analysis, body.content, prior_items
     )
-    if result is None:
-        result = {"type": "note", "title": body.content[:60], "tags": [], "due_date": None}
+    if not results:
+        results = [{"type": "note", "title": body.content[:60], "tags": [], "due_date": None}]
 
-    now = datetime.utcnow().isoformat()
-    item_data = {
-        "id": item_id,
-        "user_id": user_id,
-        "content": body.content,
-        "title": result.get("title", body.content[:60]),
-        "type": result.get("type", "note"),
-        "due_date": result.get("due_date"),
-        "completed": 0,
-        "tags": json.dumps(result.get("tags", [])),
-        "created_at": now,
-        "updated_at": now,
-    }
-
-    llm_log.update(
-        {
-            "id": str(uuid.uuid4()),
+    now = datetime.now(UTC).isoformat()
+    created = []
+    for result in results:
+        item_id = str(uuid.uuid4())
+        item_data = {
+            "id": item_id,
             "user_id": user_id,
-            "item_id": item_id,
+            "content": body.content,
+            "title": result.get("title", body.content[:60]),
+            "type": result.get("type", "note"),
+            "due_date": result.get("due_date"),
+            "completed": 0,
+            "tags": json.dumps(result.get("tags", [])),
             "created_at": now,
+            "updated_at": now,
         }
-    )
-    try:
-        await asyncio.to_thread(db.create_llm_log, llm_log)
-    except Exception:
-        pass
+        await asyncio.to_thread(db.create_item, item_data)
+        created.append(item_data)
 
-    await asyncio.to_thread(db.create_item, item_data)
-    return _to_schema(item_data)
+    await _persist_llm_log(llm_log, user_id=user_id, item_id=created[0]["id"] if created else None, created_at=now)
+
+    return [_to_schema(item) for item in created]
 
 
 @app.get("/items", response_model=list[schemas.Item])
@@ -147,10 +142,21 @@ async def update_item(
     if not row:
         raise HTTPException(404, "Item not found")
 
+    provided = body.model_fields_set
     updates: dict = {}
-    if body.completed is not None:
+    if "completed" in provided:
         updates["completed"] = int(body.completed)
-    updates["updated_at"] = datetime.utcnow().isoformat()
+    if "title" in provided and body.title is not None:
+        updates["title"] = body.title
+    if "content" in provided and body.content is not None:
+        updates["content"] = body.content
+    if "type" in provided and body.type is not None:
+        updates["type"] = body.type
+    if "due_date" in provided:
+        updates["due_date"] = body.due_date  # None clears it
+    if "tags" in provided and body.tags is not None:
+        updates["tags"] = json.dumps(body.tags)
+    updates["updated_at"] = datetime.now(UTC).isoformat()
 
     await asyncio.to_thread(db.update_item, item_id, updates)
     updated = await asyncio.to_thread(db.get_item, item_id, user_id)
@@ -173,13 +179,54 @@ async def search(body: schemas.SearchRequest, user_id: str = Depends(get_user_id
         return []
 
     items = [dict(r) for r in rows]
-    try:
-        results = await asyncio.to_thread(analysis.search_items, body.query, items)
-    except Exception:
+    results, llm_log = await asyncio.to_thread(analysis.run_search_items, body.query, items)
+    await _persist_llm_log(llm_log, user_id=user_id, item_id=None)
+
+    if results is None:
         q = body.query.lower()
-        results = [i for i in items if q in i["content"].lower() or q in i["title"].lower()]
+        results = [i for i in items if _item_matches_query(i, q)]
 
     return [_to_schema(i) for i in results]
+
+
+def _item_matches_query(item: dict, query: str) -> bool:
+    tags = item.get("tags", [])
+    if isinstance(tags, str):
+        try:
+            tags = json.loads(tags)
+        except Exception:
+            tags = []
+
+    fields = [
+        item.get("title", ""),
+        item.get("content", ""),
+        item.get("type", ""),
+        item.get("due_date", ""),
+        "completed" if item.get("completed") else "open",
+        *tags,
+    ]
+    return query in " ".join(str(field).lower() for field in fields)
+
+
+async def _persist_llm_log(
+    llm_log: dict,
+    *,
+    user_id: str,
+    item_id: str | None,
+    created_at: str | None = None,
+) -> None:
+    llm_log.update(
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "item_id": item_id,
+            "created_at": created_at or datetime.now(UTC).isoformat(),
+        }
+    )
+    try:
+        await asyncio.to_thread(db.create_llm_log, llm_log)
+    except Exception:
+        pass
 
 
 @app.get("/", include_in_schema=False)

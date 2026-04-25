@@ -3,9 +3,11 @@ import UIKit
 
 struct HoldToDictateButton: View {
     let isActive: Bool
+    let isLocked: Bool
     let isDisabled: Bool
     let onPressStart: () -> Void
-    let onPressEnd: () -> Void
+    let onPressEndInside: () -> Void
+    let onPressEndOutside: () -> Void
 
     var body: some View {
         ZStack {
@@ -23,9 +25,9 @@ struct HoldToDictateButton: View {
                 )
 
             HStack(spacing: 10) {
-                Image(systemName: isActive ? "waveform.circle.fill" : "mic.fill")
+                Image(systemName: isActive ? (isLocked ? "stop.circle.fill" : "waveform.circle.fill") : "mic.fill")
                     .font(.system(size: 20, weight: .semibold))
-                Text(isActive ? "Recording…" : (isDisabled ? "Preparing…" : "Hold to Dictate"))
+                Text(buttonTitle)
                     .font(.system(.headline, design: .rounded, weight: .bold))
             }
             .foregroundStyle(.white)
@@ -34,7 +36,8 @@ struct HoldToDictateButton: View {
             PressAndHoldCaptureView(
                 isDisabled: isDisabled,
                 onPressStart: onPressStart,
-                onPressEnd: onPressEnd
+                onPressEndInside: onPressEndInside,
+                onPressEndOutside: onPressEndOutside
             )
         }
         .frame(maxWidth: .infinity)
@@ -44,32 +47,43 @@ struct HoldToDictateButton: View {
                 .stroke(Color.white.opacity(isActive ? 0.3 : 0.12), lineWidth: 1)
         )
     }
+
+    private var buttonTitle: String {
+        if isDisabled { return "Preparing…" }
+        if isLocked { return "Tap to Stop" }
+        if isActive { return "Recording…" }
+        return "Hold to Dictate"
+    }
 }
 
-// Internal so SearchView can reuse
+// Internal so search surfaces can reuse
 struct PressAndHoldCaptureView: UIViewRepresentable {
     let isDisabled: Bool
     let onPressStart: () -> Void
-    let onPressEnd: () -> Void
+    let onPressEndInside: () -> Void
+    let onPressEndOutside: () -> Void
 
     func makeUIView(context _: Context) -> PressAndHoldControl {
         let control = PressAndHoldControl()
         control.isEnabled = !isDisabled
         control.onPressStart = onPressStart
-        control.onPressEnd = onPressEnd
+        control.onPressEndInside = onPressEndInside
+        control.onPressEndOutside = onPressEndOutside
         return control
     }
 
     func updateUIView(_ uiView: PressAndHoldControl, context _: Context) {
         uiView.isEnabled = !isDisabled
         uiView.onPressStart = onPressStart
-        uiView.onPressEnd = onPressEnd
+        uiView.onPressEndInside = onPressEndInside
+        uiView.onPressEndOutside = onPressEndOutside
     }
 }
 
 final class PressAndHoldControl: UIControl {
     var onPressStart: (() -> Void)?
-    var onPressEnd: (() -> Void)?
+    var onPressEndInside: (() -> Void)?
+    var onPressEndOutside: (() -> Void)?
     private var isPressing = false
 
     override init(frame: CGRect) {
@@ -90,17 +104,21 @@ final class PressAndHoldControl: UIControl {
 
     override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
         _ = touch; _ = event
-        finishPressIfNeeded()
+        finishPressIfNeeded(releasedInside: touch.map { bounds.contains($0.location(in: self)) } ?? true)
     }
 
     override func cancelTracking(with event: UIEvent?) {
         _ = event
-        finishPressIfNeeded()
+        finishPressIfNeeded(releasedInside: false)
     }
 
-    private func finishPressIfNeeded() {
+    private func finishPressIfNeeded(releasedInside: Bool) {
         guard isPressing else { return }
         isPressing = false
-        onPressEnd?()
+        if releasedInside {
+            onPressEndInside?()
+        } else {
+            onPressEndOutside?()
+        }
     }
 }

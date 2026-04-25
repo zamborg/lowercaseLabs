@@ -113,7 +113,7 @@ struct SearchView: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.white.opacity(0.4))
                     .font(.system(size: 16))
-                TextField("Search notes and to-dos…", text: $viewModel.query)
+                TextField("Search notes, epics, and to-dos…", text: $viewModel.query)
                     .font(.system(.body, design: .rounded))
                     .foregroundStyle(.white)
                     .tint(.white)
@@ -191,7 +191,8 @@ private struct VoiceMicButton: View {
             PressAndHoldCaptureView(
                 isDisabled: isDisabled,
                 onPressStart: onPressStart,
-                onPressEnd: onPressEnd
+                onPressEndInside: onPressEnd,
+                onPressEndOutside: onPressEnd
             )
         }
         .frame(width: 44, height: 44)
@@ -205,9 +206,9 @@ private struct SearchResultRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Image(systemName: item.type == .todo ? "checkmark.circle" : "note.text")
+                Image(systemName: item.type.systemImage)
                     .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(item.type == .epic ? .cyan.opacity(0.65) : .white.opacity(0.4))
                 Text(item.title)
                     .font(.system(.subheadline, design: .rounded, weight: .semibold))
                     .foregroundStyle(.white)
