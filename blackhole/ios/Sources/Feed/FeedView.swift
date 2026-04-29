@@ -175,6 +175,11 @@ final class FeedViewModel: ObservableObject {
         if let idx = searchResults.firstIndex(where: { $0.id == item.id }) { searchResults[idx] = item }
     }
 
+    func epicTitle(for item: Item) -> String? {
+        guard let epicId = item.epicId else { return nil }
+        return items.first(where: { $0.id == epicId && $0.type == .epic })?.title
+    }
+
     private func localSearch(query: String) -> [Item] {
         let normalized = query.lowercased()
         return items.filter { item in
@@ -183,6 +188,7 @@ final class FeedViewModel: ObservableObject {
                 item.content,
                 item.tags.joined(separator: " "),
                 item.type.displayName,
+                epicTitle(for: item) ?? "",
             ]
             .joined(separator: " ")
             .lowercased()
@@ -234,7 +240,7 @@ struct FeedView: View {
         .preferredColorScheme(.dark)
         .task { await viewModel.load() }
         .sheet(item: $selectedItem) { item in
-            ItemDetailView(item: item) { updated in
+            ItemDetailView(item: item, epicTitle: viewModel.epicTitle(for: item)) { updated in
                 if let idx = viewModel.items.firstIndex(where: { $0.id == updated.id }) {
                     viewModel.items[idx] = updated
                 }
@@ -313,7 +319,7 @@ struct FeedView: View {
             List {
                 ForEach(viewModel.displayedItems) { item in
                     Button { selectedItem = item } label: {
-                        ItemRow(item: item) {
+                        ItemRow(item: item, epicTitle: viewModel.epicTitle(for: item)) {
                             Task { await viewModel.toggleCompleted(item) }
                         }
                     }
@@ -371,6 +377,69 @@ final class TypeItemsViewModel: ObservableObject {
 
     var filteredItems: [Item] { items.filter { $0.type == itemType } }
 
+    var epics: [Item] {
+        items
+            .filter { $0.type == .epic }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    var epicGroups: [EpicItemGroup] {
+        let candidates = filteredItems
+        let grouped = Dictionary(grouping: candidates) { item in
+            item.epicId ?? EpicItemGroup.unassignedID
+        }
+
+        var groups = epics.compactMap { epic -> EpicItemGroup? in
+            guard let epicItems = grouped[epic.id], !epicItems.isEmpty else { return nil }
+            return EpicItemGroup(
+                id: epic.id,
+                title: epic.title,
+                epic: epic,
+                items: sortedItems(epicItems)
+            )
+        }
+
+        if let unassigned = grouped[EpicItemGroup.unassignedID], !unassigned.isEmpty {
+            groups.append(EpicItemGroup(
+                id: EpicItemGroup.unassignedID,
+                title: "No Epic",
+                epic: nil,
+                items: sortedItems(unassigned)
+            ))
+        }
+
+        return groups
+    }
+
+    func epicTitle(for item: Item) -> String? {
+        guard let epicId = item.epicId else { return nil }
+        return epics.first(where: { $0.id == epicId })?.title
+    }
+
+    func epicStats(for epic: Item) -> EpicStats {
+        let related = items.filter { $0.epicId == epic.id }
+        let todos = related.filter { $0.type == .todo }
+        return EpicStats(
+            notes: related.filter { $0.type == .note }.count,
+            todos: todos.count,
+            openTodos: todos.filter { !$0.completed }.count
+        )
+    }
+
+    private func sortedItems(_ source: [Item]) -> [Item] {
+        if itemType == .todo {
+            return source.sorted { lhs, rhs in
+                switch (lhs.dueDateParsed, rhs.dueDateParsed) {
+                case (.some(let l), .some(let r)): return l < r
+                case (.some, .none): return true
+                case (.none, .some): return false
+                case (.none, .none): return lhs.createdAtDate > rhs.createdAtDate
+                }
+            }
+        }
+        return source.sorted { $0.createdAtDate > $1.createdAtDate }
+    }
+
     func load() async {
         if items.isEmpty {
             items = await APIClient.shared.cachedItems()
@@ -395,9 +464,39 @@ final class TypeItemsViewModel: ObservableObject {
     }
 }
 
+enum ItemGroupingMode: String, CaseIterable, Identifiable {
+    case recent
+    case epic
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .recent: return "Recent"
+        case .epic: return "Epic"
+        }
+    }
+}
+
+struct EpicItemGroup: Identifiable {
+    static let unassignedID = "__no_epic__"
+
+    let id: String
+    let title: String
+    let epic: Item?
+    let items: [Item]
+}
+
+struct EpicStats {
+    let notes: Int
+    let todos: Int
+    let openTodos: Int
+}
+
 private struct TypeItemsView: View {
     @StateObject private var viewModel: TypeItemsViewModel
     @State private var selectedItem: Item?
+    @State private var groupingMode: ItemGroupingMode = .recent
     let title: String
     let emptyTitle: String
     let emptySubtitle: String
@@ -432,7 +531,7 @@ private struct TypeItemsView: View {
         .preferredColorScheme(.dark)
         .task { await viewModel.load() }
         .sheet(item: $selectedItem) { item in
-            ItemDetailView(item: item) { updated in
+            ItemDetailView(item: item, epicTitle: viewModel.epicTitle(for: item)) { updated in
                 if let idx = viewModel.items.firstIndex(where: { $0.id == updated.id }) {
                     viewModel.items[idx] = updated
                 }
@@ -462,37 +561,104 @@ private struct TypeItemsView: View {
                     .foregroundStyle(.white.opacity(0.25))
             }
         } else {
-            List {
-                ForEach(viewModel.filteredItems) { item in
-                    Button { selectedItem = item } label: {
-                        ItemRow(item: item) {}
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) { Task { await viewModel.delete(item) } } label: {
-                            Label("Delete", systemImage: "trash")
+            VStack(spacing: 0) {
+                if canGroupByEpic {
+                    groupingPicker
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .padding(.bottom, 6)
+                }
+
+                List {
+                    if viewModel.itemType == .epic {
+                        ForEach(viewModel.filteredItems) { item in
+                            Button { selectedItem = item } label: {
+                                EpicRow(item: item, stats: viewModel.epicStats(for: item))
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) { Task { await viewModel.delete(item) } } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                        }
+                    } else if groupingMode == .epic {
+                        ForEach(viewModel.epicGroups) { group in
+                            Section {
+                                ForEach(group.items) { item in
+                                    itemRow(item)
+                                }
+                            } header: {
+                                groupHeader(group.title, count: group.items.count)
+                            }
+                        }
+                    } else {
+                        ForEach(viewModel.filteredItems) { item in
+                            itemRow(item)
                         }
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .refreshable { await viewModel.load() }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .refreshable { await viewModel.load() }
         }
+    }
+
+    private var canGroupByEpic: Bool {
+        viewModel.itemType == .note || viewModel.itemType == .todo
+    }
+
+    private var groupingPicker: some View {
+        Picker("Grouping", selection: $groupingMode) {
+            ForEach(ItemGroupingMode.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private func itemRow(_ item: Item) -> some View {
+        Button { selectedItem = item } label: {
+            ItemRow(item: item, epicTitle: viewModel.epicTitle(for: item)) {}
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) { Task { await viewModel.delete(item) } } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    private func groupHeader(_ title: String, count: Int) -> some View {
+        HStack(spacing: 4) {
+            Text(title.uppercased())
+            Text("·")
+            Text("\(count)")
+        }
+        .font(.system(.caption2, design: .rounded, weight: .semibold))
+        .foregroundStyle(.white.opacity(0.4))
+        .textCase(nil)
+        .listRowInsets(EdgeInsets(top: 12, leading: 0, bottom: 4, trailing: 0))
     }
 }
 
 struct ItemDetailView: View {
     @State private var displayItem: Item
+    let epicTitle: String?
     let onItemUpdated: ((Item) -> Void)?
     @State private var isEditing = false
     @Environment(\.dismiss) private var dismiss
 
-    init(item: Item, onItemUpdated: ((Item) -> Void)? = nil) {
+    init(item: Item, epicTitle: String? = nil, onItemUpdated: ((Item) -> Void)? = nil) {
         _displayItem = State(initialValue: item)
+        self.epicTitle = epicTitle
         self.onItemUpdated = onItemUpdated
     }
 
@@ -522,6 +688,12 @@ struct ItemDetailView: View {
                             Label(due, systemImage: "calendar")
                                 .font(.system(.subheadline, design: .rounded, weight: .medium))
                                 .foregroundStyle(displayItem.isOverdue ? .red.opacity(0.85) : .yellow.opacity(0.85))
+                        }
+
+                        if let epicTitle {
+                            Label(epicTitle, systemImage: "square.stack.3d.up")
+                                .font(.system(.subheadline, design: .rounded, weight: .medium))
+                                .foregroundStyle(.cyan.opacity(0.8))
                         }
 
                         // Tags
@@ -610,8 +782,68 @@ private struct FeedSearchMicButton: View {
     }
 }
 
+private struct EpicRow: View {
+    let item: Item
+    let stats: EpicStats
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: item.type.systemImage)
+                    .font(.system(size: 17))
+                    .foregroundStyle(.cyan.opacity(0.7))
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(item.title)
+                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text(item.previewText)
+                        .font(.system(.caption, design: .serif))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.2))
+                    .padding(.top, 4)
+            }
+
+            HStack(spacing: 8) {
+                statPill("\(stats.notes)", label: "notes")
+                statPill("\(stats.todos)", label: "todos")
+                if stats.openTodos > 0 {
+                    statPill("\(stats.openTodos)", label: "open")
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.white.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.cyan.opacity(0.14), lineWidth: 1))
+    }
+
+    private func statPill(_ value: String, label: String) -> some View {
+        HStack(spacing: 3) {
+            Text(value)
+                .fontWeight(.semibold)
+            Text(label)
+        }
+        .font(.system(.caption2, design: .rounded))
+        .foregroundStyle(.white.opacity(0.55))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.white.opacity(0.07))
+        .clipShape(Capsule())
+    }
+}
+
 private struct ItemRow: View {
     let item: Item
+    var epicTitle: String? = nil
     let onToggle: () -> Void
 
     var body: some View {
@@ -640,6 +872,13 @@ private struct ItemRow: View {
                     .font(.system(.caption, design: .serif))
                     .foregroundStyle(.white.opacity(0.5))
                     .lineLimit(2)
+
+                if let epicTitle {
+                    Label(epicTitle, systemImage: "square.stack.3d.up")
+                        .font(.system(.caption2, design: .rounded, weight: .semibold))
+                        .foregroundStyle(.cyan.opacity(0.75))
+                        .lineLimit(1)
+                }
 
                 HStack(spacing: 8) {
                     if let due = item.dueDateFormatted {

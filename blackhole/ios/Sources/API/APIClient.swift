@@ -111,6 +111,7 @@ actor APIClient {
         title: String,
         content: String,
         type: String,
+        epicId: String?,
         dueDate: String?,
         tags: [String]
     ) async throws -> Item {
@@ -118,11 +119,12 @@ actor APIClient {
             let title: String
             let content: String
             let type: String
+            let epic_id: String?
             let due_date: String?
             let tags: [String]
         }
         let item: Item = try await patch("/items/\(id)", body: Body(
-            title: title, content: content, type: type, due_date: dueDate, tags: tags
+            title: title, content: content, type: type, epic_id: epicId, due_date: dueDate, tags: tags
         ))
         await ItemCache.shared.upsert([item], namespace: cacheNamespace)
         return item

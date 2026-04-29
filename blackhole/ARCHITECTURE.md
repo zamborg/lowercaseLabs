@@ -23,9 +23,9 @@ sequenceDiagram
     User->>iOS: tap "Send to Blackhole"
     iOS->>API: POST /items {content}
     API->>LLM: classify transcript
-    LLM-->>API: {type, title, tags, due_date}
-    API->>DB: INSERT item
-    API-->>iOS: Item
+    LLM-->>API: {type, title, tags, due_date, epic_title}
+    API->>DB: INSERT item(s), resolving epic_id when applicable
+    API-->>iOS: [Item]
     iOS-->>User: toast (title + type)
 ```
 
@@ -71,7 +71,7 @@ sequenceDiagram
     Note over iOS: swipe to delete → DELETE /items/{id}<br/>tap circle → PATCH /items/{id} {completed}
 ```
 
-Feed, Epics, Notes, and Todos hydrate from the local item cache first, then refresh from `/items`. If the refresh fails, cached content remains visible.
+Feed, Epics, Notes, and Todos hydrate from the local item cache first, then refresh from `/items`. If the refresh fails, cached content remains visible. Notes and todos can be grouped by `epic_id`; Epics shows relationship metadata derived from associated notes/todos.
 
 ---
 
@@ -136,7 +136,10 @@ The model (`gpt-5.4-mini`) decides based on the raw transcript. No hard rules �
 | Informational / reflective content | note |
 | Ideas, observations, references | note |
 | Project/workstream/goal language ("create an epic", "Q2 launch") | epic |
+| Note/todo clearly belongs to an existing epic | note/todo + `epic_id` resolved through `epic_title` |
 
 Document-like captures should generally stay as one note because the raw user content is the source of truth. The model only splits when the user clearly gives distinct todos or asks for separate notes/items.
+
+Epics are stronger categories. The LLM returns `epic_title` for notes/todos that clearly belong to an epic; the backend resolves that to nullable `items.epic_id`. Old items remain valid with `epic_id = null`.
 
 To tune this, edit the prompts in `backend/app/agent/responses/prompts.py`.

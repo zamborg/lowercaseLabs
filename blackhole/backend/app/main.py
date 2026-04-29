@@ -95,7 +95,8 @@ async def sign_in_apple(body: schemas.AppleSignInRequest):
 @app.post("/items", response_model=list[schemas.Item])
 async def create_item(body: schemas.CreateItemRequest, user_id: str = Depends(get_user_id)):
     prior_rows = await asyncio.to_thread(db.list_items_recent, user_id, 25)
-    prior_items = [dict(r) for r in prior_rows]
+    epic_rows = await asyncio.to_thread(db.list_epics, user_id)
+    prior_items = _merge_context_rows(epic_rows, prior_rows)
     results, llm_log = await asyncio.to_thread(
         analysis.run_transcript_analysis, body.content, prior_items
     )
@@ -104,17 +105,32 @@ async def create_item(body: schemas.CreateItemRequest, user_id: str = Depends(ge
 
     now = datetime.now(UTC).isoformat()
     created = []
+    epic_lookup = _epic_lookup([dict(row) for row in epic_rows])
+    prepared_results = []
     for result in results:
         item_id = str(uuid.uuid4())
+        prepared_results.append((item_id, result))
+        if result.get("type") == "epic":
+            epic_lookup[_epic_key(result.get("title", ""))] = item_id
+
+    for item_id, result in prepared_results:
+        item_type = result.get("type", "note")
+        epic_title = result.get("epic_title")
+        epic_id = None if item_type == "epic" else _resolve_epic_id(epic_title, epic_lookup)
+        tags = result.get("tags", [])
+        if epic_id and epic_title:
+            tags = _tags_with_epic(tags, epic_title)
+
         item_data = {
             "id": item_id,
             "user_id": user_id,
             "content": body.content,
             "title": result.get("title", body.content[:60]),
-            "type": result.get("type", "note"),
+            "type": item_type,
+            "epic_id": epic_id,
             "due_date": result.get("due_date"),
             "completed": 0,
-            "tags": json.dumps(result.get("tags", [])),
+            "tags": json.dumps(tags),
             "created_at": now,
             "updated_at": now,
         }
@@ -152,10 +168,30 @@ async def update_item(
         updates["content"] = body.content
     if "type" in provided and body.type is not None:
         updates["type"] = body.type
+        if body.type == "epic":
+            updates["epic_id"] = None
+    epic_title_for_tag = None
+    if "epic_id" in provided:
+        if body.epic_id:
+            epic = await asyncio.to_thread(db.get_item, body.epic_id, user_id)
+            if not epic or epic["type"] != "epic":
+                raise HTTPException(400, "Epic not found")
+            updates["epic_id"] = body.epic_id
+            epic_title_for_tag = epic["title"]
+        else:
+            updates["epic_id"] = None
     if "due_date" in provided:
         updates["due_date"] = body.due_date  # None clears it
     if "tags" in provided and body.tags is not None:
         updates["tags"] = json.dumps(body.tags)
+    if epic_title_for_tag:
+        base_tags = updates.get("tags", row["tags"])
+        if isinstance(base_tags, str):
+            try:
+                base_tags = json.loads(base_tags)
+            except Exception:
+                base_tags = []
+        updates["tags"] = json.dumps(_tags_with_epic(base_tags, epic_title_for_tag))
     updates["updated_at"] = datetime.now(UTC).isoformat()
 
     await asyncio.to_thread(db.update_item, item_id, updates)
@@ -201,11 +237,52 @@ def _item_matches_query(item: dict, query: str) -> bool:
         item.get("title", ""),
         item.get("content", ""),
         item.get("type", ""),
+        item.get("epic_id", ""),
         item.get("due_date", ""),
         "completed" if item.get("completed") else "open",
         *tags,
     ]
     return query in " ".join(str(field).lower() for field in fields)
+
+
+def _merge_context_rows(*row_groups: list) -> list[dict]:
+    merged = []
+    seen = set()
+    for rows in row_groups:
+        for row in rows:
+            item = dict(row)
+            if item["id"] in seen:
+                continue
+            seen.add(item["id"])
+            merged.append(item)
+    return merged
+
+
+def _epic_lookup(epics: list[dict]) -> dict[str, str]:
+    return {
+        key: epic["id"]
+        for epic in epics
+        if (key := _epic_key(epic.get("title", "")))
+    }
+
+
+def _epic_key(title: str | None) -> str:
+    if not title:
+        return ""
+    return " ".join(str(title).strip().lower().split())
+
+
+def _resolve_epic_id(epic_title: str | None, epic_lookup: dict[str, str]) -> str | None:
+    return epic_lookup.get(_epic_key(epic_title))
+
+
+def _tags_with_epic(tags: list | None, epic_title: str) -> list[str]:
+    normalized_existing = {str(tag).strip().lower() for tag in tags or []}
+    result = [str(tag) for tag in tags or [] if str(tag).strip()]
+    title = epic_title.strip()
+    if title and title.lower() not in normalized_existing:
+        result.append(title)
+    return result
 
 
 async def _persist_llm_log(
@@ -296,6 +373,7 @@ def _to_schema(item: dict) -> schemas.Item:
         content=item["content"],
         title=item["title"],
         type=item["type"],
+        epic_id=item.get("epic_id"),
         due_date=item.get("due_date"),
         completed=bool(item.get("completed", 0)),
         tags=tags,

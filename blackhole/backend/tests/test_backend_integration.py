@@ -113,6 +113,7 @@ class BackendIntegrationTests(unittest.TestCase):
             "content": "Buy milk from the corner store",
             "title": "Buy milk",
             "type": "todo",
+            "epic_id": None,
             "due_date": None,
             "completed": 0,
             "tags": '["errand"]',
@@ -147,6 +148,140 @@ class BackendIntegrationTests(unittest.TestCase):
         self.assertEqual(logs[0]["operation"], "search_items")
         self.assertEqual(logs[0]["status"], "error")
 
+    def test_create_item_links_note_to_existing_epic(self):
+        now = "2026-04-14T17:00:00"
+        self.db.create_item({
+            "id": "epic-1",
+            "user_id": "user-1",
+            "content": "Ship blackhole app",
+            "title": "Blackhole App",
+            "type": "epic",
+            "epic_id": None,
+            "due_date": None,
+            "completed": 0,
+            "tags": '["product"]',
+            "created_at": now,
+            "updated_at": now,
+        })
+        fake_analysis = (
+            [
+                {
+                    "type": "note",
+                    "title": "Backend deploy notes",
+                    "tags": ["deploy"],
+                    "due_date": None,
+                    "epic_title": "Blackhole App",
+                }
+            ],
+            {
+                "operation": "analyze_transcript",
+                "model": "gpt-5.4-mini-2026-03-17",
+                "input_text": "deployment notes for blackhole app",
+                "system_prompt": "system prompt",
+                "user_prompt": "user prompt",
+                "raw_response": '{"items":[{"type":"note","title":"Backend deploy notes","tags":["deploy","Blackhole App"],"due_date":null,"epic_title":"Blackhole App"}]}',
+                "parsed_response": '[{"type":"note","title":"Backend deploy notes","tags":["deploy","Blackhole App"],"due_date":null,"epic_title":"Blackhole App"}]',
+                "status": "success",
+                "error": None,
+            },
+        )
+
+        with patch.object(self.main.analysis, "run_transcript_analysis", return_value=fake_analysis):
+            response = self.client.post(
+                "/items",
+                headers={"Authorization": f"Bearer {self.token}"},
+                json={"content": "deployment notes for blackhole app"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        created = response.json()[0]
+        self.assertEqual(created["epic_id"], "epic-1")
+        self.assertIn("Blackhole App", created["tags"])
+
+    def test_create_item_links_to_epic_created_in_same_response(self):
+        fake_analysis = (
+            [
+                {
+                    "type": "todo",
+                    "title": "Draft launch checklist",
+                    "tags": ["launch"],
+                    "due_date": None,
+                    "epic_title": "Launch Plan",
+                },
+                {
+                    "type": "epic",
+                    "title": "Launch Plan",
+                    "tags": ["launch"],
+                    "due_date": None,
+                    "epic_title": None,
+                },
+            ],
+            {
+                "operation": "analyze_transcript",
+                "model": "gpt-5.4-mini-2026-03-17",
+                "input_text": "create launch plan epic and draft checklist",
+                "system_prompt": "system prompt",
+                "user_prompt": "user prompt",
+                "raw_response": "{}",
+                "parsed_response": "[]",
+                "status": "success",
+                "error": None,
+            },
+        )
+
+        with patch.object(self.main.analysis, "run_transcript_analysis", return_value=fake_analysis):
+            response = self.client.post(
+                "/items",
+                headers={"Authorization": f"Bearer {self.token}"},
+                json={"content": "create launch plan epic and draft checklist"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        created = response.json()
+        epic = next(item for item in created if item["type"] == "epic")
+        todo = next(item for item in created if item["type"] == "todo")
+        self.assertEqual(todo["epic_id"], epic["id"])
+        self.assertIsNone(epic["epic_id"])
+
+    def test_update_item_can_assign_epic(self):
+        now = "2026-04-14T17:00:00"
+        self.db.create_item({
+            "id": "epic-1",
+            "user_id": "user-1",
+            "content": "Ship blackhole app",
+            "title": "Blackhole App",
+            "type": "epic",
+            "epic_id": None,
+            "due_date": None,
+            "completed": 0,
+            "tags": '["product"]',
+            "created_at": now,
+            "updated_at": now,
+        })
+        self.db.create_item({
+            "id": "note-1",
+            "user_id": "user-1",
+            "content": "Backend notes",
+            "title": "Backend notes",
+            "type": "note",
+            "epic_id": None,
+            "due_date": None,
+            "completed": 0,
+            "tags": "[]",
+            "created_at": now,
+            "updated_at": now,
+        })
+
+        response = self.client.patch(
+            "/items/note-1",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"epic_id": "epic-1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["epic_id"], "epic-1")
+        self.assertIn("Blackhole App", response.json()["tags"])
+
 
 class AnalysisClientContractTests(unittest.TestCase):
     def setUp(self):
@@ -163,7 +298,7 @@ class AnalysisClientContractTests(unittest.TestCase):
         class FakeResponses:
             def create(self, **kwargs):
                 recorded.update(kwargs)
-                return SimpleNamespace(output_text='{"items":[{"type":"note","title":"Test","tags":[],"due_date":null}]}')
+                return SimpleNamespace(output_text='{"items":[{"type":"note","title":"Test","tags":[],"due_date":null,"epic_title":null}]}')
 
         fake_client = SimpleNamespace(responses=FakeResponses())
 
@@ -172,11 +307,13 @@ class AnalysisClientContractTests(unittest.TestCase):
 
         self.assertEqual(log["status"], "success")
         self.assertEqual(result[0]["title"], "Test")
-        self.assertEqual(recorded["max_output_tokens"], 500)
+        self.assertEqual(recorded["max_output_tokens"], 650)
         self.assertEqual(recorded["text"]["format"]["type"], "json_schema")
         self.assertEqual(recorded["text"]["format"]["name"], "transcript_items")
         self.assertIn("epic", recorded["text"]["format"]["schema"]["properties"]["items"]["items"]["properties"]["type"]["enum"])
+        self.assertIn("epic_title", recorded["text"]["format"]["schema"]["properties"]["items"]["items"]["properties"])
         self.assertIn("Do not create a duplicate raw note", recorded["instructions"])
+        self.assertIn("Epics are stronger categories", recorded["instructions"])
         self.assertIn("input", recorded)
         self.assertIn("instructions", recorded)
         self.assertNotIn("max_tokens", recorded)
@@ -249,12 +386,12 @@ class AnalysisClientContractTests(unittest.TestCase):
         class FakeResponses:
             def create(self, **kwargs):
                 recorded.update(kwargs)
-                return SimpleNamespace(output_text='{"items":[{"type":"todo","title":"Buy oat milk","tags":["errand"],"due_date":null}]}')
+                return SimpleNamespace(output_text='{"items":[{"type":"todo","title":"Buy oat milk","tags":["errand"],"due_date":null,"epic_title":null}]}')
 
         fake_client = SimpleNamespace(responses=FakeResponses())
         prior = [
             {"type": "todo", "title": "Get groceries", "content": "buy eggs and bread", "completed": 0, "tags": '["errand"]', "due_date": None},
-            {"type": "note", "title": "Recipe idea", "content": "pancakes", "completed": 0, "tags": "[]", "due_date": None},
+            {"type": "epic", "title": "Home Ops", "content": "household errands", "completed": 0, "tags": "[]", "due_date": None},
         ]
 
         with patch.object(self.analysis, "get_client", return_value=fake_client):
@@ -266,6 +403,7 @@ class AnalysisClientContractTests(unittest.TestCase):
         # context-user + context-ack + classify-user = 3; system prompt is instructions
         self.assertEqual(len(messages), 3)
         self.assertIn("existing notes, todos, and epics", recorded["instructions"])
+        self.assertIn("epic_title", messages[2]["content"])
         self.assertEqual(messages[0]["role"], "user")
         self.assertIn("Get groceries", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "assistant")
@@ -279,7 +417,7 @@ class AnalysisClientContractTests(unittest.TestCase):
         class FakeResponses:
             def create(self, **kwargs):
                 recorded.update(kwargs)
-                return SimpleNamespace(output_text='{"items":[{"type":"note","title":"Test","tags":[],"due_date":null}]}')
+                return SimpleNamespace(output_text='{"items":[{"type":"note","title":"Test","tags":[],"due_date":null,"epic_title":null}]}')
 
         fake_client = SimpleNamespace(responses=FakeResponses())
 
@@ -306,6 +444,7 @@ class AnalysisClientContractTests(unittest.TestCase):
         self.assertIsInstance(result[0]["title"], str)
         self.assertIsInstance(result[0]["tags"], list)
         self.assertIn("due_date", result[0])
+        self.assertIn("epic_title", result[0])
 
 
 if __name__ == "__main__":

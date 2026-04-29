@@ -18,12 +18,15 @@ ANALYSIS_SYSTEM = (
     "or clearly implied. Create todos for concrete actions the user intends to track. "
     "Create epics for high-level projects, outcomes, workstreams, or goals; the user "
     "may ask to create only an epic, and that should return one epic without an extra note. "
-    "When the user's existing notes, todos, and epics are provided, use them as context "
-    "for consistent tagging, detecting related items, and avoiding duplicates. "
+    "Epics are stronger categories. When a new note or todo clearly belongs to an "
+    "existing or newly-created epic, set epic_title to that epic's exact title and "
+    "also include that epic title in tags. Do not force an epic when the relationship "
+    "is weak or unclear. When the user's existing notes, todos, and epics are provided, "
+    "use them as context for consistent tagging, detecting related items, and avoiding duplicates. "
     "Respond with valid JSON only, no prose."
 )
 
-ANALYSIS_PROMPT = """Classify this capture into the minimum set of durable items. Keep document-like notes as a single note unless the user explicitly asks for multiple separate notes. Split concrete action items into todos. Create an epic when the user names a project/workstream/goal or asks for an epic.
+ANALYSIS_PROMPT = """Classify this capture into the minimum set of durable items. Keep document-like notes as a single note unless the user explicitly asks for multiple separate notes. Split concrete action items into todos. Create an epic when the user names a project/workstream/goal or asks for an epic. If a note or todo clearly fits an existing or newly-created epic, set epic_title to that epic's exact title and include that title in tags.
 
 Transcript: {transcript}
 Current UTC time: {now}
@@ -35,7 +38,8 @@ JSON response only:
       "type": "note" or "todo" or "epic",
       "title": "concise summary (max 60 chars)",
       "tags": ["tag1"],
-      "due_date": "ISO 8601 datetime or null (only for todos with an explicit date/time)"
+      "due_date": "ISO 8601 datetime or null (only for todos with an explicit date/time)",
+      "epic_title": "exact related epic title or null"
     }}
   ]
 }}
@@ -72,8 +76,9 @@ ITEMS_SCHEMA: dict[str, Any] = {
                     "title": {"type": "string"},
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "due_date": {"type": ["string", "null"]},
+                    "epic_title": {"type": ["string", "null"]},
                 },
-                "required": ["type", "title", "tags", "due_date"],
+                "required": ["type", "title", "tags", "due_date", "epic_title"],
             },
         }
     },
@@ -125,7 +130,7 @@ def build_analysis_prompt(transcript: str, prior_items: list | None = None) -> R
         instructions=ANALYSIS_SYSTEM,
         input_text=transcript,
         input_messages=input_messages,
-        max_output_tokens=500,
+        max_output_tokens=650,
         schema_name="transcript_items",
         schema=ITEMS_SCHEMA,
     )
@@ -189,7 +194,8 @@ def build_context_block(items: list) -> str:
         content_preview = (item.get("content") or "")[:200]
         title = item.get("title") or ""
 
-        line = f"[{item_type}{status}] {title} — {content_preview}{due}{tag_str}"
+        epic = f" epic_id:{item['epic_id']}" if item.get("epic_id") else ""
+        line = f"[{item_type}{status}] {title}{epic} — {content_preview}{due}{tag_str}"
         if total_chars + len(line) > CONTEXT_MAX_CHARS:
             break
         lines.append(line)

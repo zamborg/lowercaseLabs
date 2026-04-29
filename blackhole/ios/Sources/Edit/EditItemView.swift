@@ -10,6 +10,8 @@ struct EditItemView: View {
     @State private var hasDueDate: Bool
     @State private var dueDate: Date
     @State private var tags: [String]
+    @State private var availableEpics: [Item] = []
+    @State private var selectedEpicID: String?
     @State private var tagInput: String = ""
     @State private var isSaving = false
     @State private var alertMessage: String?
@@ -24,6 +26,7 @@ struct EditItemView: View {
         _hasDueDate = State(initialValue: item.dueDate != nil)
         _dueDate = State(initialValue: item.dueDateParsed ?? Calendar.current.date(byAdding: .day, value: 1, to: Date())!)
         _tags = State(initialValue: item.tags)
+        _selectedEpicID = State(initialValue: item.epicId)
     }
 
     var body: some View {
@@ -36,6 +39,7 @@ struct EditItemView: View {
                         typePicker
                         titleField
                         contentField
+                        if itemType != .epic { epicField }
                         if itemType == .todo { dueDateField }
                         tagsField
                     }
@@ -65,6 +69,7 @@ struct EditItemView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .task { await loadEpics() }
         .alert("Error", isPresented: Binding(
             get: { alertMessage != nil },
             set: { if !$0 { alertMessage = nil } }
@@ -86,6 +91,7 @@ struct EditItemView: View {
         .pickerStyle(.segmented)
         .onChange(of: itemType) { _, newType in
             if newType != .todo { hasDueDate = false }
+            if newType == .epic { selectedEpicID = nil }
         }
     }
 
@@ -129,6 +135,21 @@ struct EditItemView: View {
                 .labelsHidden()
                 .padding(.top, 4)
             }
+        }
+    }
+
+    private var epicField: some View {
+        fieldCard(label: "Epic") {
+            Picker("Epic", selection: $selectedEpicID) {
+                Text("No Epic").tag(String?.none)
+                ForEach(availableEpics) { epic in
+                    Text(epic.title).tag(Optional(epic.id))
+                }
+            }
+            .pickerStyle(.menu)
+            .tint(.white)
+            .font(.system(.subheadline, design: .rounded))
+            .foregroundStyle(.white)
         }
     }
 
@@ -200,6 +221,19 @@ struct EditItemView: View {
         tagInput = ""
     }
 
+    private func loadEpics() async {
+        let cached = await APIClient.shared.cachedItems()
+        availableEpics = cached
+            .filter { $0.type == .epic && $0.id != original.id }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+
+        if let items = try? await APIClient.shared.listItems() {
+            availableEpics = items
+                .filter { $0.type == .epic && $0.id != original.id }
+                .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        }
+    }
+
     private func save() async {
         isSaving = true
         let dueDateISO: String? = hasDueDate ? ISO8601DateFormatter().string(from: dueDate) : nil
@@ -209,6 +243,7 @@ struct EditItemView: View {
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                 content: content,
                 type: itemType.rawValue,
+                epicId: itemType == .epic ? nil : selectedEpicID,
                 dueDate: dueDateISO,
                 tags: tags
             )

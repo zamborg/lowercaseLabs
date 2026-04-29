@@ -25,6 +25,52 @@ final class TodosViewModel: ObservableObject {
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    var epics: [Item] {
+        todos
+            .filter { $0.type == .epic }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    var epicGroups: [EpicItemGroup] {
+        let todoItems = todos.filter { $0.type == .todo }
+        let grouped = Dictionary(grouping: todoItems) { item in
+            item.epicId ?? EpicItemGroup.unassignedID
+        }
+
+        var groups = epics.compactMap { epic -> EpicItemGroup? in
+            guard let items = grouped[epic.id], !items.isEmpty else { return nil }
+            return EpicItemGroup(id: epic.id, title: epic.title, epic: epic, items: sortTodos(items))
+        }
+
+        if let unassigned = grouped[EpicItemGroup.unassignedID], !unassigned.isEmpty {
+            groups.append(EpicItemGroup(
+                id: EpicItemGroup.unassignedID,
+                title: "No Epic",
+                epic: nil,
+                items: sortTodos(unassigned)
+            ))
+        }
+
+        return groups
+    }
+
+    func epicTitle(for item: Item) -> String? {
+        guard let epicId = item.epicId else { return nil }
+        return epics.first(where: { $0.id == epicId })?.title
+    }
+
+    private func sortTodos(_ source: [Item]) -> [Item] {
+        source.sorted { lhs, rhs in
+            if lhs.completed != rhs.completed { return !lhs.completed }
+            switch (lhs.dueDateParsed, rhs.dueDateParsed) {
+            case (.some(let l), .some(let r)): return l < r
+            case (.some, .none): return true
+            case (.none, .some): return false
+            case (.none, .none): return lhs.createdAtDate > rhs.createdAtDate
+            }
+        }
+    }
+
     func load() async {
         if todos.isEmpty {
             todos = await APIClient.shared.cachedItems()
@@ -59,6 +105,7 @@ final class TodosViewModel: ObservableObject {
 struct TodosView: View {
     @StateObject private var viewModel = TodosViewModel()
     @State private var selectedItem: Item?
+    @State private var groupingMode: TodosGroupingMode = .status
 
     var body: some View {
         NavigationStack {
@@ -83,7 +130,7 @@ struct TodosView: View {
         .preferredColorScheme(.dark)
         .task { await viewModel.load() }
         .sheet(item: $selectedItem) { item in
-            ItemDetailView(item: item) { updated in
+            ItemDetailView(item: item, epicTitle: viewModel.epicTitle(for: item)) { updated in
                 if let idx = viewModel.todos.firstIndex(where: { $0.id == updated.id }) {
                     viewModel.todos[idx] = updated
                 }
@@ -113,36 +160,64 @@ struct TodosView: View {
                     .foregroundStyle(.white.opacity(0.25))
             }
         } else {
-            List {
-                if !viewModel.openTodos.isEmpty {
-                    Section {
-                        ForEach(viewModel.openTodos) { item in
-                            todoRow(item)
-                        }
-                    } header: {
-                        todoSectionHeader("Open", count: viewModel.openTodos.count)
-                    }
-                }
+            VStack(spacing: 0) {
+                groupingPicker
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 6)
 
-                if !viewModel.doneTodos.isEmpty {
-                    Section {
-                        ForEach(viewModel.doneTodos) { item in
-                            todoRow(item)
+                List {
+                    if groupingMode == .epic {
+                        ForEach(viewModel.epicGroups) { group in
+                            Section {
+                                ForEach(group.items) { item in
+                                    todoRow(item)
+                                }
+                            } header: {
+                                todoSectionHeader(group.title, count: group.items.count)
+                            }
                         }
-                    } header: {
-                        todoSectionHeader("Done", count: viewModel.doneTodos.count)
+                    } else {
+                        if !viewModel.openTodos.isEmpty {
+                            Section {
+                                ForEach(viewModel.openTodos) { item in
+                                    todoRow(item)
+                                }
+                            } header: {
+                                todoSectionHeader("Open", count: viewModel.openTodos.count)
+                            }
+                        }
+
+                        if !viewModel.doneTodos.isEmpty {
+                            Section {
+                                ForEach(viewModel.doneTodos) { item in
+                                    todoRow(item)
+                                }
+                            } header: {
+                                todoSectionHeader("Done", count: viewModel.doneTodos.count)
+                            }
+                        }
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .refreshable { await viewModel.load() }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .refreshable { await viewModel.load() }
         }
+    }
+
+    private var groupingPicker: some View {
+        Picker("Grouping", selection: $groupingMode) {
+            ForEach(TodosGroupingMode.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
     }
 
     private func todoRow(_ item: Item) -> some View {
         Button { selectedItem = item } label: {
-            TodoRow(item: item) {
+            TodoRow(item: item, epicTitle: viewModel.epicTitle(for: item)) {
                 Task { await viewModel.toggleCompleted(item) }
             }
         }
@@ -170,8 +245,23 @@ struct TodosView: View {
     }
 }
 
+private enum TodosGroupingMode: String, CaseIterable, Identifiable {
+    case status
+    case epic
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .status: return "Status"
+        case .epic: return "Epic"
+        }
+    }
+}
+
 private struct TodoRow: View {
     let item: Item
+    var epicTitle: String? = nil
     let onToggle: () -> Void
 
     var body: some View {
@@ -206,6 +296,13 @@ private struct TodoRow: View {
                                 .clipShape(Capsule())
                         }
                     }
+                }
+
+                if let epicTitle {
+                    Label(epicTitle, systemImage: "square.stack.3d.up")
+                        .font(.system(.caption2, design: .rounded, weight: .semibold))
+                        .foregroundStyle(.cyan.opacity(0.72))
+                        .lineLimit(1)
                 }
 
                 if let due = item.dueDateFormatted {

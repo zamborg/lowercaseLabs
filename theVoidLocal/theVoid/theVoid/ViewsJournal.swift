@@ -354,9 +354,9 @@ struct MoodHeatmap: View {
     var body: some View {
         let ordered = entries.sorted { lhs, rhs in
             if lhs.localDate != rhs.localDate {
-                return lhs.localDate < rhs.localDate
+                return lhs.localDate > rhs.localDate
             }
-            return lhs.createdAt < rhs.createdAt
+            return lhs.createdAt > rhs.createdAt
         }
 
         LazyVGrid(columns: columns, spacing: 5) {

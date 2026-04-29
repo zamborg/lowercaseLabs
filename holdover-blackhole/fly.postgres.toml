@@ -1,0 +1,19 @@
+app = 'blackhole-postgres'
+primary_region = 'sjc'
+
+[build]
+  image = 'postgres:16'
+
+[env]
+  PGDATA = '/data/postgres'
+  POSTGRES_DB = 'blackhole'
+  POSTGRES_USER = 'blackhole'
+
+[processes]
+  app = 'docker-entrypoint.sh postgres'
+
+[[mounts]]
+  source = 'blackhole_db_data'
+  destination = '/data'
+  initial_size = '20gb'
+  processes = ['app']

@@ -33,6 +33,7 @@ def init_db():
             content TEXT NOT NULL,
             title TEXT NOT NULL,
             type TEXT NOT NULL DEFAULT 'note',
+            epic_id TEXT,
             due_date TEXT,
             completed INTEGER NOT NULL DEFAULT 0,
             tags TEXT NOT NULL DEFAULT '[]',
@@ -61,6 +62,13 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_llm_logs_created_at ON llm_logs(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_llm_logs_operation_created_at ON llm_logs(operation, created_at DESC);
     """)
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(items)").fetchall()
+    }
+    if "epic_id" not in columns:
+        conn.execute("ALTER TABLE items ADD COLUMN epic_id TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_items_epic_id ON items(epic_id)")
     conn.commit()
 
 
@@ -76,8 +84,8 @@ def upsert_user(user_id: str):
 def create_item(item: dict):
     conn = get_conn()
     conn.execute(
-        """INSERT INTO items(id, user_id, content, title, type, due_date, completed, tags, created_at, updated_at)
-           VALUES (:id, :user_id, :content, :title, :type, :due_date, :completed, :tags, :created_at, :updated_at)""",
+        """INSERT INTO items(id, user_id, content, title, type, epic_id, due_date, completed, tags, created_at, updated_at)
+           VALUES (:id, :user_id, :content, :title, :type, :epic_id, :due_date, :completed, :tags, :created_at, :updated_at)""",
         item,
     )
     conn.commit()
@@ -96,6 +104,14 @@ def list_items_recent(user_id: str, limit: int = 25) -> list:
     return conn.execute(
         "SELECT * FROM items WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
         (user_id, limit),
+    ).fetchall()
+
+
+def list_epics(user_id: str) -> list:
+    conn = get_conn()
+    return conn.execute(
+        "SELECT * FROM items WHERE user_id = ? AND type = 'epic' ORDER BY updated_at DESC",
+        (user_id,),
     ).fetchall()
 
 

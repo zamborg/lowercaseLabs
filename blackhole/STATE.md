@@ -17,6 +17,7 @@ The core object is `Item`:
 - `content`
 - `title`
 - `type` = `note`, `todo`, or `epic`
+- `epic_id` nullable item id, used by notes/todos to point at an epic
 - `due_date` nullable ISO string
 - `completed` bool
 - `tags` list of strings
@@ -34,9 +35,9 @@ The signed-in app has 5 tabs:
 
 - `Void`: capture voice, edit transcript, send to backend
 - `Feed`: all items by default, with text/voice search at the top
-- `Epics`: epics only
-- `Notes`: notes only
-- `Todos`: open vs done todos, sorted with due dates first
+- `Epics`: epics with related note/todo/open-todo metadata
+- `Notes`: notes, with Recent/Epic grouping
+- `Todos`: todos, with Status/Epic grouping
 
 Top-level app entry:
 
@@ -75,6 +76,7 @@ Storage notes:
 - default DB path is `/data/blackhole.db`
 - Fly volume is expected for persistence in production
 - schema is created in `db.init_db()`
+- `items.epic_id` is nullable and added by `db.init_db()` for older SQLite files
 - iOS also keeps a per-user JSON cache of items in Application Support for offline/cold-launch reads
 - successful item list/create/edit/delete calls update the local iOS cache
 

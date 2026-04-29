@@ -64,6 +64,7 @@ To review a Harbor job end to end:
 uv run blast-radius-bench review-job \
   jobs/<job-name> \
   task_specs/<task-spec>.yaml
+```
 
 To analyze public Terminal-Bench rollout corpora and emit a static report:
 

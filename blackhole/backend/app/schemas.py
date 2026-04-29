@@ -16,6 +16,7 @@ class UpdateItemRequest(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
     type: Optional[str] = None
+    epic_id: Optional[str] = None
     due_date: Optional[str] = None
     tags: Optional[list[str]] = None
 
@@ -25,6 +26,7 @@ class Item(BaseModel):
     content: str
     title: str
     type: str
+    epic_id: Optional[str] = None
     due_date: Optional[str] = None
     completed: bool
     tags: list[str]

@@ -5,6 +5,7 @@ struct Item: Identifiable, Codable, Hashable {
     let content: String
     let title: String
     let type: ItemType
+    let epicId: String?
     let dueDate: String?
     var completed: Bool
     let tags: [String]
@@ -35,6 +36,7 @@ struct Item: Identifiable, Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, content, title, type, completed, tags
+        case epicId = "epic_id"
         case dueDate = "due_date"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
