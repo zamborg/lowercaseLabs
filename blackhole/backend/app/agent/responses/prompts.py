@@ -8,25 +8,27 @@ ANALYSIS_MODEL = "gpt-5.4-mini-2026-03-17"
 
 ANALYSIS_SYSTEM = (
     "You classify text submitted to blackhole and extract structured durable items. "
-    "Valid item types are note, todo, and epic. "
+    "Valid user-visible item types are note, todo, event, epic, contact, resource, "
+    "decision, journal, and habit. "
     "The user's submitted text is the source of truth for each created item, so return "
-    "the minimum useful set of items. For a note, memo, journal entry, meeting note, "
-    "research dump, or document-like capture, usually create exactly one note with "
-    "good title and tags; do not split sections into separate notes unless the user "
+    "the minimum useful set of items. For a note, memo, meeting note, research dump, "
+    "or document-like capture, usually create exactly one note with good title and "
+    "tags; do not split sections into separate notes unless the user "
     "clearly asks for separate notes. Do not create a duplicate raw note just because "
     "you also created an epic or todo; only create the item types the user requested "
     "or clearly implied. Create todos for concrete actions the user intends to track. "
+    "Create events only when both a start and end time are known or strongly implied. "
     "Create epics for high-level projects, outcomes, workstreams, or goals; the user "
     "may ask to create only an epic, and that should return one epic without an extra note. "
     "Epics are stronger categories. When a new note or todo clearly belongs to an "
-    "existing or newly-created epic, set epic_title to that epic's exact title and "
+    "existing or newly-created epic, set parent_title to that epic's exact title and "
     "also include that epic title in tags. Do not force an epic when the relationship "
     "is weak or unclear. When the user's existing notes, todos, and epics are provided, "
     "use them as context for consistent tagging, detecting related items, and avoiding duplicates. "
     "Respond with valid JSON only, no prose."
 )
 
-ANALYSIS_PROMPT = """Classify this capture into the minimum set of durable items. Keep document-like notes as a single note unless the user explicitly asks for multiple separate notes. Split concrete action items into todos. Create an epic when the user names a project/workstream/goal or asks for an epic. If a note or todo clearly fits an existing or newly-created epic, set epic_title to that epic's exact title and include that title in tags.
+ANALYSIS_PROMPT = """Classify this capture into the minimum set of durable items. Keep document-like notes as a single note unless the user explicitly asks for multiple separate notes. Split concrete action items into todos. Create an epic when the user names a project/workstream/goal or asks for an epic. If an item clearly fits an existing or newly-created parent, set parent_title to that parent's exact title and include that title in tags.
 
 Transcript: {transcript}
 Current UTC time: {now}
@@ -35,11 +37,24 @@ JSON response only:
 {{
   "items": [
     {{
-      "type": "note" or "todo" or "epic",
-      "title": "concise summary (max 60 chars)",
+      "type": "note|todo|event|epic|contact|resource|decision|journal|habit",
+      "title": "concise summary (max 60 chars) or null for journal",
+      "content": "item-specific content or null to use transcript",
+      "status": "open|in_progress|done|cancelled|archived or null",
+      "priority": "low|medium|high|urgent or null",
       "tags": ["tag1"],
+      "parent_title": "exact related parent title or null",
       "due_date": "ISO 8601 datetime or null (only for todos with an explicit date/time)",
-      "epic_title": "exact related epic title or null"
+      "start_time": "ISO 8601 datetime or null",
+      "end_time": "ISO 8601 datetime or null",
+      "location": "string or null",
+      "url": "string or null",
+      "read_status": "unread|reading|read|skipped or null",
+      "email": "string or null",
+      "phone": "string or null",
+      "organization": "string or null",
+      "recurrence_rule": {{"freq": "daily|weekly|monthly|yearly", "interval": 1, "byday": null, ...}} or null,
+      "metadata": "JSON string or null"
     }}
   ]
 }}
@@ -72,13 +87,80 @@ ITEMS_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "type": {"type": "string", "enum": ["note", "todo", "epic"]},
-                    "title": {"type": "string"},
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "note",
+                            "todo",
+                            "event",
+                            "epic",
+                            "contact",
+                            "resource",
+                            "decision",
+                            "journal",
+                            "habit",
+                        ],
+                    },
+                    "title": {"type": ["string", "null"]},
+                    "content": {"type": ["string", "null"]},
+                    "status": {
+                        "type": ["string", "null"],
+                        "enum": ["open", "in_progress", "done", "cancelled", "archived", None],
+                    },
+                    "priority": {
+                        "type": ["string", "null"],
+                        "enum": ["low", "medium", "high", "urgent", None],
+                    },
                     "tags": {"type": "array", "items": {"type": "string"}},
+                    "parent_title": {"type": ["string", "null"]},
                     "due_date": {"type": ["string", "null"]},
-                    "epic_title": {"type": ["string", "null"]},
+                    "start_time": {"type": ["string", "null"]},
+                    "end_time": {"type": ["string", "null"]},
+                    "location": {"type": ["string", "null"]},
+                    "url": {"type": ["string", "null"]},
+                    "read_status": {
+                        "type": ["string", "null"],
+                        "enum": ["unread", "reading", "read", "skipped", None],
+                    },
+                    "email": {"type": ["string", "null"]},
+                    "phone": {"type": ["string", "null"]},
+                    "organization": {"type": ["string", "null"]},
+                    "recurrence_rule": {
+                        "type": ["object", "null"],
+                        "additionalProperties": False,
+                        "properties": {
+                            "freq": {"type": ["string", "null"]},
+                            "interval": {"type": ["integer", "null"]},
+                            "count": {"type": ["integer", "null"]},
+                            "until": {"type": ["string", "null"]},
+                            "byday": {"type": ["string", "null"]},
+                            "bymonthday": {"type": ["integer", "null"]},
+                            "bymonth": {"type": ["integer", "null"]},
+                        },
+                        "required": ["freq", "interval", "count", "until", "byday", "bymonthday", "bymonth"],
+                    },
+                    "metadata": {"type": ["string", "null"]},
                 },
-                "required": ["type", "title", "tags", "due_date", "epic_title"],
+                "required": [
+                    "type",
+                    "title",
+                    "content",
+                    "status",
+                    "priority",
+                    "tags",
+                    "parent_title",
+                    "due_date",
+                    "start_time",
+                    "end_time",
+                    "location",
+                    "url",
+                    "read_status",
+                    "email",
+                    "phone",
+                    "organization",
+                    "recurrence_rule",
+                    "metadata",
+                ],
             },
         }
     },
@@ -130,7 +212,7 @@ def build_analysis_prompt(transcript: str, prior_items: list | None = None) -> R
         instructions=ANALYSIS_SYSTEM,
         input_text=transcript,
         input_messages=input_messages,
-        max_output_tokens=650,
+        max_output_tokens=1200,
         schema_name="transcript_items",
         schema=ITEMS_SCHEMA,
     )

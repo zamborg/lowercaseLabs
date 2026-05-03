@@ -10,11 +10,12 @@ import uuid
 from datetime import UTC, datetime
 
 import jwt
-from fastapi import Cookie, Depends, FastAPI, Form, Header, HTTPException
+from fastapi import Cookie, Depends, FastAPI, Form, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from . import analysis, auth, db, schemas
+from . import analysis, auth, db, schemas, services
 
 
 @asynccontextmanager
@@ -40,10 +41,55 @@ ADMIN_SESSION_HOURS = 24 * 30
 ADMIN_ITEM_LIMIT = int(os.getenv("ADMIN_ITEM_LIMIT", "2000"))
 
 
+@app.exception_handler(services.ServiceError)
+async def service_error_handler(_: Request, exc: services.ServiceError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_error_handler(_: Request, exc: HTTPException):
+    detail = exc.detail
+    if isinstance(detail, dict) and "code" in detail:
+        error = {
+            "code": detail.get("code"),
+            "message": detail.get("message", detail.get("code")),
+            "details": detail.get("details", {}),
+        }
+    else:
+        error = {
+            "code": "http_error",
+            "message": str(detail),
+            "details": {},
+        }
+    return JSONResponse(status_code=exc.status_code, content={"error": error})
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(_: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "validation_error",
+                "message": "Request validation failed.",
+                "details": {"errors": exc.errors()},
+            }
+        },
+    )
+
+
 async def get_user_id(authorization: str = Header(None)) -> str:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing or invalid Authorization header")
     token = authorization.removeprefix("Bearer ")
+    if token.startswith("bh_live_"):
+        user_id = await asyncio.to_thread(services.verify_api_key, token)
+        if user_id:
+            return user_id
+        raise HTTPException(401, "Invalid API key")
     try:
         return auth.verify_session_token(token)
     except Exception:
@@ -92,60 +138,68 @@ async def sign_in_apple(body: schemas.AppleSignInRequest):
     return {"session_token": session_token}
 
 
-@app.post("/items", response_model=list[schemas.Item])
-async def create_item(body: schemas.CreateItemRequest, user_id: str = Depends(get_user_id)):
-    prior_rows = await asyncio.to_thread(db.list_items_recent, user_id, 25)
-    epic_rows = await asyncio.to_thread(db.list_epics, user_id)
-    prior_items = _merge_context_rows(epic_rows, prior_rows)
-    results, llm_log = await asyncio.to_thread(
-        analysis.run_transcript_analysis, body.content, prior_items
+@app.post("/auth/tokens", response_model=schemas.ApiKeyCreateResponse)
+async def create_auth_token(body: schemas.ApiKeyCreateRequest, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.create_api_key, user_id, body.label)
+
+
+@app.get("/auth/tokens", response_model=list[schemas.ApiKey])
+async def list_auth_tokens(user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.list_api_keys, user_id)
+
+
+@app.delete("/auth/tokens/{token_id}")
+async def delete_auth_token(token_id: str, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.delete_api_key, user_id, token_id)
+
+
+@app.post("/captures", response_model=schemas.CaptureResponse)
+async def create_capture(body: schemas.CaptureRequest, user_id: str = Depends(get_user_id)):
+    items, llm_log_id = await _capture_items(body.content, body.source, user_id)
+    return {"items_created": items, "llm_log_id": llm_log_id}
+
+
+@app.post("/items")
+async def create_item(body: schemas.ItemCreateRequest, user_id: str = Depends(get_user_id)):
+    payload = body.model_dump(exclude_unset=True)
+    if body.type is None and set(payload) == {"content"}:
+        items, _ = await _capture_items(body.content or "", "voice", user_id)
+        return items
+    if body.type is None:
+        raise services.ServiceError("type_required", "type is required for deterministic item creation.")
+    return await asyncio.to_thread(services.create_item, user_id, payload, default_source="manual")
+
+
+@app.get("/items", response_model=schemas.ItemListResponse)
+async def list_items(
+    user_id: str = Depends(get_user_id),
+    type: str | None = Query(None),
+    status: str | None = Query(None),
+    priority: str | None = Query(None),
+    parent_id: str | None = Query(None),
+    tags: str | None = Query(None),
+    query: str | None = Query(None),
+    limit: int = Query(100),
+    offset: int = Query(0),
+):
+    tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()] if tags else None
+    return await asyncio.to_thread(
+        services.list_items,
+        user_id,
+        item_type=type,
+        status=status,
+        priority=priority,
+        parent_id=parent_id,
+        tags=tag_list,
+        query=query,
+        limit=limit,
+        offset=offset,
     )
-    if not results:
-        results = [{"type": "note", "title": body.content[:60], "tags": [], "due_date": None}]
-
-    now = datetime.now(UTC).isoformat()
-    created = []
-    epic_lookup = _epic_lookup([dict(row) for row in epic_rows])
-    prepared_results = []
-    for result in results:
-        item_id = str(uuid.uuid4())
-        prepared_results.append((item_id, result))
-        if result.get("type") == "epic":
-            epic_lookup[_epic_key(result.get("title", ""))] = item_id
-
-    for item_id, result in prepared_results:
-        item_type = result.get("type", "note")
-        epic_title = result.get("epic_title")
-        epic_id = None if item_type == "epic" else _resolve_epic_id(epic_title, epic_lookup)
-        tags = result.get("tags", [])
-        if epic_id and epic_title:
-            tags = _tags_with_epic(tags, epic_title)
-
-        item_data = {
-            "id": item_id,
-            "user_id": user_id,
-            "content": body.content,
-            "title": result.get("title", body.content[:60]),
-            "type": item_type,
-            "epic_id": epic_id,
-            "due_date": result.get("due_date"),
-            "completed": 0,
-            "tags": json.dumps(tags),
-            "created_at": now,
-            "updated_at": now,
-        }
-        await asyncio.to_thread(db.create_item, item_data)
-        created.append(item_data)
-
-    await _persist_llm_log(llm_log, user_id=user_id, item_id=created[0]["id"] if created else None, created_at=now)
-
-    return [_to_schema(item) for item in created]
 
 
-@app.get("/items", response_model=list[schemas.Item])
-async def list_items(user_id: str = Depends(get_user_id)):
-    rows = await asyncio.to_thread(db.list_items, user_id)
-    return [_to_schema(dict(r)) for r in rows]
+@app.get("/items/{item_id}", response_model=schemas.Item)
+async def get_item(item_id: str, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.get_item, user_id, item_id)
 
 
 @app.patch("/items/{item_id}", response_model=schemas.Item)
@@ -154,67 +208,177 @@ async def update_item(
     body: schemas.UpdateItemRequest,
     user_id: str = Depends(get_user_id),
 ):
-    row = await asyncio.to_thread(db.get_item, item_id, user_id)
-    if not row:
-        raise HTTPException(404, "Item not found")
-
-    provided = body.model_fields_set
-    updates: dict = {}
-    if "completed" in provided:
-        updates["completed"] = int(body.completed)
-    if "title" in provided and body.title is not None:
-        updates["title"] = body.title
-    if "content" in provided and body.content is not None:
-        updates["content"] = body.content
-    if "type" in provided and body.type is not None:
-        updates["type"] = body.type
-        if body.type == "epic":
-            updates["epic_id"] = None
-    epic_title_for_tag = None
-    if "epic_id" in provided:
-        if body.epic_id:
-            epic = await asyncio.to_thread(db.get_item, body.epic_id, user_id)
-            if not epic or epic["type"] != "epic":
-                raise HTTPException(400, "Epic not found")
-            updates["epic_id"] = body.epic_id
-            epic_title_for_tag = epic["title"]
-        else:
-            updates["epic_id"] = None
-    if "due_date" in provided:
-        updates["due_date"] = body.due_date  # None clears it
-    if "tags" in provided and body.tags is not None:
-        updates["tags"] = json.dumps(body.tags)
-    if epic_title_for_tag:
-        base_tags = updates.get("tags", row["tags"])
-        if isinstance(base_tags, str):
-            try:
-                base_tags = json.loads(base_tags)
-            except Exception:
-                base_tags = []
-        updates["tags"] = json.dumps(_tags_with_epic(base_tags, epic_title_for_tag))
-    updates["updated_at"] = datetime.now(UTC).isoformat()
-
-    await asyncio.to_thread(db.update_item, item_id, updates)
-    updated = await asyncio.to_thread(db.get_item, item_id, user_id)
-    return _to_schema(dict(updated))
+    return await asyncio.to_thread(
+        services.update_item,
+        user_id,
+        item_id,
+        body.model_dump(exclude_unset=True),
+    )
 
 
 @app.delete("/items/{item_id}")
 async def delete_item(item_id: str, user_id: str = Depends(get_user_id)):
-    row = await asyncio.to_thread(db.get_item, item_id, user_id)
-    if not row:
-        raise HTTPException(404, "Item not found")
-    await asyncio.to_thread(db.delete_item, item_id)
-    return {}
+    return await asyncio.to_thread(services.delete_item, user_id, item_id)
 
 
-@app.post("/search", response_model=list[schemas.Item])
+@app.get("/items/{item_id}/children", response_model=schemas.ItemListResponse)
+async def item_children(
+    item_id: str,
+    user_id: str = Depends(get_user_id),
+    limit: int = Query(100),
+    offset: int = Query(0),
+):
+    return await asyncio.to_thread(
+        services.list_items,
+        user_id,
+        parent_id=item_id,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get("/items/{item_id}/links", response_model=schemas.ListEnvelope)
+async def item_links(
+    item_id: str,
+    user_id: str = Depends(get_user_id),
+    limit: int = Query(100),
+    offset: int = Query(0),
+):
+    return await asyncio.to_thread(services.list_item_links, user_id, item_id, limit=limit, offset=offset)
+
+
+@app.get("/tables", response_model=schemas.ListEnvelope)
+async def list_tables(
+    user_id: str = Depends(get_user_id),
+    limit: int = Query(100),
+    offset: int = Query(0),
+):
+    return await asyncio.to_thread(services.list_tables, user_id, limit=limit, offset=offset)
+
+
+@app.post("/tables", response_model=schemas.Table)
+async def create_table(body: schemas.TableCreateRequest, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.create_table, user_id, body.model_dump(exclude_unset=True))
+
+
+@app.get("/tables/{table_id}", response_model=schemas.TableDetailResponse)
+async def get_table(table_id: str, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.get_table_detail, user_id, table_id)
+
+
+@app.patch("/tables/{table_id}", response_model=schemas.Table)
+async def update_table(table_id: str, body: schemas.TableUpdateRequest, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.update_table, user_id, table_id, body.model_dump(exclude_unset=True))
+
+
+@app.delete("/tables/{table_id}")
+async def delete_table(table_id: str, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.delete_table, user_id, table_id)
+
+
+@app.get("/tables/{table_id}/rows", response_model=schemas.ListEnvelope)
+async def list_table_rows(
+    table_id: str,
+    user_id: str = Depends(get_user_id),
+    filter: str | None = Query(None),
+    order_by: str | None = Query(None),
+    limit: int = Query(100),
+    offset: int = Query(0),
+):
+    return await asyncio.to_thread(
+        services.list_table_rows,
+        user_id,
+        table_id,
+        filter_json=filter,
+        order_by=order_by,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.post("/tables/{table_id}/rows", response_model=schemas.TableRow)
+async def create_table_row(table_id: str, body: schemas.TableRowCreateRequest, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.create_table_row, user_id, table_id, body.model_dump())
+
+
+@app.patch("/tables/{table_id}/rows/{row_id}", response_model=schemas.TableRow)
+async def update_table_row(
+    table_id: str,
+    row_id: str,
+    body: schemas.TableRowUpdateRequest,
+    user_id: str = Depends(get_user_id),
+):
+    return await asyncio.to_thread(services.update_table_row, user_id, table_id, row_id, body.model_dump())
+
+
+@app.delete("/tables/{table_id}/rows/{row_id}")
+async def delete_table_row(table_id: str, row_id: str, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.delete_table_row, user_id, table_id, row_id)
+
+
+@app.post("/links", response_model=schemas.ItemLink)
+async def create_link(body: schemas.LinkCreateRequest, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.create_link, user_id, body.model_dump())
+
+
+@app.delete("/links/{link_id}")
+async def delete_link(link_id: str, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.delete_link, user_id, link_id)
+
+
+@app.get("/items/{item_id}/completions", response_model=schemas.ListEnvelope)
+async def list_habit_completions(
+    item_id: str,
+    user_id: str = Depends(get_user_id),
+    limit: int = Query(100),
+    offset: int = Query(0),
+):
+    return await asyncio.to_thread(services.list_habit_completions, user_id, item_id, limit=limit, offset=offset)
+
+
+@app.post("/items/{item_id}/completions", response_model=schemas.HabitCompletion)
+async def create_habit_completion(
+    item_id: str,
+    body: schemas.HabitCompletionCreateRequest,
+    user_id: str = Depends(get_user_id),
+):
+    return await asyncio.to_thread(services.create_habit_completion, user_id, item_id, body.model_dump(exclude_unset=True))
+
+
+@app.delete("/items/{item_id}/completions/{completion_id}")
+async def delete_habit_completion(item_id: str, completion_id: str, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.delete_habit_completion, user_id, item_id, completion_id)
+
+
+@app.get("/me", response_model=schemas.MeResponse)
+async def me(user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.get_me, user_id)
+
+
+@app.get("/tags", response_model=schemas.TagsResponse)
+async def tags(user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.get_tags, user_id)
+
+
+@app.get("/epics", response_model=schemas.ItemListResponse)
+async def epics(user_id: str = Depends(get_user_id), limit: int = Query(100), offset: int = Query(0)):
+    return await asyncio.to_thread(
+        services.list_items,
+        user_id,
+        item_type="epic",
+        status="open",
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.post("/search", response_model=schemas.ItemListResponse)
 async def search(body: schemas.SearchRequest, user_id: str = Depends(get_user_id)):
-    rows = await asyncio.to_thread(db.list_items, user_id)
-    if not rows:
-        return []
+    rows, _ = await asyncio.to_thread(db.list_items, user_id, limit=10_000)
+    items = [services.row_to_item(r) for r in rows]
+    if not items:
+        return {"items": [], "limit": 100, "offset": 0, "has_more": False}
 
-    items = [dict(r) for r in rows]
     results, llm_log = await asyncio.to_thread(analysis.run_search_items, body.query, items)
     await _persist_llm_log(llm_log, user_id=user_id, item_id=None)
 
@@ -222,7 +386,47 @@ async def search(body: schemas.SearchRequest, user_id: str = Depends(get_user_id
         q = body.query.lower()
         results = [i for i in items if _item_matches_query(i, q)]
 
-    return [_to_schema(i) for i in results]
+    return {"items": results[:100], "limit": 100, "offset": 0, "has_more": len(results) > 100}
+
+
+@app.post("/agent", response_model=schemas.AgentResponse)
+async def agent(body: schemas.AgentRequest, user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.create_agent_response, user_id, body.message)
+
+
+@app.get("/agent/brief", response_model=schemas.AgentBriefResponse)
+async def agent_brief(user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.get_agent_brief, user_id)
+
+
+@app.post("/agent/lint", response_model=schemas.AgentLintResponse)
+async def agent_lint(user_id: str = Depends(get_user_id)):
+    return await asyncio.to_thread(services.lint_items, user_id)
+
+
+async def _capture_items(content: str, source: str, user_id: str) -> tuple[list[dict], str | None]:
+    prior_rows = await asyncio.to_thread(db.list_items_recent, user_id, 25)
+    epic_rows = await asyncio.to_thread(db.list_epics, user_id)
+    prior_items = _merge_context_rows(epic_rows, prior_rows)
+    results, llm_log = await asyncio.to_thread(
+        analysis.run_transcript_analysis, content, prior_items
+    )
+    if not results:
+        results = [{"type": "note", "title": content[:60], "content": content, "tags": []}]
+
+    created = await asyncio.to_thread(
+        services.create_items_from_capture_results,
+        user_id,
+        content,
+        results,
+        source=source,
+    )
+    llm_log_id = await _persist_llm_log(
+        llm_log,
+        user_id=user_id,
+        item_id=created[0]["id"] if created else None,
+    )
+    return created, llm_log_id
 
 
 def _item_matches_query(item: dict, query: str) -> bool:
@@ -291,19 +495,21 @@ async def _persist_llm_log(
     user_id: str,
     item_id: str | None,
     created_at: str | None = None,
-) -> None:
+) -> str | None:
+    log_id = str(uuid.uuid4())
     llm_log.update(
         {
-            "id": str(uuid.uuid4()),
+            "id": log_id,
             "user_id": user_id,
             "item_id": item_id,
-            "created_at": created_at or datetime.now(UTC).isoformat(),
+            "created_at": created_at or services.now_iso(),
         }
     )
     try:
         await asyncio.to_thread(db.create_llm_log, llm_log)
+        return log_id
     except Exception:
-        pass
+        return None
 
 
 @app.get("/", include_in_schema=False)
@@ -361,25 +567,7 @@ async def admin_overview(_: str = Depends(require_admin)):
 
 
 def _to_schema(item: dict) -> schemas.Item:
-    tags = item.get("tags", "[]")
-    if isinstance(tags, str):
-        try:
-            tags = json.loads(tags)
-        except Exception:
-            tags = []
-
-    return schemas.Item(
-        id=item["id"],
-        content=item["content"],
-        title=item["title"],
-        type=item["type"],
-        epic_id=item.get("epic_id"),
-        due_date=item.get("due_date"),
-        completed=bool(item.get("completed", 0)),
-        tags=tags,
-        created_at=item["created_at"],
-        updated_at=item["updated_at"],
-    )
+    return schemas.Item(**services.row_to_item(item))
 
 
 def _admin_payload() -> dict:
@@ -445,15 +633,9 @@ def _admin_payload() -> dict:
 
 
 def _serialize_admin_item(item: dict) -> dict:
-    tags = item.get("tags", "[]")
-    if isinstance(tags, str):
-        try:
-            tags = json.loads(tags)
-        except Exception:
-            tags = []
-    item["tags"] = tags
-    item["completed"] = bool(item.get("completed", 0))
-    return item
+    serialized = {**item, **services.row_to_item(item)}
+    serialized["user_id"] = item.get("user_id")
+    return serialized
 
 
 def _render_admin_login(error: str | None = None) -> str:

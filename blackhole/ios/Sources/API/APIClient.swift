@@ -1,5 +1,88 @@
 import Foundation
 
+struct ListEnvelope<T: Decodable>: Decodable {
+    let items: [T]
+    let limit: Int
+    let offset: Int
+    let hasMore: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case items, limit, offset
+        case hasMore = "has_more"
+    }
+}
+
+struct CaptureResponse: Decodable {
+    let itemsCreated: [Item]
+    let llmLogId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case itemsCreated = "items_created"
+        case llmLogId = "llm_log_id"
+    }
+}
+
+struct TableColumn: Codable, Hashable {
+    let name: String
+    let type: String
+    let options: [String]?
+}
+
+struct BlackholeTable: Codable, Identifiable, Hashable {
+    let id: String
+    let itemId: String
+    let title: String
+    let description: String?
+    let columns: [TableColumn]
+    let createdAt: String
+    let updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, description, columns
+        case itemId = "item_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+struct BlackholeTableRow: Codable, Identifiable, Hashable {
+    let id: String
+    let tableId: String
+    let data: [String: JSONValue]
+    let rowOrder: Int
+    let createdAt: String
+    let updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, data
+        case tableId = "table_id"
+        case rowOrder = "row_order"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+struct AgentResponse: Decodable {
+    struct ToolCall: Decodable, Hashable {
+        let name: String
+        let status: String
+    }
+
+    let runId: String
+    let response: String
+    let itemsCreated: [Item]
+    let itemsUpdated: [Item]
+    let toolCalls: [ToolCall]
+
+    enum CodingKeys: String, CodingKey {
+        case response
+        case runId = "run_id"
+        case itemsCreated = "items_created"
+        case itemsUpdated = "items_updated"
+        case toolCalls = "tool_calls"
+    }
+}
+
 private actor ItemCache {
     static let shared = ItemCache()
 
@@ -101,7 +184,8 @@ actor APIClient {
 
     func createItem(content: String) async throws -> [Item] {
         struct Body: Encodable { let content: String }
-        let items: [Item] = try await post("/items", body: Body(content: content))
+        let response: CaptureResponse = try await post("/captures", body: Body(content: content))
+        let items = response.itemsCreated
         await ItemCache.shared.upsert(items, namespace: cacheNamespace)
         return items
     }
@@ -131,7 +215,8 @@ actor APIClient {
     }
 
     func listItems() async throws -> [Item] {
-        let items: [Item] = try await get("/items")
+        let data = try await makeRequest(path: "/items", method: "GET")
+        let items = try decodeItems(data)
         await ItemCache.shared.saveItems(items, namespace: cacheNamespace)
         return items
     }
@@ -150,7 +235,50 @@ actor APIClient {
 
     func search(query: String) async throws -> [Item] {
         struct Body: Encodable { let query: String }
-        return try await post("/search", body: Body(query: query))
+        let data = try await makeRequest(path: "/search", method: "POST", body: try JSONEncoder().encode(Body(query: query)))
+        return try decodeItems(data)
+    }
+
+    // MARK: - Tables
+
+    func listTables() async throws -> [BlackholeTable] {
+        let envelope: ListEnvelope<BlackholeTable> = try await get("/tables")
+        return envelope.items
+    }
+
+    func createTable(title: String, description: String?, columns: [TableColumn], tags: [String] = []) async throws -> BlackholeTable {
+        struct Body: Encodable {
+            let title: String
+            let description: String?
+            let columns: [TableColumn]
+            let tags: [String]
+        }
+        return try await post("/tables", body: Body(title: title, description: description, columns: columns, tags: tags))
+    }
+
+    func listTableRows(tableId: String) async throws -> [BlackholeTableRow] {
+        let envelope: ListEnvelope<BlackholeTableRow> = try await get("/tables/\(tableId)/rows")
+        return envelope.items
+    }
+
+    func createTableRow(tableId: String, data: [String: JSONValue]) async throws -> BlackholeTableRow {
+        struct Body: Encodable { let data: [String: JSONValue] }
+        return try await post("/tables/\(tableId)/rows", body: Body(data: data))
+    }
+
+    // MARK: - Agent
+
+    func askAgent(message: String) async throws -> AgentResponse {
+        struct Body: Encodable { let message: String }
+        let response: AgentResponse = try await post("/agent", body: Body(message: message))
+        await ItemCache.shared.upsert(response.itemsCreated + response.itemsUpdated, namespace: cacheNamespace)
+        return response
+    }
+
+    func agentBrief() async throws -> String {
+        struct Response: Decodable { let response: String }
+        let response: Response = try await get("/agent/brief")
+        return response.response
     }
 
     // MARK: - HTTP
@@ -190,6 +318,14 @@ actor APIClient {
 
     private func delete(_ path: String) async throws {
         _ = try await makeRequest(path: path, method: "DELETE")
+    }
+
+    private func decodeItems(_ data: Data) throws -> [Item] {
+        let decoder = JSONDecoder()
+        if let envelope = try? decoder.decode(ListEnvelope<Item>.self, from: data) {
+            return envelope.items
+        }
+        return try decoder.decode([Item].self, from: data)
     }
 
     private static func cacheNamespace(for token: String?) -> String? {

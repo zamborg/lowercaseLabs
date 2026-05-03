@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1475783A22FC1288BF23519D /* AgentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF987DE6A9C8B0E87795C5DD /* AgentView.swift */; };
 		1BD5A969DEE5D27738931B76 /* DictationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A0BCF223BFE3B7C677FE059 /* DictationEngine.swift */; };
 		25E347D5446B1E245142178D /* Item.swift in Sources */ = {isa = PBXBuildFile; fileRef = 756E8A165F54D166984D1238 /* Item.swift */; };
 		34BCF4CE4F66C5F00D4FACA7 /* DictationEngineCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98B4C3ED619630B2B64C4A4C /* DictationEngineCoordinator.swift */; };
@@ -49,6 +50,7 @@
 		98B4C3ED619630B2B64C4A4C /* DictationEngineCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationEngineCoordinator.swift; sourceTree = "<group>"; };
 		9A0BCF223BFE3B7C677FE059 /* DictationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationEngine.swift; sourceTree = "<group>"; };
 		A460530FD71446B863070B12 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
+		AF987DE6A9C8B0E87795C5DD /* AgentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentView.swift; sourceTree = "<group>"; };
 		B8F2F2E1921DBFC3CD425064 /* HoldToDictateButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoldToDictateButton.swift; sourceTree = "<group>"; };
 		C25283F0519997D337970990 /* blackhole.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = blackhole.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CD2B4149CCCABB63D45D971F /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
@@ -100,6 +102,14 @@
 				38912002327BCE1F0D76F8DC /* APIClient.swift */,
 			);
 			path = API;
+			sourceTree = "<group>";
+		};
+		5247CB2B3649E2FB465C28E8 /* Agent */ = {
+			isa = PBXGroup;
+			children = (
+				AF987DE6A9C8B0E87795C5DD /* AgentView.swift */,
+			);
+			path = Agent;
 			sourceTree = "<group>";
 		};
 		6DA789CD0098DBBB7027908E /* Search */ = {
@@ -189,6 +199,7 @@
 		E35F50DB8F89C66C45747ED9 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				5247CB2B3649E2FB465C28E8 /* Agent */,
 				3A9EC1A4B3D7D76D4EAA2ED4 /* API */,
 				DB36BEBBE830D6FF0B9C2160 /* Auth */,
 				CF1BB163BEEE595BAF398AD4 /* Dictation */,
@@ -279,6 +290,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D2692C184CCFFC3914C14F74 /* APIClient.swift in Sources */,
+				1475783A22FC1288BF23519D /* AgentView.swift in Sources */,
 				E1B39E66E6914CB465B5E010 /* AppleSpeechDictationEngine.swift in Sources */,
 				4CBEDE39FB2A50225E2B72F7 /* AudioCapturePipeline.swift in Sources */,
 				D793DDDEB9CFC7755D0C900F /* AuthViewModel.swift in Sources */,

@@ -19,10 +19,13 @@ def load_backend_modules(db_path: str):
     for module_name in [
         "app.db",
         "app.auth",
+        "app.schemas",
+        "app.services",
         "app.agent.responses.tools",
         "app.agent.responses.client",
         "app.agent.responses.logging",
         "app.agent.responses.prompts",
+        "app.agent.loop",
         "app.analysis",
         "app.main",
     ]:
@@ -84,6 +87,7 @@ class BackendIntegrationTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()[0]["title"], "Buy milk")
+        self.assertEqual(response.json()[0]["status"], "open")
 
         login = self.client.post(
             "/admin/login",
@@ -143,7 +147,7 @@ class BackendIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()[0]["title"], "Buy milk")
+        self.assertEqual(response.json()["items"][0]["title"], "Buy milk")
         logs = [dict(row) for row in self.db.list_llm_logs()]
         self.assertEqual(logs[0]["operation"], "search_items")
         self.assertEqual(logs[0]["status"], "error")
@@ -282,6 +286,396 @@ class BackendIntegrationTests(unittest.TestCase):
         self.assertEqual(response.json()["epic_id"], "epic-1")
         self.assertIn("Blackhole App", response.json()["tags"])
 
+    def test_deterministic_item_create_and_status_compatibility(self):
+        response = self.client.post(
+            "/items",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={
+                "type": "todo",
+                "title": "Buy milk",
+                "content": "Buy milk after work",
+                "status": "done",
+                "source": "manual",
+                "tags": ["errand"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()
+        self.assertEqual(item["status"], "done")
+        self.assertTrue(item["completed"])
+        self.assertEqual(item["source"], "manual")
+
+        list_response = self.client.get(
+            "/items?type=todo&status=done&tags=errand",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["items"][0]["id"], item["id"])
+
+        patch_response = self.client.patch(
+            f"/items/{item['id']}",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"completed": False},
+        )
+        self.assertEqual(patch_response.status_code, 200)
+        self.assertEqual(patch_response.json()["status"], "open")
+        self.assertFalse(patch_response.json()["completed"])
+
+    def test_parent_cycle_is_rejected(self):
+        first = self.client.post(
+            "/items",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"type": "note", "title": "First", "content": "First"},
+        ).json()
+        second = self.client.post(
+            "/items",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"type": "note", "title": "Second", "content": "Second", "parent_id": first["id"]},
+        ).json()
+
+        response = self.client.patch(
+            f"/items/{first['id']}",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"parent_id": second["id"]},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "parent_cycle")
+
+    def test_tables_validate_rows_and_protect_backing_item(self):
+        table_response = self.client.post(
+            "/tables",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={
+                "title": "Expenses",
+                "description": "Personal spending",
+                "columns": [
+                    {"name": "amount", "type": "number"},
+                    {"name": "category", "type": "select", "options": ["food", "travel"]},
+                ],
+                "tags": ["finance"],
+            },
+        )
+        self.assertEqual(table_response.status_code, 200)
+        table = table_response.json()
+
+        row_response = self.client.post(
+            f"/tables/{table['id']}/rows",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"data": {"amount": 12.5, "category": "food"}},
+        )
+        self.assertEqual(row_response.status_code, 200)
+        self.assertEqual(row_response.json()["data"]["category"], "food")
+
+        invalid_row = self.client.post(
+            f"/tables/{table['id']}/rows",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"data": {"amount": "twelve"}},
+        )
+        self.assertEqual(invalid_row.status_code, 400)
+        self.assertEqual(invalid_row.json()["error"]["code"], "invalid_table_value")
+
+        backing_delete = self.client.delete(
+            f"/items/{table['item_id']}",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(backing_delete.status_code, 400)
+        self.assertEqual(backing_delete.json()["error"]["code"], "table_item_delete_forbidden")
+
+    def test_links_habit_completions_and_api_keys(self):
+        habit = self.client.post(
+            "/items",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={
+                "type": "habit",
+                "title": "Drink water",
+                "content": "Drink water",
+                "recurrence_rule": {"freq": "daily"},
+            },
+        ).json()
+        note = self.client.post(
+            "/items",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"type": "note", "title": "Hydration note", "content": "Hydration note"},
+        ).json()
+
+        link = self.client.post(
+            "/links",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"source_id": note["id"], "target_id": habit["id"], "link_type": "relates_to"},
+        )
+        self.assertEqual(link.status_code, 200)
+
+        duplicate_link = self.client.post(
+            "/links",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"source_id": note["id"], "target_id": habit["id"], "link_type": "relates_to"},
+        )
+        self.assertEqual(duplicate_link.status_code, 409)
+        self.assertEqual(duplicate_link.json()["error"]["code"], "duplicate_link")
+
+        completion = self.client.post(
+            f"/items/{habit['id']}/completions",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"completed_on": "2026-04-29", "note": "done"},
+        )
+        self.assertEqual(completion.status_code, 200)
+
+        duplicate_completion = self.client.post(
+            f"/items/{habit['id']}/completions",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"completed_on": "2026-04-29"},
+        )
+        self.assertEqual(duplicate_completion.status_code, 409)
+        self.assertEqual(duplicate_completion.json()["error"]["code"], "duplicate_habit_completion")
+
+        token_response = self.client.post(
+            "/auth/tokens",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"label": "local mcp"},
+        )
+        self.assertEqual(token_response.status_code, 200)
+        api_key = token_response.json()["key"]
+
+        me_response = self.client.get("/me", headers={"Authorization": f"Bearer {api_key}"})
+        self.assertEqual(me_response.status_code, 200)
+        self.assertEqual(me_response.json()["id"], "user-1")
+
+    def test_unauthenticated_requests_are_rejected(self):
+        for method, path, kwargs in [
+            ("get", "/items", {}),
+            ("get", "/items/nonexistent", {}),
+            ("post", "/items", {"json": {"type": "note", "title": "x", "content": "x"}}),
+            ("patch", "/items/nonexistent", {"json": {"title": "y"}}),
+            ("delete", "/items/nonexistent", {}),
+            ("post", "/agent", {"json": {"message": "hello"}}),
+            ("get", "/me", {}),
+        ]:
+            resp = getattr(self.client, method)(path, **kwargs)
+            self.assertEqual(resp.status_code, 401, f"{method.upper()} {path} should require auth")
+
+    def test_cross_user_isolation(self):
+        item = self.client.post(
+            "/items",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"type": "note", "title": "Private note", "content": "secret"},
+        ).json()
+
+        self.db.upsert_user("user-2")
+        token2 = self.auth.create_session_token("user-2")
+
+        get_resp = self.client.get(
+            f"/items/{item['id']}",
+            headers={"Authorization": f"Bearer {token2}"},
+        )
+        self.assertEqual(get_resp.status_code, 404)
+
+        list_resp = self.client.get(
+            "/items",
+            headers={"Authorization": f"Bearer {token2}"},
+        )
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertEqual(list_resp.json()["items"], [])
+
+    def test_list_and_get_items(self):
+        t1 = self.client.post(
+            "/items",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"type": "todo", "title": "Todo one", "content": "Do A", "tags": ["work"]},
+        ).json()
+        t2 = self.client.post(
+            "/items",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"type": "note", "title": "Note one", "content": "Note content"},
+        ).json()
+
+        all_resp = self.client.get("/items", headers={"Authorization": f"Bearer {self.token}"})
+        self.assertEqual(all_resp.status_code, 200)
+        all_ids = [i["id"] for i in all_resp.json()["items"]]
+        self.assertIn(t1["id"], all_ids)
+        self.assertIn(t2["id"], all_ids)
+
+        todo_resp = self.client.get("/items?type=todo", headers={"Authorization": f"Bearer {self.token}"})
+        self.assertEqual(todo_resp.status_code, 200)
+        todo_ids = [i["id"] for i in todo_resp.json()["items"]]
+        self.assertIn(t1["id"], todo_ids)
+        self.assertNotIn(t2["id"], todo_ids)
+
+        get_resp = self.client.get(f"/items/{t1['id']}", headers={"Authorization": f"Bearer {self.token}"})
+        self.assertEqual(get_resp.status_code, 200)
+        self.assertEqual(get_resp.json()["title"], "Todo one")
+
+        missing = self.client.get("/items/does-not-exist", headers={"Authorization": f"Bearer {self.token}"})
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(missing.json()["error"]["code"], "item_not_found")
+
+    def test_delete_item(self):
+        item = self.client.post(
+            "/items",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"type": "note", "title": "To delete", "content": "ephemeral"},
+        ).json()
+
+        delete_resp = self.client.delete(
+            f"/items/{item['id']}",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(delete_resp.status_code, 200)
+        self.assertTrue(delete_resp.json()["deleted"])
+
+        get_resp = self.client.get(
+            f"/items/{item['id']}",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        self.assertEqual(get_resp.status_code, 404)
+
+    @unittest.skipUnless(
+        os.getenv("BLACKHOLE_RUN_OPENAI_TESTS") == "1" and os.getenv("OPENAI_API_KEY"),
+        "Set BLACKHOLE_RUN_OPENAI_TESTS=1 and OPENAI_API_KEY to run live OpenAI tests.",
+    )
+    def test_live_agent_creates_todo_end_to_end(self):
+        response = self.client.post(
+            "/agent",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"message": "Create a todo called 'agent smoke test'"},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIsInstance(body["response"], str)
+        self.assertGreater(len(body["response"]), 0)
+        self.assertIn("run_id", body)
+        tool_names = [tc["name"] for tc in body["tool_calls"]]
+        self.assertIn("create_item", tool_names)
+        self.assertEqual(len(body["items_created"]), 1)
+        self.assertIn("smoke", body["items_created"][0]["title"].lower())
+        self.assertEqual(body["items_created"][0]["type"], "todo")
+        self.assertEqual(body["items_created"][0]["source"], "agent")
+
+    def test_agent_loop_creates_item_and_logs_tool_calls(self):
+        agent_loop = sys.modules["app.agent.loop"]
+
+        turns = [
+            {
+                "response": None,
+                "tool_calls": [{"name": "create_item", "arguments": {"type": "todo", "title": "Review V2", "content": "Review the V2 blackhole build", "tags": ["blackhole"]}}],
+            },
+            {"response": "Created Review V2.", "tool_calls": []},
+        ]
+
+        def fake_step(**_):
+            return turns.pop(0)
+
+        with patch.object(agent_loop, "_model_step", side_effect=fake_step):
+            response = self.client.post(
+                "/agent",
+                headers={"Authorization": f"Bearer {self.token}"},
+                json={"message": "Create a todo to review V2"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["response"], "Created Review V2.")
+        self.assertEqual(body["items_created"][0]["title"], "Review V2")
+        self.assertEqual(body["items_created"][0]["source"], "agent")
+        self.assertEqual(body["tool_calls"], [{"name": "create_item", "status": "success"}])
+
+        conn = self.db.get_conn()
+        run = conn.execute("SELECT * FROM agent_runs WHERE id = ?", (body["run_id"],)).fetchone()
+        self.assertEqual(run["status"], "success")
+        self.assertIn("recent_items", run["context_json"])
+        tool_call = conn.execute("SELECT * FROM agent_tool_calls WHERE run_id = ?", (body["run_id"],)).fetchone()
+        self.assertEqual(tool_call["name"], "create_item")
+        self.assertEqual(tool_call["status"], "success")
+
+    def test_agent_loop_reports_tool_errors_without_mutating_response(self):
+        agent_loop = sys.modules["app.agent.loop"]
+
+        turns = [
+            {
+                "response": None,
+                "tool_calls": [{"name": "update_item", "arguments": {"id": "missing", "title": "Nope"}}],
+            },
+            {"response": "I could not update that item because it was not found.", "tool_calls": []},
+        ]
+
+        def fake_step(**_):
+            return turns.pop(0)
+
+        with patch.object(agent_loop, "_model_step", side_effect=fake_step):
+            response = self.client.post(
+                "/agent",
+                headers={"Authorization": f"Bearer {self.token}"},
+                json={"message": "Rename the missing item"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["items_updated"], [])
+        self.assertEqual(body["tool_calls"], [{"name": "update_item", "status": "error"}])
+
+        conn = self.db.get_conn()
+        tool_call = conn.execute("SELECT * FROM agent_tool_calls WHERE run_id = ?", (body["run_id"],)).fetchone()
+        self.assertEqual(tool_call["status"], "error")
+        self.assertIn("not found", tool_call["error"].lower())
+
+    def test_agent_model_step_calls_openai_json_object_format(self):
+        agent_loop = sys.modules["app.agent.loop"]
+        recorded = {}
+        fake_response = object()
+
+        def fake_create(**kwargs):
+            recorded.update(kwargs)
+            return fake_response
+
+        def fake_response_text(resp):
+            self.assertIs(resp, fake_response)
+            return '{"response": "Hello.", "tool_calls": []}'
+
+        with patch.object(agent_loop.client, "create_json_response", side_effect=fake_create), \
+             patch.object(agent_loop.client, "response_text", side_effect=fake_response_text):
+            result = agent_loop._model_step(
+                model="test-model",
+                input_messages=[{"role": "user", "content": "Hello"}],
+            )
+
+        self.assertEqual(result, {"response": "Hello.", "tool_calls": []})
+        self.assertEqual(recorded["model"], "test-model")
+        self.assertEqual(recorded["instructions"], agent_loop.AGENT_SYSTEM)
+        self.assertEqual(recorded["max_output_tokens"], agent_loop.AGENT_MAX_OUTPUT_TOKENS)
+        # json_object format: no strict schema passed
+        self.assertNotIn("schema_name", recorded)
+        self.assertNotIn("schema", recorded)
+
+    def test_normalize_tool_calls_handles_arguments_as_object_or_string(self):
+        agent_loop = sys.modules["app.agent.loop"]
+
+        # Primary case: arguments as a plain object (the bug fix)
+        calls = [
+            {"name": "create_item", "arguments": {"type": "todo", "title": "Test"}},
+            {"name": "update_item", "arguments": {"id": "abc", "status": "done"}},
+        ]
+        result = agent_loop._normalize_tool_calls(calls)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["name"], "create_item")
+        self.assertEqual(result[0]["arguments"]["title"], "Test")
+        self.assertEqual(result[1]["arguments"]["id"], "abc")
+
+        # Legacy: arguments_json as a JSON-encoded string
+        legacy = [{"name": "list_items", "arguments_json": '{"type": "todo", "status": "open"}'}]
+        result = agent_loop._normalize_tool_calls(legacy)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["arguments"]["type"], "todo")
+
+        # Unknown tool names are filtered out
+        result = agent_loop._normalize_tool_calls([{"name": "delete_everything", "arguments": {}}])
+        self.assertEqual(result, [])
+
+        # Capped at MAX_TOOL_CALLS_PER_TURN
+        many = [{"name": "list_items", "arguments": {}} for _ in range(agent_loop.MAX_TOOL_CALLS_PER_TURN + 2)]
+        result = agent_loop._normalize_tool_calls(many)
+        self.assertEqual(len(result), agent_loop.MAX_TOOL_CALLS_PER_TURN)
+
 
 class AnalysisClientContractTests(unittest.TestCase):
     def setUp(self):
@@ -298,7 +692,7 @@ class AnalysisClientContractTests(unittest.TestCase):
         class FakeResponses:
             def create(self, **kwargs):
                 recorded.update(kwargs)
-                return SimpleNamespace(output_text='{"items":[{"type":"note","title":"Test","tags":[],"due_date":null,"epic_title":null}]}')
+                return SimpleNamespace(output_text='{"items":[{"type":"note","title":"Test","content":null,"status":null,"priority":null,"tags":[],"parent_title":null,"due_date":null,"start_time":null,"end_time":null,"location":null,"url":null,"read_status":null,"email":null,"phone":null,"organization":null,"recurrence_rule":null,"metadata":null}]}')
 
         fake_client = SimpleNamespace(responses=FakeResponses())
 
@@ -307,17 +701,28 @@ class AnalysisClientContractTests(unittest.TestCase):
 
         self.assertEqual(log["status"], "success")
         self.assertEqual(result[0]["title"], "Test")
-        self.assertEqual(recorded["max_output_tokens"], 650)
+        self.assertEqual(recorded["max_output_tokens"], 1200)
         self.assertEqual(recorded["text"]["format"]["type"], "json_schema")
         self.assertEqual(recorded["text"]["format"]["name"], "transcript_items")
-        self.assertIn("epic", recorded["text"]["format"]["schema"]["properties"]["items"]["items"]["properties"]["type"]["enum"])
-        self.assertIn("epic_title", recorded["text"]["format"]["schema"]["properties"]["items"]["items"]["properties"])
+        type_enum = recorded["text"]["format"]["schema"]["properties"]["items"]["items"]["properties"]["type"]["enum"]
+        self.assertIn("epic", type_enum)
+        self.assertIn("event", type_enum)
+        self.assertIn("habit", type_enum)
+        properties = recorded["text"]["format"]["schema"]["properties"]["items"]["items"]["properties"]
+        self.assertIn("parent_title", properties)
+        self.assertNotIn("epic_title", properties)
         self.assertIn("Do not create a duplicate raw note", recorded["instructions"])
         self.assertIn("Epics are stronger categories", recorded["instructions"])
         self.assertIn("input", recorded)
         self.assertIn("instructions", recorded)
         self.assertNotIn("max_tokens", recorded)
         self.assertNotIn("max_completion_tokens", recorded)
+        # recurrence_rule must use additionalProperties: false (required by OpenAI strict mode)
+        recurrence_schema = properties["recurrence_rule"]
+        self.assertFalse(recurrence_schema.get("additionalProperties"))
+        self.assertIn("freq", recurrence_schema["properties"])
+        # metadata is now a string type (open-ended objects aren't allowed in strict schemas)
+        self.assertIn("string", properties["metadata"]["type"])
 
     def test_search_items_uses_max_output_tokens(self):
         recorded = {}
@@ -386,7 +791,7 @@ class AnalysisClientContractTests(unittest.TestCase):
         class FakeResponses:
             def create(self, **kwargs):
                 recorded.update(kwargs)
-                return SimpleNamespace(output_text='{"items":[{"type":"todo","title":"Buy oat milk","tags":["errand"],"due_date":null,"epic_title":null}]}')
+                return SimpleNamespace(output_text='{"items":[{"type":"todo","title":"Buy oat milk","content":null,"status":null,"priority":null,"tags":["errand"],"parent_title":null,"due_date":null,"start_time":null,"end_time":null,"location":null,"url":null,"read_status":null,"email":null,"phone":null,"organization":null,"recurrence_rule":null,"metadata":null}]}')
 
         fake_client = SimpleNamespace(responses=FakeResponses())
         prior = [
@@ -403,7 +808,7 @@ class AnalysisClientContractTests(unittest.TestCase):
         # context-user + context-ack + classify-user = 3; system prompt is instructions
         self.assertEqual(len(messages), 3)
         self.assertIn("existing notes, todos, and epics", recorded["instructions"])
-        self.assertIn("epic_title", messages[2]["content"])
+        self.assertIn("parent_title", messages[2]["content"])
         self.assertEqual(messages[0]["role"], "user")
         self.assertIn("Get groceries", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "assistant")
@@ -417,7 +822,7 @@ class AnalysisClientContractTests(unittest.TestCase):
         class FakeResponses:
             def create(self, **kwargs):
                 recorded.update(kwargs)
-                return SimpleNamespace(output_text='{"items":[{"type":"note","title":"Test","tags":[],"due_date":null,"epic_title":null}]}')
+                return SimpleNamespace(output_text='{"items":[{"type":"note","title":"Test","content":null,"status":null,"priority":null,"tags":[],"parent_title":null,"due_date":null,"start_time":null,"end_time":null,"location":null,"url":null,"read_status":null,"email":null,"phone":null,"organization":null,"recurrence_rule":null,"metadata":null}]}')
 
         fake_client = SimpleNamespace(responses=FakeResponses())
 
@@ -440,11 +845,11 @@ class AnalysisClientContractTests(unittest.TestCase):
 
         self.assertEqual(log["status"], "success")
         self.assertGreaterEqual(len(result), 1)
-        self.assertIn(result[0]["type"], {"note", "todo", "epic"})
-        self.assertIsInstance(result[0]["title"], str)
+        self.assertIn(result[0]["type"], {"note", "todo", "event", "epic", "contact", "resource", "decision", "journal", "habit"})
+        self.assertTrue(result[0]["title"] is None or isinstance(result[0]["title"], str))
         self.assertIsInstance(result[0]["tags"], list)
         self.assertIn("due_date", result[0])
-        self.assertIn("epic_title", result[0])
+        self.assertIn("parent_title", result[0])
 
 
 if __name__ == "__main__":

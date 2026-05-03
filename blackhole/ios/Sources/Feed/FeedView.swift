@@ -908,7 +908,15 @@ private struct ItemRow: View {
         switch item.type {
         case .note: return .white.opacity(0.35)
         case .todo: return .yellow
+        case .event: return .orange.opacity(0.75)
         case .epic: return .cyan.opacity(0.65)
+        case .contact: return .green.opacity(0.7)
+        case .resource: return .blue.opacity(0.7)
+        case .decision: return .purple.opacity(0.7)
+        case .journal: return .mint.opacity(0.7)
+        case .habit: return .pink.opacity(0.7)
+        case .table: return .teal.opacity(0.7)
+        case .unknown: return .white.opacity(0.35)
         }
     }
 }
