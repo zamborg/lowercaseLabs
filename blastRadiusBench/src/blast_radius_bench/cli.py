@@ -14,6 +14,11 @@ from blast_radius_bench.metrics import score_analysis
 from blast_radius_bench.models import load_task_spec
 from blast_radius_bench.public_terminalbench import build_public_terminalbench_report
 from blast_radius_bench.review import review_job, review_trial
+from blast_radius_bench.spider import build_spider_report
+from blast_radius_bench.wolfbench import (
+    WOLFBENCH_GITHUB_RUNS_URL,
+    build_wolfbench_report,
+)
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -133,5 +138,81 @@ def tb_public_report_cmd(
         max_rows=max_rows,
         min_runs=min_runs,
         top_agents=top_agents,
+    )
+    console.print_json(json.dumps(payload))
+
+
+@app.command("wolfbench-report")
+def wolfbench_report_cmd(
+    source: str = typer.Argument(
+        WOLFBENCH_GITHUB_RUNS_URL,
+        help="Local WolfBench checkout/wolfbench-runs path or GitHub wolfbench-runs URL.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("reports/wolfbench"),
+        "--output-dir",
+        help="Directory for HTML, CSV, and plot outputs.",
+    ),
+    max_runs: int | None = typer.Option(
+        None,
+        "--max-runs",
+        help="Optional run cap for faster remote sampling.",
+    ),
+    min_runs: int = typer.Option(
+        2,
+        "--min-runs",
+        help="Minimum runs required for consistency plots and contrasts.",
+    ),
+) -> None:
+    """Build a static report for published WolfBench run-level artifacts."""
+    payload = build_wolfbench_report(
+        source,
+        output_dir,
+        max_runs=max_runs,
+        min_runs=min_runs,
+    )
+    console.print_json(json.dumps(payload))
+
+
+@app.command("spider-report")
+def spider_report_cmd(
+    source: Path = typer.Argument(
+        ...,
+        help="Existing report directory or CSV from tb-public-report/wolfbench-report.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("reports/spider"),
+        "--output-dir",
+        help="Directory for spider HTML, CSV, and plot outputs.",
+    ),
+    source_type: str = typer.Option(
+        "auto",
+        "--source-type",
+        help="auto, public-terminalbench, or wolfbench.",
+    ),
+    min_runs: int = typer.Option(
+        10,
+        "--min-runs",
+        help="Minimum runs required for a harness/model group.",
+    ),
+    min_trace_coverage: float = typer.Option(
+        0.25,
+        "--min-trace-coverage",
+        help="Minimum trace coverage required in public Terminal-Bench spider mode.",
+    ),
+    top_groups: int = typer.Option(
+        12,
+        "--top-groups",
+        help="How many groups to render in the spider grid.",
+    ),
+) -> None:
+    """Build heuristic spider fingerprints for harness x model behavior."""
+    payload = build_spider_report(
+        source,
+        output_dir,
+        source_type=source_type,  # type: ignore[arg-type]
+        min_runs=min_runs,
+        min_trace_coverage=min_trace_coverage,
+        top_groups=top_groups,
     )
     console.print_json(json.dumps(payload))

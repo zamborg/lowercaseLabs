@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Spider Fingerprints</title>
+  <style>
+    :root {
+      --bg: #f7f6f2;
+      --panel: #ffffff;
+      --ink: #171717;
+      --muted: #62625f;
+      --line: #dedbd2;
+      --green: #1d7f64;
+      --blue: #2e6f9e;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); line-height: 1.45; }
+    .shell { max-width: 1380px; margin: 0 auto; padding: 24px; }
+    header { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 0.45fr); gap: 22px; align-items: end; padding: 28px 0 18px; border-bottom: 1px solid var(--line); }
+    h1 { margin: 0; font-size: clamp(34px, 5vw, 68px); line-height: 0.95; letter-spacing: 0; }
+    h2 { margin: 0 0 12px; font-size: 22px; letter-spacing: 0; }
+    h3 { margin: 0 0 8px; font-size: 16px; letter-spacing: 0; }
+    p { margin: 0; color: var(--muted); }
+    code { background: #ece9df; padding: 2px 6px; border-radius: 4px; }
+    .lede { max-width: 880px; margin-top: 14px; font-size: 18px; color: #343431; }
+    .meta { display: grid; gap: 8px; align-content: end; font-size: 14px; min-width: 0; }
+    .meta div { overflow-wrap: anywhere; }
+    .band { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 18px; margin: 18px 0; }
+    .pillrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .pill { border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; font-size: 12px; background: #fbfaf6; color: #353530; }
+    .plot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .plot-card { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 12px; }
+    .plot-card img { width: 100%; display: block; border-radius: 6px; }
+    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+    table { border-collapse: collapse; width: 100%; min-width: 860px; font-size: 13px; }
+    th, td { border-bottom: 1px solid #ece9df; padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { position: sticky; top: 0; background: #f4f1e8; z-index: 1; color: #3a3935; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+    tr:hover td { background: #fbfaf6; }
+    @media (max-width: 980px) { .shell { padding: 16px; } header, .plot-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <h1>Spider Fingerprints</h1>
+        <p class="lede">Trace Behavior spider plots for harness x model cells. Trace mode is a behavior fingerprint. High values mean more of that property, not always better. For example, high tool intensity or recovery churn can be useful evidence of harness/model style.</p>
+      </div>
+      <div class="meta">
+        <div>Source <code>reports/terminalbench-public/yoonholee-terminalbench-trajectories</code></div>
+        <div>Detected type <code>public-terminalbench</code></div>
+        <div>Minimum runs <code>100</code></div>
+        <div>Min trace coverage <code>0.25</code></div>
+        <div>Rendered groups <code>12</code></div>
+      </div>
+    </header>
+    <section class="band">
+      <h2>Axes</h2>
+      <p>All axes are normalized to 0..1 within this corpus, so compare shapes inside one report rather than across unrelated datasets.</p>
+      <div class="pillrow"><span class='pill'>Success</span><span class='pill'>Task Lift</span><span class='pill'>Tool Intensity</span><span class='pill'>Exploration</span><span class='pill'>Search/Read</span><span class='pill'>Early Edit</span><span class='pill'>Verification</span><span class='pill'>Recovery Churn</span></div>
+    </section>
+    <section class="band"><div class='plot-grid'><article class='plot-card'><h3>Top Overlay</h3><img src='spider_overlay.png' alt='Top Overlay' /></article><article class='plot-card'><h3>Small Multiples</h3><img src='spider_grid.png' alt='Small Multiples' /></article><article class='plot-card'><h3>Axis Heatmap</h3><img src='spider_axis_heatmap.png' alt='Axis Heatmap' /></article></div></section>
+    <section class="band"><h2>Spider Summary</h2><div class='table-wrap'><table class="dataframe dashboard-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>group_label</th>
+      <th>runs</th>
+      <th>tasks</th>
+      <th>success_rate</th>
+      <th>task_adjusted_success_lift</th>
+      <th>spider_area</th>
+      <th>success</th>
+      <th>task_lift</th>
+      <th>tool_intensity</th>
+      <th>exploration_diversity</th>
+      <th>search_read_intensity</th>
+      <th>edit_eagerness</th>
+      <th>verification_intensity</th>
+      <th>recovery_churn</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>terminus-3-3 / claude-opus-4-6@anthropic</td>
+      <td>442</td>
+      <td>89</td>
+      <td>0.749</td>
+      <td>0.352</td>
+      <td>0.569</td>
+      <td>1.000</td>
+      <td>0.999</td>
+      <td>0.220</td>
+      <td>0.684</td>
+      <td>0.504</td>
+      <td>0.648</td>
+      <td>0.316</td>
+      <td>0.184</td>
+    </tr>
+    <tr>
+      <td>terminus-3-3 / gemini-3.1-pro-preview@Google</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.748</td>
+      <td>0.352</td>
+      <td>0.595</td>
+      <td>0.999</td>
+      <td>1.000</td>
+      <td>0.322</td>
+      <td>0.622</td>
+      <td>0.562</td>
+      <td>0.648</td>
+      <td>0.390</td>
+      <td>0.218</td>
+    </tr>
+    <tr>
+      <td>judy / claude-opus-4.6@anthropic</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.719</td>
+      <td>0.323</td>
+      <td>0.502</td>
+      <td>0.959</td>
+      <td>0.959</td>
+      <td>0.100</td>
+      <td>0.578</td>
+      <td>0.155</td>
+      <td>0.829</td>
+      <td>0.000</td>
+      <td>0.435</td>
+    </tr>
+    <tr>
+      <td>deepagent-harbor / gpt-5.2-codex@openai</td>
+      <td>433</td>
+      <td>89</td>
+      <td>0.677</td>
+      <td>0.272</td>
+      <td>0.595</td>
+      <td>0.900</td>
+      <td>0.888</td>
+      <td>0.199</td>
+      <td>0.780</td>
+      <td>0.794</td>
+      <td>0.651</td>
+      <td>0.357</td>
+      <td>0.191</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / claude-opus-4-6@anthropic</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.629</td>
+      <td>0.233</td>
+      <td>0.515</td>
+      <td>0.834</td>
+      <td>0.835</td>
+      <td>0.245</td>
+      <td>0.607</td>
+      <td>0.579</td>
+      <td>0.648</td>
+      <td>0.290</td>
+      <td>0.080</td>
+    </tr>
+    <tr>
+      <td>claude-code / claude-opus-4-6@anthropic</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.580</td>
+      <td>0.184</td>
+      <td>0.541</td>
+      <td>0.765</td>
+      <td>0.766</td>
+      <td>0.208</td>
+      <td>0.940</td>
+      <td>0.400</td>
+      <td>0.581</td>
+      <td>0.499</td>
+      <td>0.167</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / claude-opus-4-5-20251101@anthropic</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.578</td>
+      <td>0.182</td>
+      <td>0.542</td>
+      <td>0.762</td>
+      <td>0.763</td>
+      <td>0.369</td>
+      <td>0.593</td>
+      <td>0.526</td>
+      <td>0.648</td>
+      <td>0.465</td>
+      <td>0.211</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / gemini-3-pro-preview@gemini</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.569</td>
+      <td>0.173</td>
+      <td>0.546</td>
+      <td>0.749</td>
+      <td>0.750</td>
+      <td>0.235</td>
+      <td>0.667</td>
+      <td>0.500</td>
+      <td>0.648</td>
+      <td>0.710</td>
+      <td>0.110</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / gpt-5.2@openai</td>
+      <td>444</td>
+      <td>89</td>
+      <td>0.540</td>
+      <td>0.144</td>
+      <td>0.489</td>
+      <td>0.710</td>
+      <td>0.710</td>
+      <td>0.397</td>
+      <td>0.585</td>
+      <td>0.547</td>
+      <td>0.648</td>
+      <td>0.315</td>
+      <td>0.000</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / glm-5@z-ai</td>
+      <td>442</td>
+      <td>89</td>
+      <td>0.523</td>
+      <td>0.127</td>
+      <td>0.493</td>
+      <td>0.685</td>
+      <td>0.686</td>
+      <td>0.277</td>
+      <td>0.564</td>
+      <td>0.487</td>
+      <td>0.648</td>
+      <td>0.411</td>
+      <td>0.182</td>
+    </tr>
+    <tr>
+      <td>claude-code / claude-opus-4-5-20251101@anthropic</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.521</td>
+      <td>0.126</td>
+      <td>0.521</td>
+      <td>0.683</td>
+      <td>0.685</td>
+      <td>0.297</td>
+      <td>0.817</td>
+      <td>0.421</td>
+      <td>0.381</td>
+      <td>0.651</td>
+      <td>0.236</td>
+    </tr>
+    <tr>
+      <td>openhands / claude-opus-4-5-20251101@anthropic</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.519</td>
+      <td>0.123</td>
+      <td>0.541</td>
+      <td>0.680</td>
+      <td>0.682</td>
+      <td>0.307</td>
+      <td>0.948</td>
+      <td>0.068</td>
+      <td>0.944</td>
+      <td>0.386</td>
+      <td>0.314</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / gemini-3-flash-preview@gemini</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.517</td>
+      <td>0.121</td>
+      <td>0.527</td>
+      <td>0.677</td>
+      <td>0.678</td>
+      <td>0.277</td>
+      <td>0.614</td>
+      <td>0.658</td>
+      <td>0.648</td>
+      <td>0.472</td>
+      <td>0.195</td>
+    </tr>
+    <tr>
+      <td>codex / gpt-5@openai</td>
+      <td>439</td>
+      <td>89</td>
+      <td>0.494</td>
+      <td>0.097</td>
+      <td>0.409</td>
+      <td>0.646</td>
+      <td>0.646</td>
+      <td>0.100</td>
+      <td>0.368</td>
+      <td>0.456</td>
+      <td>0.648</td>
+      <td>0.343</td>
+      <td>0.066</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / gpt-5.1@openai</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.476</td>
+      <td>0.080</td>
+      <td>0.523</td>
+      <td>0.621</td>
+      <td>0.622</td>
+      <td>0.308</td>
+      <td>0.597</td>
+      <td>0.915</td>
+      <td>0.648</td>
+      <td>0.428</td>
+      <td>0.047</td>
+    </tr>
+    <tr>
+      <td>codex / gpt-5-codex@openai</td>
+      <td>436</td>
+      <td>89</td>
+      <td>0.443</td>
+      <td>0.046</td>
+      <td>0.349</td>
+      <td>0.574</td>
+      <td>0.574</td>
+      <td>0.054</td>
+      <td>0.416</td>
+      <td>0.282</td>
+      <td>0.648</td>
+      <td>0.200</td>
+      <td>0.047</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / gpt-5-codex@openai</td>
+      <td>437</td>
+      <td>89</td>
+      <td>0.442</td>
+      <td>0.043</td>
+      <td>0.467</td>
+      <td>0.573</td>
+      <td>0.570</td>
+      <td>0.250</td>
+      <td>0.539</td>
+      <td>0.591</td>
+      <td>0.648</td>
+      <td>0.401</td>
+      <td>0.169</td>
+    </tr>
+    <tr>
+      <td>openhands / gpt-5@openai</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.438</td>
+      <td>0.042</td>
+      <td>0.469</td>
+      <td>0.568</td>
+      <td>0.569</td>
+      <td>0.281</td>
+      <td>0.747</td>
+      <td>0.172</td>
+      <td>0.737</td>
+      <td>0.261</td>
+      <td>0.415</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / claude-sonnet-4-5-20250929@anthropic</td>
+      <td>440</td>
+      <td>89</td>
+      <td>0.432</td>
+      <td>0.034</td>
+      <td>0.488</td>
+      <td>0.559</td>
+      <td>0.557</td>
+      <td>0.375</td>
+      <td>0.569</td>
+      <td>0.475</td>
+      <td>0.648</td>
+      <td>0.508</td>
+      <td>0.212</td>
+    </tr>
+    <tr>
+      <td>mini-swe-agent / claude-sonnet-4-5-20250929@anthropic</td>
+      <td>442</td>
+      <td>89</td>
+      <td>0.425</td>
+      <td>0.029</td>
+      <td>0.494</td>
+      <td>0.550</td>
+      <td>0.551</td>
+      <td>0.337</td>
+      <td>0.419</td>
+      <td>0.646</td>
+      <td>0.648</td>
+      <td>0.632</td>
+      <td>0.166</td>
+    </tr>
+    <tr>
+      <td>openhands / claude-sonnet-4-5-20250929@anthropic</td>
+      <td>443</td>
+      <td>89</td>
+      <td>0.424</td>
+      <td>0.029</td>
+      <td>0.625</td>
+      <td>0.549</td>
+      <td>0.551</td>
+      <td>0.832</td>
+      <td>1.000</td>
+      <td>0.116</td>
+      <td>0.710</td>
+      <td>0.447</td>
+      <td>0.795</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / minimax-m2.5@Minimax</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.422</td>
+      <td>0.027</td>
+      <td>0.458</td>
+      <td>0.546</td>
+      <td>0.547</td>
+      <td>0.269</td>
+      <td>0.548</td>
+      <td>0.482</td>
+      <td>0.648</td>
+      <td>0.475</td>
+      <td>0.149</td>
+    </tr>
+    <tr>
+      <td>mini-swe-agent / gpt-5-codex@openai</td>
+      <td>444</td>
+      <td>89</td>
+      <td>0.414</td>
+      <td>0.018</td>
+      <td>0.424</td>
+      <td>0.535</td>
+      <td>0.536</td>
+      <td>0.162</td>
+      <td>0.405</td>
+      <td>0.620</td>
+      <td>0.648</td>
+      <td>0.407</td>
+      <td>0.078</td>
+    </tr>
+    <tr>
+      <td>claude-code / claude-sonnet-4-5-20250929@anthropic</td>
+      <td>437</td>
+      <td>89</td>
+      <td>0.396</td>
+      <td>-0.001</td>
+      <td>0.476</td>
+      <td>0.509</td>
+      <td>0.509</td>
+      <td>0.242</td>
+      <td>0.826</td>
+      <td>0.360</td>
+      <td>0.489</td>
+      <td>0.619</td>
+      <td>0.250</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / deepseek-v3.2@deepseek</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.396</td>
+      <td>-0.000</td>
+      <td>0.499</td>
+      <td>0.508</td>
+      <td>0.510</td>
+      <td>0.517</td>
+      <td>0.586</td>
+      <td>0.553</td>
+      <td>0.648</td>
+      <td>0.418</td>
+      <td>0.255</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / claude-opus-4-1-20250805@anthropic</td>
+      <td>443</td>
+      <td>89</td>
+      <td>0.382</td>
+      <td>-0.015</td>
+      <td>0.464</td>
+      <td>0.489</td>
+      <td>0.489</td>
+      <td>0.363</td>
+      <td>0.579</td>
+      <td>0.376</td>
+      <td>0.648</td>
+      <td>0.574</td>
+      <td>0.198</td>
+    </tr>
+    <tr>
+      <td>openhands / claude-opus-4-1-20250805@anthropic</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.368</td>
+      <td>-0.027</td>
+      <td>0.568</td>
+      <td>0.471</td>
+      <td>0.472</td>
+      <td>0.693</td>
+      <td>0.926</td>
+      <td>0.027</td>
+      <td>0.644</td>
+      <td>0.566</td>
+      <td>0.747</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / gpt-5.1-codex@openai</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.368</td>
+      <td>-0.027</td>
+      <td>0.440</td>
+      <td>0.471</td>
+      <td>0.472</td>
+      <td>0.244</td>
+      <td>0.544</td>
+      <td>0.538</td>
+      <td>0.648</td>
+      <td>0.435</td>
+      <td>0.169</td>
+    </tr>
+    <tr>
+      <td>claude-code / minimax-m2.1@minimax</td>
+      <td>445</td>
+      <td>89</td>
+      <td>0.366</td>
+      <td>-0.029</td>
+      <td>0.446</td>
+      <td>0.468</td>
+      <td>0.469</td>
+      <td>0.285</td>
+      <td>0.760</td>
+      <td>0.371</td>
+      <td>0.299</td>
+      <td>0.636</td>
+      <td>0.278</td>
+    </tr>
+    <tr>
+      <td>terminus-2 / moonshotai/Kimi-K2-Thinking@together_ai</td>
+      <td>892</td>
+      <td>89</td>
+      <td>0.359</td>
+      <td>-0.038</td>
+      <td>0.516</td>
+      <td>0.457</td>
+      <td>0.457</td>
+      <td>0.520</td>
+      <td>0.545</td>
+      <td>0.544</td>
+      <td>0.648</td>
+      <td>0.549</td>
+      <td>0.411</td>
+    </tr>
+  </tbody>
+</table></div></section>
+  </div>
+</body>
+</html>

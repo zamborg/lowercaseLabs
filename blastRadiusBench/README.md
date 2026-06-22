@@ -20,6 +20,7 @@ The MVP is intentionally centered on small, Harbor-native repo-edit tasks where 
 The planned v2 extends the same scoring model to:
 
 - Harbor dataset adapters and task subsets such as Terminal-Bench and other repo-centric coding tasks.
+- WolfBench run-level imports for Terminal-Bench 2.0 consistency, outcome, and variance analysis.
 - Weave-based online evaluation and observability.
 - Richer annotations at symbol and dependency-frontier level.
 - Human and LLM adjudication for ambiguous reads.
@@ -31,7 +32,7 @@ The planned v2 extends the same scoring model to:
 - `docs/publication-plan.md`: paper framing, dataset strategy, and experimental plan.
 - `docs/research-framing.md`: literature positioning, motivations, hypotheses, and experiments.
 - `docs/research-notes.md`: current research grounding and source links.
-- `src/blast_radius_bench/`: Python package for loading trajectories, scoring them, and building judge prompts.
+- `src/blast_radius_bench/`: Python package for loading trajectories, scoring them, building judge prompts, and summarizing public run corpora.
 - `tasks/`: Harbor-native benchmark tasks.
 - `task_specs/`: gold-context specs used by `blast-radius-bench` scoring.
 - `tests/`: fixtures and unit tests for the core primitives.
@@ -75,7 +76,30 @@ uv run blast-radius-bench tb-public-report \
 ```
 
 That command writes CSV summaries, PNG plots, and an `index.html` dashboard to the chosen output directory.
+
+To analyze published WolfBench run-level artifacts:
+
+```bash
+uv run blast-radius-bench wolfbench-report \
+  https://github.com/wandb/WolfBench/tree/main/wolfbench-runs \
+  --output-dir reports/wolfbench \
+  --max-runs 25
 ```
+
+For full-corpus WolfBench reports, use a local checkout or set `GITHUB_TOKEN` to avoid GitHub API rate limits. The GitHub data contains run configs and task rewards; full trajectory-level blast-radius scoring requires joining the W&B Weave traces referenced by WolfBench.
+
+To render heuristic harness x model spider fingerprints from an existing report:
+
+```bash
+uv run blast-radius-bench spider-report \
+  reports/terminalbench-public/yoonholee-terminalbench-trajectories \
+  --output-dir reports/spider/terminalbench-public \
+  --min-runs 25 \
+  --min-trace-coverage 0.25 \
+  --top-groups 12
+```
+
+The spider report auto-detects public Terminal-Bench trace reports and WolfBench reliability reports. Trace spiders are behavioral fingerprints: high values mean more of a property such as tool intensity, search/read intensity, early edit behavior, verification intensity, or recovery churn. They are not a single quality score.
 
 ## Task Spec Shape
 

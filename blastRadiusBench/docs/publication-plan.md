@@ -108,6 +108,8 @@ The current `regex-book-search` task belongs in the first bucket.
 
 Once the metrics stabilize, annotate a subset of existing Harbor-runnable benchmarks such as Terminal-Bench or other repository-edit tasks.
 
+WolfBench is now the best large-scale external corpus for this tier. Its GitHub artifacts provide repeated Terminal-Bench 2.0 runs across multiple agents, models, thinking settings, and timestamps. The run-level JSON is enough to study outcome variance, per-task reliability, duration/error metadata, and WolfBench's five-metric profile: ceiling, best-of, average, worst-of, and solid. Full blast-radius scoring still needs trajectory-level joins through the W&B Weave artifacts referenced by WolfBench.
+
 This is where the Harbor-over-Harbor story becomes strongest:
 
 - existing benchmarks provide realism
@@ -135,6 +137,7 @@ The first serious study should look like this:
 - 3 to 5 agent systems
 - 2 to 4 model families
 - multiple seeds or repeated runs when agents are nondeterministic
+- WolfBench as an external validity layer for Terminal-Bench 2.0 outcome variance before trace-level context labels are available
 
 The key result is not one scalar leaderboard. The key result is a set of tradeoffs:
 
@@ -142,6 +145,7 @@ The key result is not one scalar leaderboard. The key result is a set of tradeof
 - success versus cost
 - success versus required-context recall
 - task category versus exploration behavior
+- reliability versus ceiling: which agents can occasionally solve broad task sets versus solve the same tasks consistently
 
 ## Figures that will matter
 
@@ -153,6 +157,8 @@ The main figures should probably be:
 - per-agent box plots for justified precision and bloat ratio
 - a category heatmap across task families
 - trajectory funnel plots from search to content read to edit
+- a WolfBench consistency chart showing solid, average, and ceiling scores for the same model under different agents or settings
+- harness x model spider fingerprints that show behavioral skews: success, task lift, tool intensity, exploration diversity, search/read intensity, edit eagerness, verification intensity, and recovery churn
 
 ## What makes the work distinct
 
@@ -162,6 +168,7 @@ There are already context-oriented coding benchmarks. The distinction for `blast
 - it is Harbor-compatible and can score existing agent runs
 - it measures repository traversal behavior, not only retrieved context quality
 - it preserves cost and tool-use tradeoffs alongside task outcome
+- it makes harness/model behavioral style legible as a multi-axis fingerprint instead of compressing everything into a single leaderboard number
 
 In short, the project is best described as a reusable benchmark layer for agent trajectory analysis.
 
@@ -189,5 +196,6 @@ The next project phase should focus on four deliverables:
 2. harden the scorer for multiple Harbor agents and trace shapes
 3. define an annotation rubric and adjudication workflow
 4. run a first cross-agent pilot and inspect which metrics are stable
+5. use WolfBench run-level imports to select high-variance Terminal-Bench tasks worth trace-level annotation
 
 If those four pieces hold up, the paper direction is real.

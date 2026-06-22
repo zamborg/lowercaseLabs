@@ -1,0 +1,561 @@
+group_label,agent,model,runs,tasks,axis,value,label
+terminus-3-3 / claude-opus-4-6@anthropic,terminus-3-3,claude-opus-4-6@anthropic,442,89,success,1.0,Success
+terminus-3-3 / gemini-3.1-pro-preview@Google,terminus-3-3,gemini-3.1-pro-preview@Google,445,89,success,0.9992,Success
+judy / claude-opus-4.6@anthropic,judy,claude-opus-4.6@anthropic,445,89,success,0.9586,Success
+deepagent-harbor / gpt-5.2-codex@openai,deepagent-harbor,gpt-5.2-codex@openai,433,89,success,0.8996,Success
+terminus-2 / claude-opus-4-6@anthropic,terminus-2,claude-opus-4-6@anthropic,445,89,success,0.8335,Success
+claude-code / claude-opus-4-6@anthropic,claude-code,claude-opus-4-6@anthropic,445,89,success,0.7648,Success
+terminus-2 / claude-opus-4-5-20251101@anthropic,terminus-2,claude-opus-4-5-20251101@anthropic,445,89,success,0.7616,Success
+terminus-2 / gemini-3-pro-preview@gemini,terminus-2,gemini-3-pro-preview@gemini,445,89,success,0.7491,Success
+terminus-2 / gpt-5.2@openai,terminus-2,gpt-5.2@openai,444,89,success,0.7102,Success
+terminus-2 / glm-5@z-ai,terminus-2,glm-5@z-ai,442,89,success,0.6853,Success
+claude-code / claude-opus-4-5-20251101@anthropic,claude-code,claude-opus-4-5-20251101@anthropic,445,89,success,0.6835,Success
+openhands / claude-opus-4-5-20251101@anthropic,openhands,claude-opus-4-5-20251101@anthropic,445,89,success,0.6804,Success
+terminus-2 / gemini-3-flash-preview@gemini,terminus-2,gemini-3-flash-preview@gemini,445,89,success,0.6772,Success
+codex / gpt-5@openai,codex,gpt-5@openai,439,89,success,0.6459,Success
+terminus-2 / gpt-5.1@openai,terminus-2,gpt-5.1@openai,445,89,success,0.621,Success
+codex / gpt-5-codex@openai,codex,gpt-5-codex@openai,436,89,success,0.574,Success
+terminus-2 / gpt-5-codex@openai,terminus-2,gpt-5-codex@openai,437,89,success,0.5726,Success
+openhands / gpt-5@openai,openhands,gpt-5@openai,445,89,success,0.5678,Success
+terminus-2 / claude-sonnet-4-5-20250929@anthropic,terminus-2,claude-sonnet-4-5-20250929@anthropic,440,89,success,0.5589,Success
+mini-swe-agent / claude-sonnet-4-5-20250929@anthropic,mini-swe-agent,claude-sonnet-4-5-20250929@anthropic,442,89,success,0.5499,Success
+openhands / claude-sonnet-4-5-20250929@anthropic,openhands,claude-sonnet-4-5-20250929@anthropic,443,89,success,0.5486,Success
+terminus-2 / minimax-m2.5@Minimax,terminus-2,minimax-m2.5@Minimax,445,89,success,0.5459,Success
+mini-swe-agent / gpt-5-codex@openai,mini-swe-agent,gpt-5-codex@openai,444,89,success,0.5347,Success
+claude-code / claude-sonnet-4-5-20250929@anthropic,claude-code,claude-sonnet-4-5-20250929@anthropic,437,89,success,0.5089,Success
+terminus-2 / deepseek-v3.2@deepseek,terminus-2,deepseek-v3.2@deepseek,445,89,success,0.5084,Success
+terminus-2 / claude-opus-4-1-20250805@anthropic,terminus-2,claude-opus-4-1-20250805@anthropic,443,89,success,0.4889,Success
+openhands / claude-opus-4-1-20250805@anthropic,openhands,claude-opus-4-1-20250805@anthropic,445,89,success,0.4709,Success
+terminus-2 / gpt-5.1-codex@openai,terminus-2,gpt-5.1-codex@openai,445,89,success,0.4709,Success
+claude-code / minimax-m2.1@minimax,claude-code,minimax-m2.1@minimax,445,89,success,0.4678,Success
+terminus-2 / moonshotai/Kimi-K2-Thinking@together_ai,terminus-2,moonshotai/Kimi-K2-Thinking@together_ai,892,89,success,0.4573,Success
+terminus-2 / gpt-5@openai,terminus-2,gpt-5@openai,438,89,success,0.4537,Success
+mini-swe-agent / claude-opus-4-1-20250805@anthropic,mini-swe-agent,claude-opus-4-1-20250805@anthropic,444,89,success,0.447,Success
+claude-code / claude-opus-4-1-20250805@anthropic,claude-code,claude-opus-4-1-20250805@anthropic,437,89,success,0.4421,Success
+mini-swe-agent / gpt-5@openai,mini-swe-agent,gpt-5@openai,445,89,success,0.4303,Success
+terminus-2 / gemini-2.5-pro@gemini,terminus-2,gemini-2.5-pro@gemini,442,89,success,0.4146,Success
+codex / gpt-5-mini@openai,codex,gpt-5-mini@openai,437,89,success,0.3975,Success
+terminus-2 / accounts/fireworks/models/minimax-m2@fireworks_ai,terminus-2,accounts/fireworks/models/minimax-m2@fireworks_ai,902,89,success,0.3839,Success
+mini-swe-agent / claude-haiku-4-5-20251001@anthropic,mini-swe-agent,claude-haiku-4-5-20251001@anthropic,444,89,success,0.3718,Success
+terminus-2 / minimax-m2.1@openai,terminus-2,minimax-m2.1@openai,438,89,success,0.3711,Success
+openhands / gpt-5-mini@openai,openhands,gpt-5-mini@openai,445,89,success,0.3646,Success
+terminus-2 / claude-haiku-4-5-20251001@anthropic,terminus-2,claude-haiku-4-5-20251001@anthropic,439,89,success,0.3543,Success
+terminus-2 / moonshotai/Kimi-K2-Instruct-0905@together_ai,terminus-2,moonshotai/Kimi-K2-Instruct-0905@together_ai,923,89,success,0.3471,Success
+claude-code / claude-haiku-4-5-20251001@anthropic,claude-code,claude-haiku-4-5-20251001@anthropic,438,89,success,0.3425,Success
+openhands / grok-4-0709@xai,openhands,grok-4-0709@xai,444,89,success,0.3373,Success
+openhands / moonshotai/Kimi-K2-Instruct-0905@together_ai,openhands,moonshotai/Kimi-K2-Instruct-0905@together_ai,875,89,success,0.3366,Success
+mini-swe-agent / gemini-2.5-pro@gemini,mini-swe-agent,gemini-2.5-pro@gemini,444,89,success,0.3217,Success
+mini-swe-agent / grok-code-fast-1@xai,mini-swe-agent,grok-code-fast-1@xai,445,89,success,0.3177,Success
+openhands / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,openhands,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,878,89,success,0.3163,Success
+mini-swe-agent / grok-4-0709@xai,mini-swe-agent,grok-4-0709@xai,445,89,success,0.3115,Success
+terminus-2 / accounts/fireworks/models/glm-4p6@fireworks_ai,terminus-2,accounts/fireworks/models/glm-4p6@fireworks_ai,904,89,success,0.3029,Success
+terminus-2 / gpt-5-mini@openai,terminus-2,gpt-5-mini@openai,438,89,success,0.2981,Success
+terminus-2 / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,terminus-2,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,929,89,success,0.2936,Success
+terminus-2 / grok-4-0709@xai,terminus-2,grok-4-0709@xai,436,89,success,0.2869,Success
+mini-swe-agent / gpt-5-mini@openai,mini-swe-agent,gpt-5-mini@openai,445,89,success,0.2677,Success
+gemini-cli / gemini-2.5-pro@gemini,gemini-cli,gemini-2.5-pro@gemini,437,89,success,0.232,Success
+terminus-2 / openai/gpt-oss-120b@together_ai,terminus-2,openai/gpt-oss-120b@together_ai,925,89,success,0.2259,Success
+terminus-2 / gemini-2.5-flash@gemini,terminus-2,gemini-2.5-flash@gemini,439,89,success,0.1959,Success
+mini-swe-agent / gemini-2.5-flash@gemini,mini-swe-agent,gemini-2.5-flash@gemini,445,89,success,0.1958,Success
+openhands / gemini-2.5-flash@gemini,openhands,gemini-2.5-flash@gemini,445,89,success,0.1864,Success
+openhands / gemini-2.5-pro@gemini,openhands,gemini-2.5-pro@gemini,445,89,success,0.1864,Success
+gemini-cli / gemini-2.5-flash@gemini,gemini-cli,gemini-2.5-flash@gemini,439,89,success,0.1737,Success
+mini-swe-agent / openai/gpt-oss-120b@together_ai,mini-swe-agent,openai/gpt-oss-120b@together_ai,887,89,success,0.1558,Success
+terminus-2 / grok-code-fast-1@xai,terminus-2,grok-code-fast-1@xai,445,89,success,0.1552,Success
+openhands / claude-haiku-4-5-20251001@anthropic,openhands,claude-haiku-4-5-20251001@anthropic,444,89,success,0.1525,Success
+codex / gpt-5-nano@openai,codex,gpt-5-nano@openai,440,89,success,0.1195,Success
+openhands / gpt-5-nano@openai,openhands,gpt-5-nano@openai,444,89,success,0.0961,Success
+terminus-2 / gpt-5-nano@openai,terminus-2,gpt-5-nano@openai,436,89,success,0.0699,Success
+mini-swe-agent / gpt-5-nano@openai,mini-swe-agent,gpt-5-nano@openai,445,89,success,0.0551,Success
+mini-swe-agent / openai/gpt-oss-20b@together_ai,mini-swe-agent,openai/gpt-oss-20b@together_ai,888,89,success,0.0052,Success
+terminus-2 / openai/gpt-oss-20b@together_ai,terminus-2,openai/gpt-oss-20b@together_ai,932,89,success,0.0,Success
+terminus-3-3 / claude-opus-4-6@anthropic,terminus-3-3,claude-opus-4-6@anthropic,442,89,task_lift,0.9987,Task Lift
+terminus-3-3 / gemini-3.1-pro-preview@Google,terminus-3-3,gemini-3.1-pro-preview@Google,445,89,task_lift,1.0,Task Lift
+judy / claude-opus-4.6@anthropic,judy,claude-opus-4.6@anthropic,445,89,task_lift,0.9594,Task Lift
+deepagent-harbor / gpt-5.2-codex@openai,deepagent-harbor,gpt-5.2-codex@openai,433,89,task_lift,0.8881,Task Lift
+terminus-2 / claude-opus-4-6@anthropic,terminus-2,claude-opus-4-6@anthropic,445,89,task_lift,0.8346,Task Lift
+claude-code / claude-opus-4-6@anthropic,claude-code,claude-opus-4-6@anthropic,445,89,task_lift,0.7659,Task Lift
+terminus-2 / claude-opus-4-5-20251101@anthropic,terminus-2,claude-opus-4-5-20251101@anthropic,445,89,task_lift,0.7628,Task Lift
+terminus-2 / gemini-3-pro-preview@gemini,terminus-2,gemini-3-pro-preview@gemini,445,89,task_lift,0.7503,Task Lift
+terminus-2 / gpt-5.2@openai,terminus-2,gpt-5.2@openai,444,89,task_lift,0.7104,Task Lift
+terminus-2 / glm-5@z-ai,terminus-2,glm-5@z-ai,442,89,task_lift,0.6862,Task Lift
+claude-code / claude-opus-4-5-20251101@anthropic,claude-code,claude-opus-4-5-20251101@anthropic,445,89,task_lift,0.6847,Task Lift
+openhands / claude-opus-4-5-20251101@anthropic,openhands,claude-opus-4-5-20251101@anthropic,445,89,task_lift,0.6816,Task Lift
+terminus-2 / gemini-3-flash-preview@gemini,terminus-2,gemini-3-flash-preview@gemini,445,89,task_lift,0.6785,Task Lift
+codex / gpt-5@openai,codex,gpt-5@openai,439,89,task_lift,0.6456,Task Lift
+terminus-2 / gpt-5.1@openai,terminus-2,gpt-5.1@openai,445,89,task_lift,0.6218,Task Lift
+codex / gpt-5-codex@openai,codex,gpt-5-codex@openai,436,89,task_lift,0.5744,Task Lift
+terminus-2 / gpt-5-codex@openai,terminus-2,gpt-5-codex@openai,437,89,task_lift,0.5695,Task Lift
+openhands / gpt-5@openai,openhands,gpt-5@openai,445,89,task_lift,0.5693,Task Lift
+terminus-2 / claude-sonnet-4-5-20250929@anthropic,terminus-2,claude-sonnet-4-5-20250929@anthropic,440,89,task_lift,0.5572,Task Lift
+mini-swe-agent / claude-sonnet-4-5-20250929@anthropic,mini-swe-agent,claude-sonnet-4-5-20250929@anthropic,442,89,task_lift,0.5511,Task Lift
+openhands / claude-sonnet-4-5-20250929@anthropic,openhands,claude-sonnet-4-5-20250929@anthropic,443,89,task_lift,0.551,Task Lift
+terminus-2 / minimax-m2.5@Minimax,terminus-2,minimax-m2.5@Minimax,445,89,task_lift,0.5474,Task Lift
+mini-swe-agent / gpt-5-codex@openai,mini-swe-agent,gpt-5-codex@openai,444,89,task_lift,0.5356,Task Lift
+claude-code / claude-sonnet-4-5-20250929@anthropic,claude-code,claude-sonnet-4-5-20250929@anthropic,437,89,task_lift,0.5093,Task Lift
+terminus-2 / deepseek-v3.2@deepseek,terminus-2,deepseek-v3.2@deepseek,445,89,task_lift,0.5099,Task Lift
+terminus-2 / claude-opus-4-1-20250805@anthropic,terminus-2,claude-opus-4-1-20250805@anthropic,443,89,task_lift,0.4889,Task Lift
+openhands / claude-opus-4-1-20250805@anthropic,openhands,claude-opus-4-1-20250805@anthropic,445,89,task_lift,0.4725,Task Lift
+terminus-2 / gpt-5.1-codex@openai,terminus-2,gpt-5.1-codex@openai,445,89,task_lift,0.4725,Task Lift
+claude-code / minimax-m2.1@minimax,claude-code,minimax-m2.1@minimax,445,89,task_lift,0.4694,Task Lift
+terminus-2 / moonshotai/Kimi-K2-Thinking@together_ai,terminus-2,moonshotai/Kimi-K2-Thinking@together_ai,892,89,task_lift,0.4574,Task Lift
+terminus-2 / gpt-5@openai,terminus-2,gpt-5@openai,438,89,task_lift,0.4527,Task Lift
+mini-swe-agent / claude-opus-4-1-20250805@anthropic,mini-swe-agent,claude-opus-4-1-20250805@anthropic,444,89,task_lift,0.4477,Task Lift
+claude-code / claude-opus-4-1-20250805@anthropic,claude-code,claude-opus-4-1-20250805@anthropic,437,89,task_lift,0.4425,Task Lift
+mini-swe-agent / gpt-5@openai,mini-swe-agent,gpt-5@openai,445,89,task_lift,0.4319,Task Lift
+terminus-2 / gemini-2.5-pro@gemini,terminus-2,gemini-2.5-pro@gemini,442,89,task_lift,0.4157,Task Lift
+codex / gpt-5-mini@openai,codex,gpt-5-mini@openai,437,89,task_lift,0.3985,Task Lift
+terminus-2 / accounts/fireworks/models/minimax-m2@fireworks_ai,terminus-2,accounts/fireworks/models/minimax-m2@fireworks_ai,902,89,task_lift,0.3841,Task Lift
+mini-swe-agent / claude-haiku-4-5-20251001@anthropic,mini-swe-agent,claude-haiku-4-5-20251001@anthropic,444,89,task_lift,0.3737,Task Lift
+terminus-2 / minimax-m2.1@openai,terminus-2,minimax-m2.1@openai,438,89,task_lift,0.37,Task Lift
+openhands / gpt-5-mini@openai,openhands,gpt-5-mini@openai,445,89,task_lift,0.3664,Task Lift
+terminus-2 / claude-haiku-4-5-20251001@anthropic,terminus-2,claude-haiku-4-5-20251001@anthropic,439,89,task_lift,0.3545,Task Lift
+terminus-2 / moonshotai/Kimi-K2-Instruct-0905@together_ai,terminus-2,moonshotai/Kimi-K2-Instruct-0905@together_ai,923,89,task_lift,0.3484,Task Lift
+claude-code / claude-haiku-4-5-20251001@anthropic,claude-code,claude-haiku-4-5-20251001@anthropic,438,89,task_lift,0.3424,Task Lift
+openhands / grok-4-0709@xai,openhands,grok-4-0709@xai,444,89,task_lift,0.3381,Task Lift
+openhands / moonshotai/Kimi-K2-Instruct-0905@together_ai,openhands,moonshotai/Kimi-K2-Instruct-0905@together_ai,875,89,task_lift,0.3375,Task Lift
+mini-swe-agent / gemini-2.5-pro@gemini,mini-swe-agent,gemini-2.5-pro@gemini,444,89,task_lift,0.3228,Task Lift
+mini-swe-agent / grok-code-fast-1@xai,mini-swe-agent,grok-code-fast-1@xai,445,89,task_lift,0.3195,Task Lift
+openhands / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,openhands,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,878,89,task_lift,0.3176,Task Lift
+mini-swe-agent / grok-4-0709@xai,mini-swe-agent,grok-4-0709@xai,445,89,task_lift,0.3133,Task Lift
+terminus-2 / accounts/fireworks/models/glm-4p6@fireworks_ai,terminus-2,accounts/fireworks/models/glm-4p6@fireworks_ai,904,89,task_lift,0.3019,Task Lift
+terminus-2 / gpt-5-mini@openai,terminus-2,gpt-5-mini@openai,438,89,task_lift,0.2969,Task Lift
+terminus-2 / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,terminus-2,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,929,89,task_lift,0.2946,Task Lift
+terminus-2 / grok-4-0709@xai,terminus-2,grok-4-0709@xai,436,89,task_lift,0.2842,Task Lift
+mini-swe-agent / gpt-5-mini@openai,mini-swe-agent,gpt-5-mini@openai,445,89,task_lift,0.2696,Task Lift
+gemini-cli / gemini-2.5-pro@gemini,gemini-cli,gemini-2.5-pro@gemini,437,89,task_lift,0.2332,Task Lift
+terminus-2 / openai/gpt-oss-120b@together_ai,terminus-2,openai/gpt-oss-120b@together_ai,925,89,task_lift,0.2241,Task Lift
+terminus-2 / gemini-2.5-flash@gemini,terminus-2,gemini-2.5-flash@gemini,439,89,task_lift,0.1945,Task Lift
+mini-swe-agent / gemini-2.5-flash@gemini,mini-swe-agent,gemini-2.5-flash@gemini,445,89,task_lift,0.1978,Task Lift
+openhands / gemini-2.5-flash@gemini,openhands,gemini-2.5-flash@gemini,445,89,task_lift,0.1884,Task Lift
+openhands / gemini-2.5-pro@gemini,openhands,gemini-2.5-pro@gemini,445,89,task_lift,0.1884,Task Lift
+gemini-cli / gemini-2.5-flash@gemini,gemini-cli,gemini-2.5-flash@gemini,439,89,task_lift,0.1751,Task Lift
+mini-swe-agent / openai/gpt-oss-120b@together_ai,mini-swe-agent,openai/gpt-oss-120b@together_ai,887,89,task_lift,0.1578,Task Lift
+terminus-2 / grok-code-fast-1@xai,terminus-2,grok-code-fast-1@xai,445,89,task_lift,0.1572,Task Lift
+openhands / claude-haiku-4-5-20251001@anthropic,openhands,claude-haiku-4-5-20251001@anthropic,444,89,task_lift,0.1548,Task Lift
+codex / gpt-5-nano@openai,codex,gpt-5-nano@openai,440,89,task_lift,0.1199,Task Lift
+openhands / gpt-5-nano@openai,openhands,gpt-5-nano@openai,444,89,task_lift,0.0984,Task Lift
+terminus-2 / gpt-5-nano@openai,terminus-2,gpt-5-nano@openai,436,89,task_lift,0.0684,Task Lift
+mini-swe-agent / gpt-5-nano@openai,mini-swe-agent,gpt-5-nano@openai,445,89,task_lift,0.0573,Task Lift
+mini-swe-agent / openai/gpt-oss-20b@together_ai,mini-swe-agent,openai/gpt-oss-20b@together_ai,888,89,task_lift,0.0076,Task Lift
+terminus-2 / openai/gpt-oss-20b@together_ai,terminus-2,openai/gpt-oss-20b@together_ai,932,89,task_lift,0.0,Task Lift
+terminus-3-3 / claude-opus-4-6@anthropic,terminus-3-3,claude-opus-4-6@anthropic,442,89,tool_intensity,0.2201,Tool Intensity
+terminus-3-3 / gemini-3.1-pro-preview@Google,terminus-3-3,gemini-3.1-pro-preview@Google,445,89,tool_intensity,0.3216,Tool Intensity
+judy / claude-opus-4.6@anthropic,judy,claude-opus-4.6@anthropic,445,89,tool_intensity,0.1001,Tool Intensity
+deepagent-harbor / gpt-5.2-codex@openai,deepagent-harbor,gpt-5.2-codex@openai,433,89,tool_intensity,0.199,Tool Intensity
+terminus-2 / claude-opus-4-6@anthropic,terminus-2,claude-opus-4-6@anthropic,445,89,tool_intensity,0.2454,Tool Intensity
+claude-code / claude-opus-4-6@anthropic,claude-code,claude-opus-4-6@anthropic,445,89,tool_intensity,0.208,Tool Intensity
+terminus-2 / claude-opus-4-5-20251101@anthropic,terminus-2,claude-opus-4-5-20251101@anthropic,445,89,tool_intensity,0.3692,Tool Intensity
+terminus-2 / gemini-3-pro-preview@gemini,terminus-2,gemini-3-pro-preview@gemini,445,89,tool_intensity,0.2348,Tool Intensity
+terminus-2 / gpt-5.2@openai,terminus-2,gpt-5.2@openai,444,89,tool_intensity,0.397,Tool Intensity
+terminus-2 / glm-5@z-ai,terminus-2,glm-5@z-ai,442,89,tool_intensity,0.2772,Tool Intensity
+claude-code / claude-opus-4-5-20251101@anthropic,claude-code,claude-opus-4-5-20251101@anthropic,445,89,tool_intensity,0.2971,Tool Intensity
+openhands / claude-opus-4-5-20251101@anthropic,openhands,claude-opus-4-5-20251101@anthropic,445,89,tool_intensity,0.307,Tool Intensity
+terminus-2 / gemini-3-flash-preview@gemini,terminus-2,gemini-3-flash-preview@gemini,445,89,tool_intensity,0.2772,Tool Intensity
+codex / gpt-5@openai,codex,gpt-5@openai,439,89,tool_intensity,0.0997,Tool Intensity
+terminus-2 / gpt-5.1@openai,terminus-2,gpt-5.1@openai,445,89,tool_intensity,0.3085,Tool Intensity
+codex / gpt-5-codex@openai,codex,gpt-5-codex@openai,436,89,tool_intensity,0.0539,Tool Intensity
+terminus-2 / gpt-5-codex@openai,terminus-2,gpt-5-codex@openai,437,89,tool_intensity,0.2496,Tool Intensity
+openhands / gpt-5@openai,openhands,gpt-5@openai,445,89,tool_intensity,0.2806,Tool Intensity
+terminus-2 / claude-sonnet-4-5-20250929@anthropic,terminus-2,claude-sonnet-4-5-20250929@anthropic,440,89,tool_intensity,0.3752,Tool Intensity
+mini-swe-agent / claude-sonnet-4-5-20250929@anthropic,mini-swe-agent,claude-sonnet-4-5-20250929@anthropic,442,89,tool_intensity,0.3374,Tool Intensity
+openhands / claude-sonnet-4-5-20250929@anthropic,openhands,claude-sonnet-4-5-20250929@anthropic,443,89,tool_intensity,0.8318,Tool Intensity
+terminus-2 / minimax-m2.5@Minimax,terminus-2,minimax-m2.5@Minimax,445,89,tool_intensity,0.2689,Tool Intensity
+mini-swe-agent / gpt-5-codex@openai,mini-swe-agent,gpt-5-codex@openai,444,89,tool_intensity,0.1615,Tool Intensity
+claude-code / claude-sonnet-4-5-20250929@anthropic,claude-code,claude-sonnet-4-5-20250929@anthropic,437,89,tool_intensity,0.2421,Tool Intensity
+terminus-2 / deepseek-v3.2@deepseek,terminus-2,deepseek-v3.2@deepseek,445,89,tool_intensity,0.517,Tool Intensity
+terminus-2 / claude-opus-4-1-20250805@anthropic,terminus-2,claude-opus-4-1-20250805@anthropic,443,89,tool_intensity,0.3629,Tool Intensity
+openhands / claude-opus-4-1-20250805@anthropic,openhands,claude-opus-4-1-20250805@anthropic,445,89,tool_intensity,0.693,Tool Intensity
+terminus-2 / gpt-5.1-codex@openai,terminus-2,gpt-5.1-codex@openai,445,89,tool_intensity,0.2441,Tool Intensity
+claude-code / minimax-m2.1@minimax,claude-code,minimax-m2.1@minimax,445,89,tool_intensity,0.2849,Tool Intensity
+terminus-2 / moonshotai/Kimi-K2-Thinking@together_ai,terminus-2,moonshotai/Kimi-K2-Thinking@together_ai,892,89,tool_intensity,0.52,Tool Intensity
+terminus-2 / gpt-5@openai,terminus-2,gpt-5@openai,438,89,tool_intensity,0.3856,Tool Intensity
+mini-swe-agent / claude-opus-4-1-20250805@anthropic,mini-swe-agent,claude-opus-4-1-20250805@anthropic,444,89,tool_intensity,0.2275,Tool Intensity
+claude-code / claude-opus-4-1-20250805@anthropic,claude-code,claude-opus-4-1-20250805@anthropic,437,89,tool_intensity,0.2468,Tool Intensity
+mini-swe-agent / gpt-5@openai,mini-swe-agent,gpt-5@openai,445,89,tool_intensity,0.0349,Tool Intensity
+terminus-2 / gemini-2.5-pro@gemini,terminus-2,gemini-2.5-pro@gemini,442,89,tool_intensity,0.2386,Tool Intensity
+codex / gpt-5-mini@openai,codex,gpt-5-mini@openai,437,89,tool_intensity,0.0886,Tool Intensity
+terminus-2 / accounts/fireworks/models/minimax-m2@fireworks_ai,terminus-2,accounts/fireworks/models/minimax-m2@fireworks_ai,902,89,tool_intensity,0.393,Tool Intensity
+mini-swe-agent / claude-haiku-4-5-20251001@anthropic,mini-swe-agent,claude-haiku-4-5-20251001@anthropic,444,89,tool_intensity,0.311,Tool Intensity
+terminus-2 / minimax-m2.1@openai,terminus-2,minimax-m2.1@openai,438,89,tool_intensity,0.4296,Tool Intensity
+openhands / gpt-5-mini@openai,openhands,gpt-5-mini@openai,445,89,tool_intensity,0.3405,Tool Intensity
+terminus-2 / claude-haiku-4-5-20251001@anthropic,terminus-2,claude-haiku-4-5-20251001@anthropic,439,89,tool_intensity,0.3873,Tool Intensity
+terminus-2 / moonshotai/Kimi-K2-Instruct-0905@together_ai,terminus-2,moonshotai/Kimi-K2-Instruct-0905@together_ai,923,89,tool_intensity,0.3499,Tool Intensity
+claude-code / claude-haiku-4-5-20251001@anthropic,claude-code,claude-haiku-4-5-20251001@anthropic,438,89,tool_intensity,0.2618,Tool Intensity
+openhands / grok-4-0709@xai,openhands,grok-4-0709@xai,444,89,tool_intensity,0.309,Tool Intensity
+openhands / moonshotai/Kimi-K2-Instruct-0905@together_ai,openhands,moonshotai/Kimi-K2-Instruct-0905@together_ai,875,89,tool_intensity,0.8529,Tool Intensity
+mini-swe-agent / gemini-2.5-pro@gemini,mini-swe-agent,gemini-2.5-pro@gemini,444,89,tool_intensity,0.1974,Tool Intensity
+mini-swe-agent / grok-code-fast-1@xai,mini-swe-agent,grok-code-fast-1@xai,445,89,tool_intensity,0.1659,Tool Intensity
+openhands / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,openhands,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,878,89,tool_intensity,0.89,Tool Intensity
+mini-swe-agent / grok-4-0709@xai,mini-swe-agent,grok-4-0709@xai,445,89,tool_intensity,0.1581,Tool Intensity
+terminus-2 / accounts/fireworks/models/glm-4p6@fireworks_ai,terminus-2,accounts/fireworks/models/glm-4p6@fireworks_ai,904,89,tool_intensity,0.4899,Tool Intensity
+terminus-2 / gpt-5-mini@openai,terminus-2,gpt-5-mini@openai,438,89,tool_intensity,0.5403,Tool Intensity
+terminus-2 / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,terminus-2,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,929,89,tool_intensity,0.3727,Tool Intensity
+terminus-2 / grok-4-0709@xai,terminus-2,grok-4-0709@xai,436,89,tool_intensity,0.2016,Tool Intensity
+mini-swe-agent / gpt-5-mini@openai,mini-swe-agent,gpt-5-mini@openai,445,89,tool_intensity,0.0489,Tool Intensity
+gemini-cli / gemini-2.5-pro@gemini,gemini-cli,gemini-2.5-pro@gemini,437,89,tool_intensity,0.1057,Tool Intensity
+terminus-2 / openai/gpt-oss-120b@together_ai,terminus-2,openai/gpt-oss-120b@together_ai,925,89,tool_intensity,0.2297,Tool Intensity
+terminus-2 / gemini-2.5-flash@gemini,terminus-2,gemini-2.5-flash@gemini,439,89,tool_intensity,0.6422,Tool Intensity
+mini-swe-agent / gemini-2.5-flash@gemini,mini-swe-agent,gemini-2.5-flash@gemini,445,89,tool_intensity,0.3326,Tool Intensity
+openhands / gemini-2.5-flash@gemini,openhands,gemini-2.5-flash@gemini,445,89,tool_intensity,0.6877,Tool Intensity
+openhands / gemini-2.5-pro@gemini,openhands,gemini-2.5-pro@gemini,445,89,tool_intensity,0.5825,Tool Intensity
+gemini-cli / gemini-2.5-flash@gemini,gemini-cli,gemini-2.5-flash@gemini,439,89,tool_intensity,0.0738,Tool Intensity
+mini-swe-agent / openai/gpt-oss-120b@together_ai,mini-swe-agent,openai/gpt-oss-120b@together_ai,887,89,tool_intensity,0.0608,Tool Intensity
+terminus-2 / grok-code-fast-1@xai,terminus-2,grok-code-fast-1@xai,445,89,tool_intensity,0.1694,Tool Intensity
+openhands / claude-haiku-4-5-20251001@anthropic,openhands,claude-haiku-4-5-20251001@anthropic,444,89,tool_intensity,0.352,Tool Intensity
+codex / gpt-5-nano@openai,codex,gpt-5-nano@openai,440,89,tool_intensity,0.0223,Tool Intensity
+openhands / gpt-5-nano@openai,openhands,gpt-5-nano@openai,444,89,tool_intensity,0.5172,Tool Intensity
+terminus-2 / gpt-5-nano@openai,terminus-2,gpt-5-nano@openai,436,89,tool_intensity,1.0,Tool Intensity
+mini-swe-agent / gpt-5-nano@openai,mini-swe-agent,gpt-5-nano@openai,445,89,tool_intensity,0.0265,Tool Intensity
+mini-swe-agent / openai/gpt-oss-20b@together_ai,mini-swe-agent,openai/gpt-oss-20b@together_ai,888,89,tool_intensity,0.0,Tool Intensity
+terminus-2 / openai/gpt-oss-20b@together_ai,terminus-2,openai/gpt-oss-20b@together_ai,932,89,tool_intensity,0.0669,Tool Intensity
+terminus-3-3 / claude-opus-4-6@anthropic,terminus-3-3,claude-opus-4-6@anthropic,442,89,exploration_diversity,0.6844,Exploration
+terminus-3-3 / gemini-3.1-pro-preview@Google,terminus-3-3,gemini-3.1-pro-preview@Google,445,89,exploration_diversity,0.6216,Exploration
+judy / claude-opus-4.6@anthropic,judy,claude-opus-4.6@anthropic,445,89,exploration_diversity,0.5775,Exploration
+deepagent-harbor / gpt-5.2-codex@openai,deepagent-harbor,gpt-5.2-codex@openai,433,89,exploration_diversity,0.7796,Exploration
+terminus-2 / claude-opus-4-6@anthropic,terminus-2,claude-opus-4-6@anthropic,445,89,exploration_diversity,0.6073,Exploration
+claude-code / claude-opus-4-6@anthropic,claude-code,claude-opus-4-6@anthropic,445,89,exploration_diversity,0.9399,Exploration
+terminus-2 / claude-opus-4-5-20251101@anthropic,terminus-2,claude-opus-4-5-20251101@anthropic,445,89,exploration_diversity,0.5925,Exploration
+terminus-2 / gemini-3-pro-preview@gemini,terminus-2,gemini-3-pro-preview@gemini,445,89,exploration_diversity,0.6668,Exploration
+terminus-2 / gpt-5.2@openai,terminus-2,gpt-5.2@openai,444,89,exploration_diversity,0.5851,Exploration
+terminus-2 / glm-5@z-ai,terminus-2,glm-5@z-ai,442,89,exploration_diversity,0.5642,Exploration
+claude-code / claude-opus-4-5-20251101@anthropic,claude-code,claude-opus-4-5-20251101@anthropic,445,89,exploration_diversity,0.8173,Exploration
+openhands / claude-opus-4-5-20251101@anthropic,openhands,claude-opus-4-5-20251101@anthropic,445,89,exploration_diversity,0.9479,Exploration
+terminus-2 / gemini-3-flash-preview@gemini,terminus-2,gemini-3-flash-preview@gemini,445,89,exploration_diversity,0.6143,Exploration
+codex / gpt-5@openai,codex,gpt-5@openai,439,89,exploration_diversity,0.3685,Exploration
+terminus-2 / gpt-5.1@openai,terminus-2,gpt-5.1@openai,445,89,exploration_diversity,0.5967,Exploration
+codex / gpt-5-codex@openai,codex,gpt-5-codex@openai,436,89,exploration_diversity,0.4158,Exploration
+terminus-2 / gpt-5-codex@openai,terminus-2,gpt-5-codex@openai,437,89,exploration_diversity,0.5387,Exploration
+openhands / gpt-5@openai,openhands,gpt-5@openai,445,89,exploration_diversity,0.7467,Exploration
+terminus-2 / claude-sonnet-4-5-20250929@anthropic,terminus-2,claude-sonnet-4-5-20250929@anthropic,440,89,exploration_diversity,0.5691,Exploration
+mini-swe-agent / claude-sonnet-4-5-20250929@anthropic,mini-swe-agent,claude-sonnet-4-5-20250929@anthropic,442,89,exploration_diversity,0.4186,Exploration
+openhands / claude-sonnet-4-5-20250929@anthropic,openhands,claude-sonnet-4-5-20250929@anthropic,443,89,exploration_diversity,1.0,Exploration
+terminus-2 / minimax-m2.5@Minimax,terminus-2,minimax-m2.5@Minimax,445,89,exploration_diversity,0.5484,Exploration
+mini-swe-agent / gpt-5-codex@openai,mini-swe-agent,gpt-5-codex@openai,444,89,exploration_diversity,0.4046,Exploration
+claude-code / claude-sonnet-4-5-20250929@anthropic,claude-code,claude-sonnet-4-5-20250929@anthropic,437,89,exploration_diversity,0.8262,Exploration
+terminus-2 / deepseek-v3.2@deepseek,terminus-2,deepseek-v3.2@deepseek,445,89,exploration_diversity,0.586,Exploration
+terminus-2 / claude-opus-4-1-20250805@anthropic,terminus-2,claude-opus-4-1-20250805@anthropic,443,89,exploration_diversity,0.5785,Exploration
+openhands / claude-opus-4-1-20250805@anthropic,openhands,claude-opus-4-1-20250805@anthropic,445,89,exploration_diversity,0.9258,Exploration
+terminus-2 / gpt-5.1-codex@openai,terminus-2,gpt-5.1-codex@openai,445,89,exploration_diversity,0.5436,Exploration
+claude-code / minimax-m2.1@minimax,claude-code,minimax-m2.1@minimax,445,89,exploration_diversity,0.7598,Exploration
+terminus-2 / moonshotai/Kimi-K2-Thinking@together_ai,terminus-2,moonshotai/Kimi-K2-Thinking@together_ai,892,89,exploration_diversity,0.5455,Exploration
+terminus-2 / gpt-5@openai,terminus-2,gpt-5@openai,438,89,exploration_diversity,0.543,Exploration
+mini-swe-agent / claude-opus-4-1-20250805@anthropic,mini-swe-agent,claude-opus-4-1-20250805@anthropic,444,89,exploration_diversity,0.4195,Exploration
+claude-code / claude-opus-4-1-20250805@anthropic,claude-code,claude-opus-4-1-20250805@anthropic,437,89,exploration_diversity,0.9085,Exploration
+mini-swe-agent / gpt-5@openai,mini-swe-agent,gpt-5@openai,445,89,exploration_diversity,0.1708,Exploration
+terminus-2 / gemini-2.5-pro@gemini,terminus-2,gemini-2.5-pro@gemini,442,89,exploration_diversity,0.5989,Exploration
+codex / gpt-5-mini@openai,codex,gpt-5-mini@openai,437,89,exploration_diversity,0.3368,Exploration
+terminus-2 / accounts/fireworks/models/minimax-m2@fireworks_ai,terminus-2,accounts/fireworks/models/minimax-m2@fireworks_ai,902,89,exploration_diversity,0.5441,Exploration
+mini-swe-agent / claude-haiku-4-5-20251001@anthropic,mini-swe-agent,claude-haiku-4-5-20251001@anthropic,444,89,exploration_diversity,0.364,Exploration
+terminus-2 / minimax-m2.1@openai,terminus-2,minimax-m2.1@openai,438,89,exploration_diversity,0.5617,Exploration
+openhands / gpt-5-mini@openai,openhands,gpt-5-mini@openai,445,89,exploration_diversity,0.6518,Exploration
+terminus-2 / claude-haiku-4-5-20251001@anthropic,terminus-2,claude-haiku-4-5-20251001@anthropic,439,89,exploration_diversity,0.5762,Exploration
+terminus-2 / moonshotai/Kimi-K2-Instruct-0905@together_ai,terminus-2,moonshotai/Kimi-K2-Instruct-0905@together_ai,923,89,exploration_diversity,0.5848,Exploration
+claude-code / claude-haiku-4-5-20251001@anthropic,claude-code,claude-haiku-4-5-20251001@anthropic,438,89,exploration_diversity,0.8136,Exploration
+openhands / grok-4-0709@xai,openhands,grok-4-0709@xai,444,89,exploration_diversity,0.7364,Exploration
+openhands / moonshotai/Kimi-K2-Instruct-0905@together_ai,openhands,moonshotai/Kimi-K2-Instruct-0905@together_ai,875,89,exploration_diversity,0.8834,Exploration
+mini-swe-agent / gemini-2.5-pro@gemini,mini-swe-agent,gemini-2.5-pro@gemini,444,89,exploration_diversity,0.3679,Exploration
+mini-swe-agent / grok-code-fast-1@xai,mini-swe-agent,grok-code-fast-1@xai,445,89,exploration_diversity,0.4516,Exploration
+openhands / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,openhands,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,878,89,exploration_diversity,0.8218,Exploration
+mini-swe-agent / grok-4-0709@xai,mini-swe-agent,grok-4-0709@xai,445,89,exploration_diversity,0.3793,Exploration
+terminus-2 / accounts/fireworks/models/glm-4p6@fireworks_ai,terminus-2,accounts/fireworks/models/glm-4p6@fireworks_ai,904,89,exploration_diversity,0.558,Exploration
+terminus-2 / gpt-5-mini@openai,terminus-2,gpt-5-mini@openai,438,89,exploration_diversity,0.5491,Exploration
+terminus-2 / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,terminus-2,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,929,89,exploration_diversity,0.5769,Exploration
+terminus-2 / grok-4-0709@xai,terminus-2,grok-4-0709@xai,436,89,exploration_diversity,0.4696,Exploration
+mini-swe-agent / gpt-5-mini@openai,mini-swe-agent,gpt-5-mini@openai,445,89,exploration_diversity,0.1505,Exploration
+gemini-cli / gemini-2.5-pro@gemini,gemini-cli,gemini-2.5-pro@gemini,437,89,exploration_diversity,0.6429,Exploration
+terminus-2 / openai/gpt-oss-120b@together_ai,terminus-2,openai/gpt-oss-120b@together_ai,925,89,exploration_diversity,0.5914,Exploration
+terminus-2 / gemini-2.5-flash@gemini,terminus-2,gemini-2.5-flash@gemini,439,89,exploration_diversity,0.4471,Exploration
+mini-swe-agent / gemini-2.5-flash@gemini,mini-swe-agent,gemini-2.5-flash@gemini,445,89,exploration_diversity,0.3742,Exploration
+openhands / gemini-2.5-flash@gemini,openhands,gemini-2.5-flash@gemini,445,89,exploration_diversity,0.7263,Exploration
+openhands / gemini-2.5-pro@gemini,openhands,gemini-2.5-pro@gemini,445,89,exploration_diversity,0.6512,Exploration
+gemini-cli / gemini-2.5-flash@gemini,gemini-cli,gemini-2.5-flash@gemini,439,89,exploration_diversity,0.561,Exploration
+mini-swe-agent / openai/gpt-oss-120b@together_ai,mini-swe-agent,openai/gpt-oss-120b@together_ai,887,89,exploration_diversity,0.2632,Exploration
+terminus-2 / grok-code-fast-1@xai,terminus-2,grok-code-fast-1@xai,445,89,exploration_diversity,0.6008,Exploration
+openhands / claude-haiku-4-5-20251001@anthropic,openhands,claude-haiku-4-5-20251001@anthropic,444,89,exploration_diversity,0.4812,Exploration
+codex / gpt-5-nano@openai,codex,gpt-5-nano@openai,440,89,exploration_diversity,0.2301,Exploration
+openhands / gpt-5-nano@openai,openhands,gpt-5-nano@openai,444,89,exploration_diversity,0.7347,Exploration
+terminus-2 / gpt-5-nano@openai,terminus-2,gpt-5-nano@openai,436,89,exploration_diversity,0.4785,Exploration
+mini-swe-agent / gpt-5-nano@openai,mini-swe-agent,gpt-5-nano@openai,445,89,exploration_diversity,0.1074,Exploration
+mini-swe-agent / openai/gpt-oss-20b@together_ai,mini-swe-agent,openai/gpt-oss-20b@together_ai,888,89,exploration_diversity,0.0,Exploration
+terminus-2 / openai/gpt-oss-20b@together_ai,terminus-2,openai/gpt-oss-20b@together_ai,932,89,exploration_diversity,0.4844,Exploration
+terminus-3-3 / claude-opus-4-6@anthropic,terminus-3-3,claude-opus-4-6@anthropic,442,89,search_read_intensity,0.5041,Search/Read
+terminus-3-3 / gemini-3.1-pro-preview@Google,terminus-3-3,gemini-3.1-pro-preview@Google,445,89,search_read_intensity,0.5616,Search/Read
+judy / claude-opus-4.6@anthropic,judy,claude-opus-4.6@anthropic,445,89,search_read_intensity,0.1552,Search/Read
+deepagent-harbor / gpt-5.2-codex@openai,deepagent-harbor,gpt-5.2-codex@openai,433,89,search_read_intensity,0.7937,Search/Read
+terminus-2 / claude-opus-4-6@anthropic,terminus-2,claude-opus-4-6@anthropic,445,89,search_read_intensity,0.5786,Search/Read
+claude-code / claude-opus-4-6@anthropic,claude-code,claude-opus-4-6@anthropic,445,89,search_read_intensity,0.3995,Search/Read
+terminus-2 / claude-opus-4-5-20251101@anthropic,terminus-2,claude-opus-4-5-20251101@anthropic,445,89,search_read_intensity,0.526,Search/Read
+terminus-2 / gemini-3-pro-preview@gemini,terminus-2,gemini-3-pro-preview@gemini,445,89,search_read_intensity,0.4997,Search/Read
+terminus-2 / gpt-5.2@openai,terminus-2,gpt-5.2@openai,444,89,search_read_intensity,0.547,Search/Read
+terminus-2 / glm-5@z-ai,terminus-2,glm-5@z-ai,442,89,search_read_intensity,0.4874,Search/Read
+claude-code / claude-opus-4-5-20251101@anthropic,claude-code,claude-opus-4-5-20251101@anthropic,445,89,search_read_intensity,0.4215,Search/Read
+openhands / claude-opus-4-5-20251101@anthropic,openhands,claude-opus-4-5-20251101@anthropic,445,89,search_read_intensity,0.0676,Search/Read
+terminus-2 / gemini-3-flash-preview@gemini,terminus-2,gemini-3-flash-preview@gemini,445,89,search_read_intensity,0.6582,Search/Read
+codex / gpt-5@openai,codex,gpt-5@openai,439,89,search_read_intensity,0.4563,Search/Read
+terminus-2 / gpt-5.1@openai,terminus-2,gpt-5.1@openai,445,89,search_read_intensity,0.9147,Search/Read
+codex / gpt-5-codex@openai,codex,gpt-5-codex@openai,436,89,search_read_intensity,0.2824,Search/Read
+terminus-2 / gpt-5-codex@openai,terminus-2,gpt-5-codex@openai,437,89,search_read_intensity,0.5911,Search/Read
+openhands / gpt-5@openai,openhands,gpt-5@openai,445,89,search_read_intensity,0.1716,Search/Read
+terminus-2 / claude-sonnet-4-5-20250929@anthropic,terminus-2,claude-sonnet-4-5-20250929@anthropic,440,89,search_read_intensity,0.4753,Search/Read
+mini-swe-agent / claude-sonnet-4-5-20250929@anthropic,mini-swe-agent,claude-sonnet-4-5-20250929@anthropic,442,89,search_read_intensity,0.6463,Search/Read
+openhands / claude-sonnet-4-5-20250929@anthropic,openhands,claude-sonnet-4-5-20250929@anthropic,443,89,search_read_intensity,0.116,Search/Read
+terminus-2 / minimax-m2.5@Minimax,terminus-2,minimax-m2.5@Minimax,445,89,search_read_intensity,0.4818,Search/Read
+mini-swe-agent / gpt-5-codex@openai,mini-swe-agent,gpt-5-codex@openai,444,89,search_read_intensity,0.6196,Search/Read
+claude-code / claude-sonnet-4-5-20250929@anthropic,claude-code,claude-sonnet-4-5-20250929@anthropic,437,89,search_read_intensity,0.3598,Search/Read
+terminus-2 / deepseek-v3.2@deepseek,terminus-2,deepseek-v3.2@deepseek,445,89,search_read_intensity,0.5528,Search/Read
+terminus-2 / claude-opus-4-1-20250805@anthropic,terminus-2,claude-opus-4-1-20250805@anthropic,443,89,search_read_intensity,0.3759,Search/Read
+openhands / claude-opus-4-1-20250805@anthropic,openhands,claude-opus-4-1-20250805@anthropic,445,89,search_read_intensity,0.0269,Search/Read
+terminus-2 / gpt-5.1-codex@openai,terminus-2,gpt-5.1-codex@openai,445,89,search_read_intensity,0.5383,Search/Read
+claude-code / minimax-m2.1@minimax,claude-code,minimax-m2.1@minimax,445,89,search_read_intensity,0.3712,Search/Read
+terminus-2 / moonshotai/Kimi-K2-Thinking@together_ai,terminus-2,moonshotai/Kimi-K2-Thinking@together_ai,892,89,search_read_intensity,0.5441,Search/Read
+terminus-2 / gpt-5@openai,terminus-2,gpt-5@openai,438,89,search_read_intensity,0.6417,Search/Read
+mini-swe-agent / claude-opus-4-1-20250805@anthropic,mini-swe-agent,claude-opus-4-1-20250805@anthropic,444,89,search_read_intensity,0.5373,Search/Read
+claude-code / claude-opus-4-1-20250805@anthropic,claude-code,claude-opus-4-1-20250805@anthropic,437,89,search_read_intensity,0.3533,Search/Read
+mini-swe-agent / gpt-5@openai,mini-swe-agent,gpt-5@openai,445,89,search_read_intensity,0.0938,Search/Read
+terminus-2 / gemini-2.5-pro@gemini,terminus-2,gemini-2.5-pro@gemini,442,89,search_read_intensity,0.3015,Search/Read
+codex / gpt-5-mini@openai,codex,gpt-5-mini@openai,437,89,search_read_intensity,0.583,Search/Read
+terminus-2 / accounts/fireworks/models/minimax-m2@fireworks_ai,terminus-2,accounts/fireworks/models/minimax-m2@fireworks_ai,902,89,search_read_intensity,0.638,Search/Read
+mini-swe-agent / claude-haiku-4-5-20251001@anthropic,mini-swe-agent,claude-haiku-4-5-20251001@anthropic,444,89,search_read_intensity,0.8045,Search/Read
+terminus-2 / minimax-m2.1@openai,terminus-2,minimax-m2.1@openai,438,89,search_read_intensity,0.44,Search/Read
+openhands / gpt-5-mini@openai,openhands,gpt-5-mini@openai,445,89,search_read_intensity,0.3489,Search/Read
+terminus-2 / claude-haiku-4-5-20251001@anthropic,terminus-2,claude-haiku-4-5-20251001@anthropic,439,89,search_read_intensity,0.5029,Search/Read
+terminus-2 / moonshotai/Kimi-K2-Instruct-0905@together_ai,terminus-2,moonshotai/Kimi-K2-Instruct-0905@together_ai,923,89,search_read_intensity,0.6297,Search/Read
+claude-code / claude-haiku-4-5-20251001@anthropic,claude-code,claude-haiku-4-5-20251001@anthropic,438,89,search_read_intensity,0.4292,Search/Read
+openhands / grok-4-0709@xai,openhands,grok-4-0709@xai,444,89,search_read_intensity,0.0,Search/Read
+openhands / moonshotai/Kimi-K2-Instruct-0905@together_ai,openhands,moonshotai/Kimi-K2-Instruct-0905@together_ai,875,89,search_read_intensity,0.0673,Search/Read
+mini-swe-agent / gemini-2.5-pro@gemini,mini-swe-agent,gemini-2.5-pro@gemini,444,89,search_read_intensity,0.6052,Search/Read
+mini-swe-agent / grok-code-fast-1@xai,mini-swe-agent,grok-code-fast-1@xai,445,89,search_read_intensity,0.52,Search/Read
+openhands / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,openhands,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,878,89,search_read_intensity,0.0915,Search/Read
+mini-swe-agent / grok-4-0709@xai,mini-swe-agent,grok-4-0709@xai,445,89,search_read_intensity,0.7918,Search/Read
+terminus-2 / accounts/fireworks/models/glm-4p6@fireworks_ai,terminus-2,accounts/fireworks/models/glm-4p6@fireworks_ai,904,89,search_read_intensity,0.5624,Search/Read
+terminus-2 / gpt-5-mini@openai,terminus-2,gpt-5-mini@openai,438,89,search_read_intensity,0.5219,Search/Read
+terminus-2 / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,terminus-2,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,929,89,search_read_intensity,0.588,Search/Read
+terminus-2 / grok-4-0709@xai,terminus-2,grok-4-0709@xai,436,89,search_read_intensity,0.2344,Search/Read
+mini-swe-agent / gpt-5-mini@openai,mini-swe-agent,gpt-5-mini@openai,445,89,search_read_intensity,0.2418,Search/Read
+gemini-cli / gemini-2.5-pro@gemini,gemini-cli,gemini-2.5-pro@gemini,437,89,search_read_intensity,0.3457,Search/Read
+terminus-2 / openai/gpt-oss-120b@together_ai,terminus-2,openai/gpt-oss-120b@together_ai,925,89,search_read_intensity,0.4993,Search/Read
+terminus-2 / gemini-2.5-flash@gemini,terminus-2,gemini-2.5-flash@gemini,439,89,search_read_intensity,0.1129,Search/Read
+mini-swe-agent / gemini-2.5-flash@gemini,mini-swe-agent,gemini-2.5-flash@gemini,445,89,search_read_intensity,0.3394,Search/Read
+openhands / gemini-2.5-flash@gemini,openhands,gemini-2.5-flash@gemini,445,89,search_read_intensity,0.0889,Search/Read
+openhands / gemini-2.5-pro@gemini,openhands,gemini-2.5-pro@gemini,445,89,search_read_intensity,0.03,Search/Read
+gemini-cli / gemini-2.5-flash@gemini,gemini-cli,gemini-2.5-flash@gemini,439,89,search_read_intensity,0.4244,Search/Read
+mini-swe-agent / openai/gpt-oss-120b@together_ai,mini-swe-agent,openai/gpt-oss-120b@together_ai,887,89,search_read_intensity,0.5474,Search/Read
+terminus-2 / grok-code-fast-1@xai,terminus-2,grok-code-fast-1@xai,445,89,search_read_intensity,0.3191,Search/Read
+openhands / claude-haiku-4-5-20251001@anthropic,openhands,claude-haiku-4-5-20251001@anthropic,444,89,search_read_intensity,0.4058,Search/Read
+codex / gpt-5-nano@openai,codex,gpt-5-nano@openai,440,89,search_read_intensity,0.5992,Search/Read
+openhands / gpt-5-nano@openai,openhands,gpt-5-nano@openai,444,89,search_read_intensity,0.5561,Search/Read
+terminus-2 / gpt-5-nano@openai,terminus-2,gpt-5-nano@openai,436,89,search_read_intensity,0.5076,Search/Read
+mini-swe-agent / gpt-5-nano@openai,mini-swe-agent,gpt-5-nano@openai,445,89,search_read_intensity,0.3305,Search/Read
+mini-swe-agent / openai/gpt-oss-20b@together_ai,mini-swe-agent,openai/gpt-oss-20b@together_ai,888,89,search_read_intensity,1.0,Search/Read
+terminus-2 / openai/gpt-oss-20b@together_ai,terminus-2,openai/gpt-oss-20b@together_ai,932,89,search_read_intensity,0.1898,Search/Read
+terminus-3-3 / claude-opus-4-6@anthropic,terminus-3-3,claude-opus-4-6@anthropic,442,89,edit_eagerness,0.6476,Early Edit
+terminus-3-3 / gemini-3.1-pro-preview@Google,terminus-3-3,gemini-3.1-pro-preview@Google,445,89,edit_eagerness,0.6476,Early Edit
+judy / claude-opus-4.6@anthropic,judy,claude-opus-4.6@anthropic,445,89,edit_eagerness,0.8287,Early Edit
+deepagent-harbor / gpt-5.2-codex@openai,deepagent-harbor,gpt-5.2-codex@openai,433,89,edit_eagerness,0.6507,Early Edit
+terminus-2 / claude-opus-4-6@anthropic,terminus-2,claude-opus-4-6@anthropic,445,89,edit_eagerness,0.6476,Early Edit
+claude-code / claude-opus-4-6@anthropic,claude-code,claude-opus-4-6@anthropic,445,89,edit_eagerness,0.5813,Early Edit
+terminus-2 / claude-opus-4-5-20251101@anthropic,terminus-2,claude-opus-4-5-20251101@anthropic,445,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / gemini-3-pro-preview@gemini,terminus-2,gemini-3-pro-preview@gemini,445,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / gpt-5.2@openai,terminus-2,gpt-5.2@openai,444,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / glm-5@z-ai,terminus-2,glm-5@z-ai,442,89,edit_eagerness,0.6476,Early Edit
+claude-code / claude-opus-4-5-20251101@anthropic,claude-code,claude-opus-4-5-20251101@anthropic,445,89,edit_eagerness,0.3811,Early Edit
+openhands / claude-opus-4-5-20251101@anthropic,openhands,claude-opus-4-5-20251101@anthropic,445,89,edit_eagerness,0.9437,Early Edit
+terminus-2 / gemini-3-flash-preview@gemini,terminus-2,gemini-3-flash-preview@gemini,445,89,edit_eagerness,0.6476,Early Edit
+codex / gpt-5@openai,codex,gpt-5@openai,439,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / gpt-5.1@openai,terminus-2,gpt-5.1@openai,445,89,edit_eagerness,0.6476,Early Edit
+codex / gpt-5-codex@openai,codex,gpt-5-codex@openai,436,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / gpt-5-codex@openai,terminus-2,gpt-5-codex@openai,437,89,edit_eagerness,0.6476,Early Edit
+openhands / gpt-5@openai,openhands,gpt-5@openai,445,89,edit_eagerness,0.7368,Early Edit
+terminus-2 / claude-sonnet-4-5-20250929@anthropic,terminus-2,claude-sonnet-4-5-20250929@anthropic,440,89,edit_eagerness,0.6476,Early Edit
+mini-swe-agent / claude-sonnet-4-5-20250929@anthropic,mini-swe-agent,claude-sonnet-4-5-20250929@anthropic,442,89,edit_eagerness,0.6476,Early Edit
+openhands / claude-sonnet-4-5-20250929@anthropic,openhands,claude-sonnet-4-5-20250929@anthropic,443,89,edit_eagerness,0.7097,Early Edit
+terminus-2 / minimax-m2.5@Minimax,terminus-2,minimax-m2.5@Minimax,445,89,edit_eagerness,0.6476,Early Edit
+mini-swe-agent / gpt-5-codex@openai,mini-swe-agent,gpt-5-codex@openai,444,89,edit_eagerness,0.6476,Early Edit
+claude-code / claude-sonnet-4-5-20250929@anthropic,claude-code,claude-sonnet-4-5-20250929@anthropic,437,89,edit_eagerness,0.4892,Early Edit
+terminus-2 / deepseek-v3.2@deepseek,terminus-2,deepseek-v3.2@deepseek,445,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / claude-opus-4-1-20250805@anthropic,terminus-2,claude-opus-4-1-20250805@anthropic,443,89,edit_eagerness,0.6476,Early Edit
+openhands / claude-opus-4-1-20250805@anthropic,openhands,claude-opus-4-1-20250805@anthropic,445,89,edit_eagerness,0.6445,Early Edit
+terminus-2 / gpt-5.1-codex@openai,terminus-2,gpt-5.1-codex@openai,445,89,edit_eagerness,0.6476,Early Edit
+claude-code / minimax-m2.1@minimax,claude-code,minimax-m2.1@minimax,445,89,edit_eagerness,0.2995,Early Edit
+terminus-2 / moonshotai/Kimi-K2-Thinking@together_ai,terminus-2,moonshotai/Kimi-K2-Thinking@together_ai,892,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / gpt-5@openai,terminus-2,gpt-5@openai,438,89,edit_eagerness,0.6476,Early Edit
+mini-swe-agent / claude-opus-4-1-20250805@anthropic,mini-swe-agent,claude-opus-4-1-20250805@anthropic,444,89,edit_eagerness,0.6476,Early Edit
+claude-code / claude-opus-4-1-20250805@anthropic,claude-code,claude-opus-4-1-20250805@anthropic,437,89,edit_eagerness,0.3092,Early Edit
+mini-swe-agent / gpt-5@openai,mini-swe-agent,gpt-5@openai,445,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / gemini-2.5-pro@gemini,terminus-2,gemini-2.5-pro@gemini,442,89,edit_eagerness,0.6476,Early Edit
+codex / gpt-5-mini@openai,codex,gpt-5-mini@openai,437,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / accounts/fireworks/models/minimax-m2@fireworks_ai,terminus-2,accounts/fireworks/models/minimax-m2@fireworks_ai,902,89,edit_eagerness,0.6476,Early Edit
+mini-swe-agent / claude-haiku-4-5-20251001@anthropic,mini-swe-agent,claude-haiku-4-5-20251001@anthropic,444,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / minimax-m2.1@openai,terminus-2,minimax-m2.1@openai,438,89,edit_eagerness,0.6476,Early Edit
+openhands / gpt-5-mini@openai,openhands,gpt-5-mini@openai,445,89,edit_eagerness,0.8287,Early Edit
+terminus-2 / claude-haiku-4-5-20251001@anthropic,terminus-2,claude-haiku-4-5-20251001@anthropic,439,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / moonshotai/Kimi-K2-Instruct-0905@together_ai,terminus-2,moonshotai/Kimi-K2-Instruct-0905@together_ai,923,89,edit_eagerness,0.6476,Early Edit
+claude-code / claude-haiku-4-5-20251001@anthropic,claude-code,claude-haiku-4-5-20251001@anthropic,438,89,edit_eagerness,0.367,Early Edit
+openhands / grok-4-0709@xai,openhands,grok-4-0709@xai,444,89,edit_eagerness,0.5663,Early Edit
+openhands / moonshotai/Kimi-K2-Instruct-0905@together_ai,openhands,moonshotai/Kimi-K2-Instruct-0905@together_ai,875,89,edit_eagerness,0.7861,Early Edit
+mini-swe-agent / gemini-2.5-pro@gemini,mini-swe-agent,gemini-2.5-pro@gemini,444,89,edit_eagerness,0.6476,Early Edit
+mini-swe-agent / grok-code-fast-1@xai,mini-swe-agent,grok-code-fast-1@xai,445,89,edit_eagerness,0.6476,Early Edit
+openhands / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,openhands,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,878,89,edit_eagerness,0.7296,Early Edit
+mini-swe-agent / grok-4-0709@xai,mini-swe-agent,grok-4-0709@xai,445,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / accounts/fireworks/models/glm-4p6@fireworks_ai,terminus-2,accounts/fireworks/models/glm-4p6@fireworks_ai,904,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / gpt-5-mini@openai,terminus-2,gpt-5-mini@openai,438,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,terminus-2,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,929,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / grok-4-0709@xai,terminus-2,grok-4-0709@xai,436,89,edit_eagerness,0.6476,Early Edit
+mini-swe-agent / gpt-5-mini@openai,mini-swe-agent,gpt-5-mini@openai,445,89,edit_eagerness,0.6476,Early Edit
+gemini-cli / gemini-2.5-pro@gemini,gemini-cli,gemini-2.5-pro@gemini,437,89,edit_eagerness,1.0,Early Edit
+terminus-2 / openai/gpt-oss-120b@together_ai,terminus-2,openai/gpt-oss-120b@together_ai,925,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / gemini-2.5-flash@gemini,terminus-2,gemini-2.5-flash@gemini,439,89,edit_eagerness,0.6476,Early Edit
+mini-swe-agent / gemini-2.5-flash@gemini,mini-swe-agent,gemini-2.5-flash@gemini,445,89,edit_eagerness,0.6476,Early Edit
+openhands / gemini-2.5-flash@gemini,openhands,gemini-2.5-flash@gemini,445,89,edit_eagerness,0.4881,Early Edit
+openhands / gemini-2.5-pro@gemini,openhands,gemini-2.5-pro@gemini,445,89,edit_eagerness,0.7564,Early Edit
+gemini-cli / gemini-2.5-flash@gemini,gemini-cli,gemini-2.5-flash@gemini,439,89,edit_eagerness,0.9984,Early Edit
+mini-swe-agent / openai/gpt-oss-120b@together_ai,mini-swe-agent,openai/gpt-oss-120b@together_ai,887,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / grok-code-fast-1@xai,terminus-2,grok-code-fast-1@xai,445,89,edit_eagerness,0.6476,Early Edit
+openhands / claude-haiku-4-5-20251001@anthropic,openhands,claude-haiku-4-5-20251001@anthropic,444,89,edit_eagerness,0.0,Early Edit
+codex / gpt-5-nano@openai,codex,gpt-5-nano@openai,440,89,edit_eagerness,0.6476,Early Edit
+openhands / gpt-5-nano@openai,openhands,gpt-5-nano@openai,444,89,edit_eagerness,0.3541,Early Edit
+terminus-2 / gpt-5-nano@openai,terminus-2,gpt-5-nano@openai,436,89,edit_eagerness,0.6476,Early Edit
+mini-swe-agent / gpt-5-nano@openai,mini-swe-agent,gpt-5-nano@openai,445,89,edit_eagerness,0.6476,Early Edit
+mini-swe-agent / openai/gpt-oss-20b@together_ai,mini-swe-agent,openai/gpt-oss-20b@together_ai,888,89,edit_eagerness,0.6476,Early Edit
+terminus-2 / openai/gpt-oss-20b@together_ai,terminus-2,openai/gpt-oss-20b@together_ai,932,89,edit_eagerness,0.6476,Early Edit
+terminus-3-3 / claude-opus-4-6@anthropic,terminus-3-3,claude-opus-4-6@anthropic,442,89,verification_intensity,0.3159,Verification
+terminus-3-3 / gemini-3.1-pro-preview@Google,terminus-3-3,gemini-3.1-pro-preview@Google,445,89,verification_intensity,0.3898,Verification
+judy / claude-opus-4.6@anthropic,judy,claude-opus-4.6@anthropic,445,89,verification_intensity,0.0,Verification
+deepagent-harbor / gpt-5.2-codex@openai,deepagent-harbor,gpt-5.2-codex@openai,433,89,verification_intensity,0.3571,Verification
+terminus-2 / claude-opus-4-6@anthropic,terminus-2,claude-opus-4-6@anthropic,445,89,verification_intensity,0.2896,Verification
+claude-code / claude-opus-4-6@anthropic,claude-code,claude-opus-4-6@anthropic,445,89,verification_intensity,0.4989,Verification
+terminus-2 / claude-opus-4-5-20251101@anthropic,terminus-2,claude-opus-4-5-20251101@anthropic,445,89,verification_intensity,0.4647,Verification
+terminus-2 / gemini-3-pro-preview@gemini,terminus-2,gemini-3-pro-preview@gemini,445,89,verification_intensity,0.71,Verification
+terminus-2 / gpt-5.2@openai,terminus-2,gpt-5.2@openai,444,89,verification_intensity,0.3149,Verification
+terminus-2 / glm-5@z-ai,terminus-2,glm-5@z-ai,442,89,verification_intensity,0.4108,Verification
+claude-code / claude-opus-4-5-20251101@anthropic,claude-code,claude-opus-4-5-20251101@anthropic,445,89,verification_intensity,0.6513,Verification
+openhands / claude-opus-4-5-20251101@anthropic,openhands,claude-opus-4-5-20251101@anthropic,445,89,verification_intensity,0.3856,Verification
+terminus-2 / gemini-3-flash-preview@gemini,terminus-2,gemini-3-flash-preview@gemini,445,89,verification_intensity,0.4717,Verification
+codex / gpt-5@openai,codex,gpt-5@openai,439,89,verification_intensity,0.343,Verification
+terminus-2 / gpt-5.1@openai,terminus-2,gpt-5.1@openai,445,89,verification_intensity,0.4279,Verification
+codex / gpt-5-codex@openai,codex,gpt-5-codex@openai,436,89,verification_intensity,0.1998,Verification
+terminus-2 / gpt-5-codex@openai,terminus-2,gpt-5-codex@openai,437,89,verification_intensity,0.4006,Verification
+openhands / gpt-5@openai,openhands,gpt-5@openai,445,89,verification_intensity,0.2611,Verification
+terminus-2 / claude-sonnet-4-5-20250929@anthropic,terminus-2,claude-sonnet-4-5-20250929@anthropic,440,89,verification_intensity,0.5077,Verification
+mini-swe-agent / claude-sonnet-4-5-20250929@anthropic,mini-swe-agent,claude-sonnet-4-5-20250929@anthropic,442,89,verification_intensity,0.6323,Verification
+openhands / claude-sonnet-4-5-20250929@anthropic,openhands,claude-sonnet-4-5-20250929@anthropic,443,89,verification_intensity,0.4467,Verification
+terminus-2 / minimax-m2.5@Minimax,terminus-2,minimax-m2.5@Minimax,445,89,verification_intensity,0.4748,Verification
+mini-swe-agent / gpt-5-codex@openai,mini-swe-agent,gpt-5-codex@openai,444,89,verification_intensity,0.4069,Verification
+claude-code / claude-sonnet-4-5-20250929@anthropic,claude-code,claude-sonnet-4-5-20250929@anthropic,437,89,verification_intensity,0.6187,Verification
+terminus-2 / deepseek-v3.2@deepseek,terminus-2,deepseek-v3.2@deepseek,445,89,verification_intensity,0.4185,Verification
+terminus-2 / claude-opus-4-1-20250805@anthropic,terminus-2,claude-opus-4-1-20250805@anthropic,443,89,verification_intensity,0.5742,Verification
+openhands / claude-opus-4-1-20250805@anthropic,openhands,claude-opus-4-1-20250805@anthropic,445,89,verification_intensity,0.5662,Verification
+terminus-2 / gpt-5.1-codex@openai,terminus-2,gpt-5.1-codex@openai,445,89,verification_intensity,0.4355,Verification
+claude-code / minimax-m2.1@minimax,claude-code,minimax-m2.1@minimax,445,89,verification_intensity,0.6359,Verification
+terminus-2 / moonshotai/Kimi-K2-Thinking@together_ai,terminus-2,moonshotai/Kimi-K2-Thinking@together_ai,892,89,verification_intensity,0.5489,Verification
+terminus-2 / gpt-5@openai,terminus-2,gpt-5@openai,438,89,verification_intensity,0.3939,Verification
+mini-swe-agent / claude-opus-4-1-20250805@anthropic,mini-swe-agent,claude-opus-4-1-20250805@anthropic,444,89,verification_intensity,0.7337,Verification
+claude-code / claude-opus-4-1-20250805@anthropic,claude-code,claude-opus-4-1-20250805@anthropic,437,89,verification_intensity,0.457,Verification
+mini-swe-agent / gpt-5@openai,mini-swe-agent,gpt-5@openai,445,89,verification_intensity,0.3282,Verification
+terminus-2 / gemini-2.5-pro@gemini,terminus-2,gemini-2.5-pro@gemini,442,89,verification_intensity,0.7782,Verification
+codex / gpt-5-mini@openai,codex,gpt-5-mini@openai,437,89,verification_intensity,0.3443,Verification
+terminus-2 / accounts/fireworks/models/minimax-m2@fireworks_ai,terminus-2,accounts/fireworks/models/minimax-m2@fireworks_ai,902,89,verification_intensity,0.465,Verification
+mini-swe-agent / claude-haiku-4-5-20251001@anthropic,mini-swe-agent,claude-haiku-4-5-20251001@anthropic,444,89,verification_intensity,0.5733,Verification
+terminus-2 / minimax-m2.1@openai,terminus-2,minimax-m2.1@openai,438,89,verification_intensity,0.7977,Verification
+openhands / gpt-5-mini@openai,openhands,gpt-5-mini@openai,445,89,verification_intensity,0.4339,Verification
+terminus-2 / claude-haiku-4-5-20251001@anthropic,terminus-2,claude-haiku-4-5-20251001@anthropic,439,89,verification_intensity,0.7574,Verification
+terminus-2 / moonshotai/Kimi-K2-Instruct-0905@together_ai,terminus-2,moonshotai/Kimi-K2-Instruct-0905@together_ai,923,89,verification_intensity,0.6061,Verification
+claude-code / claude-haiku-4-5-20251001@anthropic,claude-code,claude-haiku-4-5-20251001@anthropic,438,89,verification_intensity,0.79,Verification
+openhands / grok-4-0709@xai,openhands,grok-4-0709@xai,444,89,verification_intensity,0.3286,Verification
+openhands / moonshotai/Kimi-K2-Instruct-0905@together_ai,openhands,moonshotai/Kimi-K2-Instruct-0905@together_ai,875,89,verification_intensity,0.6056,Verification
+mini-swe-agent / gemini-2.5-pro@gemini,mini-swe-agent,gemini-2.5-pro@gemini,444,89,verification_intensity,0.7807,Verification
+mini-swe-agent / grok-code-fast-1@xai,mini-swe-agent,grok-code-fast-1@xai,445,89,verification_intensity,0.6884,Verification
+openhands / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,openhands,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,878,89,verification_intensity,0.5304,Verification
+mini-swe-agent / grok-4-0709@xai,mini-swe-agent,grok-4-0709@xai,445,89,verification_intensity,0.579,Verification
+terminus-2 / accounts/fireworks/models/glm-4p6@fireworks_ai,terminus-2,accounts/fireworks/models/glm-4p6@fireworks_ai,904,89,verification_intensity,0.6932,Verification
+terminus-2 / gpt-5-mini@openai,terminus-2,gpt-5-mini@openai,438,89,verification_intensity,0.3179,Verification
+terminus-2 / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,terminus-2,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,929,89,verification_intensity,0.707,Verification
+terminus-2 / grok-4-0709@xai,terminus-2,grok-4-0709@xai,436,89,verification_intensity,0.5602,Verification
+mini-swe-agent / gpt-5-mini@openai,mini-swe-agent,gpt-5-mini@openai,445,89,verification_intensity,0.1972,Verification
+gemini-cli / gemini-2.5-pro@gemini,gemini-cli,gemini-2.5-pro@gemini,437,89,verification_intensity,0.6847,Verification
+terminus-2 / openai/gpt-oss-120b@together_ai,terminus-2,openai/gpt-oss-120b@together_ai,925,89,verification_intensity,0.9477,Verification
+terminus-2 / gemini-2.5-flash@gemini,terminus-2,gemini-2.5-flash@gemini,439,89,verification_intensity,0.3484,Verification
+mini-swe-agent / gemini-2.5-flash@gemini,mini-swe-agent,gemini-2.5-flash@gemini,445,89,verification_intensity,0.7758,Verification
+openhands / gemini-2.5-flash@gemini,openhands,gemini-2.5-flash@gemini,445,89,verification_intensity,0.4177,Verification
+openhands / gemini-2.5-pro@gemini,openhands,gemini-2.5-pro@gemini,445,89,verification_intensity,0.8344,Verification
+gemini-cli / gemini-2.5-flash@gemini,gemini-cli,gemini-2.5-flash@gemini,439,89,verification_intensity,0.7588,Verification
+mini-swe-agent / openai/gpt-oss-120b@together_ai,mini-swe-agent,openai/gpt-oss-120b@together_ai,887,89,verification_intensity,0.2993,Verification
+terminus-2 / grok-code-fast-1@xai,terminus-2,grok-code-fast-1@xai,445,89,verification_intensity,1.0,Verification
+openhands / claude-haiku-4-5-20251001@anthropic,openhands,claude-haiku-4-5-20251001@anthropic,444,89,verification_intensity,0.7948,Verification
+codex / gpt-5-nano@openai,codex,gpt-5-nano@openai,440,89,verification_intensity,0.4413,Verification
+openhands / gpt-5-nano@openai,openhands,gpt-5-nano@openai,444,89,verification_intensity,0.3182,Verification
+terminus-2 / gpt-5-nano@openai,terminus-2,gpt-5-nano@openai,436,89,verification_intensity,0.3695,Verification
+mini-swe-agent / gpt-5-nano@openai,mini-swe-agent,gpt-5-nano@openai,445,89,verification_intensity,0.2685,Verification
+mini-swe-agent / openai/gpt-oss-20b@together_ai,mini-swe-agent,openai/gpt-oss-20b@together_ai,888,89,verification_intensity,0.0,Verification
+terminus-2 / openai/gpt-oss-20b@together_ai,terminus-2,openai/gpt-oss-20b@together_ai,932,89,verification_intensity,0.6559,Verification
+terminus-3-3 / claude-opus-4-6@anthropic,terminus-3-3,claude-opus-4-6@anthropic,442,89,recovery_churn,0.1839,Recovery Churn
+terminus-3-3 / gemini-3.1-pro-preview@Google,terminus-3-3,gemini-3.1-pro-preview@Google,445,89,recovery_churn,0.2177,Recovery Churn
+judy / claude-opus-4.6@anthropic,judy,claude-opus-4.6@anthropic,445,89,recovery_churn,0.4347,Recovery Churn
+deepagent-harbor / gpt-5.2-codex@openai,deepagent-harbor,gpt-5.2-codex@openai,433,89,recovery_churn,0.1913,Recovery Churn
+terminus-2 / claude-opus-4-6@anthropic,terminus-2,claude-opus-4-6@anthropic,445,89,recovery_churn,0.08,Recovery Churn
+claude-code / claude-opus-4-6@anthropic,claude-code,claude-opus-4-6@anthropic,445,89,recovery_churn,0.1671,Recovery Churn
+terminus-2 / claude-opus-4-5-20251101@anthropic,terminus-2,claude-opus-4-5-20251101@anthropic,445,89,recovery_churn,0.2112,Recovery Churn
+terminus-2 / gemini-3-pro-preview@gemini,terminus-2,gemini-3-pro-preview@gemini,445,89,recovery_churn,0.1101,Recovery Churn
+terminus-2 / gpt-5.2@openai,terminus-2,gpt-5.2@openai,444,89,recovery_churn,0.0,Recovery Churn
+terminus-2 / glm-5@z-ai,terminus-2,glm-5@z-ai,442,89,recovery_churn,0.182,Recovery Churn
+claude-code / claude-opus-4-5-20251101@anthropic,claude-code,claude-opus-4-5-20251101@anthropic,445,89,recovery_churn,0.2357,Recovery Churn
+openhands / claude-opus-4-5-20251101@anthropic,openhands,claude-opus-4-5-20251101@anthropic,445,89,recovery_churn,0.3142,Recovery Churn
+terminus-2 / gemini-3-flash-preview@gemini,terminus-2,gemini-3-flash-preview@gemini,445,89,recovery_churn,0.1951,Recovery Churn
+codex / gpt-5@openai,codex,gpt-5@openai,439,89,recovery_churn,0.0658,Recovery Churn
+terminus-2 / gpt-5.1@openai,terminus-2,gpt-5.1@openai,445,89,recovery_churn,0.0474,Recovery Churn
+codex / gpt-5-codex@openai,codex,gpt-5-codex@openai,436,89,recovery_churn,0.0467,Recovery Churn
+terminus-2 / gpt-5-codex@openai,terminus-2,gpt-5-codex@openai,437,89,recovery_churn,0.1686,Recovery Churn
+openhands / gpt-5@openai,openhands,gpt-5@openai,445,89,recovery_churn,0.4154,Recovery Churn
+terminus-2 / claude-sonnet-4-5-20250929@anthropic,terminus-2,claude-sonnet-4-5-20250929@anthropic,440,89,recovery_churn,0.2118,Recovery Churn
+mini-swe-agent / claude-sonnet-4-5-20250929@anthropic,mini-swe-agent,claude-sonnet-4-5-20250929@anthropic,442,89,recovery_churn,0.1661,Recovery Churn
+openhands / claude-sonnet-4-5-20250929@anthropic,openhands,claude-sonnet-4-5-20250929@anthropic,443,89,recovery_churn,0.7947,Recovery Churn
+terminus-2 / minimax-m2.5@Minimax,terminus-2,minimax-m2.5@Minimax,445,89,recovery_churn,0.1493,Recovery Churn
+mini-swe-agent / gpt-5-codex@openai,mini-swe-agent,gpt-5-codex@openai,444,89,recovery_churn,0.078,Recovery Churn
+claude-code / claude-sonnet-4-5-20250929@anthropic,claude-code,claude-sonnet-4-5-20250929@anthropic,437,89,recovery_churn,0.2503,Recovery Churn
+terminus-2 / deepseek-v3.2@deepseek,terminus-2,deepseek-v3.2@deepseek,445,89,recovery_churn,0.255,Recovery Churn
+terminus-2 / claude-opus-4-1-20250805@anthropic,terminus-2,claude-opus-4-1-20250805@anthropic,443,89,recovery_churn,0.1984,Recovery Churn
+openhands / claude-opus-4-1-20250805@anthropic,openhands,claude-opus-4-1-20250805@anthropic,445,89,recovery_churn,0.7468,Recovery Churn
+terminus-2 / gpt-5.1-codex@openai,terminus-2,gpt-5.1-codex@openai,445,89,recovery_churn,0.1694,Recovery Churn
+claude-code / minimax-m2.1@minimax,claude-code,minimax-m2.1@minimax,445,89,recovery_churn,0.2777,Recovery Churn
+terminus-2 / moonshotai/Kimi-K2-Thinking@together_ai,terminus-2,moonshotai/Kimi-K2-Thinking@together_ai,892,89,recovery_churn,0.4113,Recovery Churn
+terminus-2 / gpt-5@openai,terminus-2,gpt-5@openai,438,89,recovery_churn,0.0482,Recovery Churn
+mini-swe-agent / claude-opus-4-1-20250805@anthropic,mini-swe-agent,claude-opus-4-1-20250805@anthropic,444,89,recovery_churn,0.109,Recovery Churn
+claude-code / claude-opus-4-1-20250805@anthropic,claude-code,claude-opus-4-1-20250805@anthropic,437,89,recovery_churn,0.2701,Recovery Churn
+mini-swe-agent / gpt-5@openai,mini-swe-agent,gpt-5@openai,445,89,recovery_churn,0.0308,Recovery Churn
+terminus-2 / gemini-2.5-pro@gemini,terminus-2,gemini-2.5-pro@gemini,442,89,recovery_churn,0.1761,Recovery Churn
+codex / gpt-5-mini@openai,codex,gpt-5-mini@openai,437,89,recovery_churn,0.0532,Recovery Churn
+terminus-2 / accounts/fireworks/models/minimax-m2@fireworks_ai,terminus-2,accounts/fireworks/models/minimax-m2@fireworks_ai,902,89,recovery_churn,0.3387,Recovery Churn
+mini-swe-agent / claude-haiku-4-5-20251001@anthropic,mini-swe-agent,claude-haiku-4-5-20251001@anthropic,444,89,recovery_churn,0.2004,Recovery Churn
+terminus-2 / minimax-m2.1@openai,terminus-2,minimax-m2.1@openai,438,89,recovery_churn,0.2558,Recovery Churn
+openhands / gpt-5-mini@openai,openhands,gpt-5-mini@openai,445,89,recovery_churn,0.4857,Recovery Churn
+terminus-2 / claude-haiku-4-5-20251001@anthropic,terminus-2,claude-haiku-4-5-20251001@anthropic,439,89,recovery_churn,0.2208,Recovery Churn
+terminus-2 / moonshotai/Kimi-K2-Instruct-0905@together_ai,terminus-2,moonshotai/Kimi-K2-Instruct-0905@together_ai,923,89,recovery_churn,0.2562,Recovery Churn
+claude-code / claude-haiku-4-5-20251001@anthropic,claude-code,claude-haiku-4-5-20251001@anthropic,438,89,recovery_churn,0.2603,Recovery Churn
+openhands / grok-4-0709@xai,openhands,grok-4-0709@xai,444,89,recovery_churn,0.4748,Recovery Churn
+openhands / moonshotai/Kimi-K2-Instruct-0905@together_ai,openhands,moonshotai/Kimi-K2-Instruct-0905@together_ai,875,89,recovery_churn,0.9523,Recovery Churn
+mini-swe-agent / gemini-2.5-pro@gemini,mini-swe-agent,gemini-2.5-pro@gemini,444,89,recovery_churn,0.1611,Recovery Churn
+mini-swe-agent / grok-code-fast-1@xai,mini-swe-agent,grok-code-fast-1@xai,445,89,recovery_churn,0.1333,Recovery Churn
+openhands / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,openhands,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,878,89,recovery_churn,1.0,Recovery Churn
+mini-swe-agent / grok-4-0709@xai,mini-swe-agent,grok-4-0709@xai,445,89,recovery_churn,0.0964,Recovery Churn
+terminus-2 / accounts/fireworks/models/glm-4p6@fireworks_ai,terminus-2,accounts/fireworks/models/glm-4p6@fireworks_ai,904,89,recovery_churn,0.4085,Recovery Churn
+terminus-2 / gpt-5-mini@openai,terminus-2,gpt-5-mini@openai,438,89,recovery_churn,0.09,Recovery Churn
+terminus-2 / Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,terminus-2,Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8@together_ai,929,89,recovery_churn,0.3022,Recovery Churn
+terminus-2 / grok-4-0709@xai,terminus-2,grok-4-0709@xai,436,89,recovery_churn,0.0859,Recovery Churn
+mini-swe-agent / gpt-5-mini@openai,mini-swe-agent,gpt-5-mini@openai,445,89,recovery_churn,0.022,Recovery Churn
+gemini-cli / gemini-2.5-pro@gemini,gemini-cli,gemini-2.5-pro@gemini,437,89,recovery_churn,0.3548,Recovery Churn
+terminus-2 / openai/gpt-oss-120b@together_ai,terminus-2,openai/gpt-oss-120b@together_ai,925,89,recovery_churn,0.3062,Recovery Churn
+terminus-2 / gemini-2.5-flash@gemini,terminus-2,gemini-2.5-flash@gemini,439,89,recovery_churn,0.3894,Recovery Churn
+mini-swe-agent / gemini-2.5-flash@gemini,mini-swe-agent,gemini-2.5-flash@gemini,445,89,recovery_churn,0.2957,Recovery Churn
+openhands / gemini-2.5-flash@gemini,openhands,gemini-2.5-flash@gemini,445,89,recovery_churn,0.8161,Recovery Churn
+openhands / gemini-2.5-pro@gemini,openhands,gemini-2.5-pro@gemini,445,89,recovery_churn,0.7849,Recovery Churn
+gemini-cli / gemini-2.5-flash@gemini,gemini-cli,gemini-2.5-flash@gemini,439,89,recovery_churn,0.3005,Recovery Churn
+mini-swe-agent / openai/gpt-oss-120b@together_ai,mini-swe-agent,openai/gpt-oss-120b@together_ai,887,89,recovery_churn,0.0476,Recovery Churn
+terminus-2 / grok-code-fast-1@xai,terminus-2,grok-code-fast-1@xai,445,89,recovery_churn,0.1253,Recovery Churn
+openhands / claude-haiku-4-5-20251001@anthropic,openhands,claude-haiku-4-5-20251001@anthropic,444,89,recovery_churn,0.4599,Recovery Churn
+codex / gpt-5-nano@openai,codex,gpt-5-nano@openai,440,89,recovery_churn,0.0003,Recovery Churn
+openhands / gpt-5-nano@openai,openhands,gpt-5-nano@openai,444,89,recovery_churn,0.5775,Recovery Churn
+terminus-2 / gpt-5-nano@openai,terminus-2,gpt-5-nano@openai,436,89,recovery_churn,0.3652,Recovery Churn
+mini-swe-agent / gpt-5-nano@openai,mini-swe-agent,gpt-5-nano@openai,445,89,recovery_churn,0.0122,Recovery Churn
+mini-swe-agent / openai/gpt-oss-20b@together_ai,mini-swe-agent,openai/gpt-oss-20b@together_ai,888,89,recovery_churn,0.0107,Recovery Churn
+terminus-2 / openai/gpt-oss-20b@together_ai,terminus-2,openai/gpt-oss-20b@together_ai,932,89,recovery_churn,0.1908,Recovery Churn
