@@ -211,7 +211,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				C3D100012F50000000AAA001 /* XCRemoteSwiftPackageReference "leap-ios" */,
-				C3D100052F50000000AAB001 /* XCRemoteSwiftPackageReference "whisperkit" */,
+				C3D100052F50000000AAB001 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B2B392352F44270300C6E338 /* Products */;
@@ -594,7 +594,7 @@
 				version = 0.9.3;
 			};
 		};
-		C3D100052F50000000AAB001 /* XCRemoteSwiftPackageReference "whisperkit" */ = {
+		C3D100052F50000000AAB001 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/argmaxinc/WhisperKit.git";
 			requirement = {
@@ -612,7 +612,7 @@
 		};
 		C3D100062F50000000AAB001 /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C3D100052F50000000AAB001 /* XCRemoteSwiftPackageReference "whisperkit" */;
+			package = C3D100052F50000000AAB001 /* XCRemoteSwiftPackageReference "WhisperKit" */;
 			productName = WhisperKit;
 		};
 /* End XCSwiftPackageProductDependency section */

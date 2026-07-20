@@ -104,7 +104,6 @@ struct OnboardingView: View {
     @EnvironmentObject private var model: AppModel
 
     @State private var micGranted = false
-    @State private var currentAppleNonce: String?
 
     var body: some View {
         ScrollView {
@@ -121,29 +120,24 @@ struct OnboardingView: View {
 
                     SignInWithAppleButton(.signIn) { request in
                         request.requestedScopes = [.fullName]
-                        let nonce = AppleNonce.random()
-                        currentAppleNonce = nonce
-                        request.nonce = AppleNonce.sha256(nonce)
                     } onCompletion: { result in
                         switch result {
                         case .failure(let error):
                             model.errorMessage = error.localizedDescription
                         case .success(let auth):
-                            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
-                                  let tokenData = credential.identityToken,
-                                  let token = String(data: tokenData, encoding: .utf8)
-                            else {
-                                model.errorMessage = "Unable to read Apple identity token"
+                            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential else {
+                                model.errorMessage = "Unable to read Apple sign-in credential"
                                 return
                             }
 
                             let fullName = [credential.fullName?.givenName, credential.fullName?.familyName]
                                 .compactMap { $0 }
                                 .joined(separator: " ")
-                            let nonce = currentAppleNonce
-                            currentAppleNonce = nil
                             Task {
-                                await model.signIn(identityToken: token, nonce: nonce, suggestedName: fullName.isEmpty ? nil : fullName)
+                                await model.signIn(
+                                    appleUserID: credential.user,
+                                    suggestedName: fullName.isEmpty ? nil : fullName
+                                )
                             }
                         }
                     }
@@ -224,7 +218,7 @@ struct OnboardingView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.sessionToken == nil)
+                .disabled(model.userID.isEmpty)
             }
             .padding(24)
         }

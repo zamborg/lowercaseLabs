@@ -1,100 +1,187 @@
-# Transcription Upgrade: Live Streaming via AVAudioEngine
+# Streaming Transcription Working Doc
 
-## Background
+Status: implemented; physical-device validation pending
+Last updated: 2026-07-15
 
-theVoid currently transcribes audio **after** recording stops:
+## Goal
 
-1. User records → stops → WhisperKit processes the `.m4a` file
-2. Transcript appears in an editable sheet (~3–5s wait on A15+)
-3. User edits if needed → submits
+Make recording feel live by showing an updating transcript while the user is speaking, then open the review sheet with text already populated.
 
-This works well. The goal of this upgrade is to show a **live, updating transcript while the user is still speaking**, eliminating the post-recording wait entirely.
+This is a UX upgrade, not a backend change. It preserves the local-first model:
 
----
+- Audio drafts still save locally.
+- Final entries still keep playable audio.
+- iCloud sync for drafts/audio/entries remains unchanged.
+- Apple SpeechAnalyzer is the iOS 26 default; WhisperKit remains an on-device alternative.
+- Liquid insights still run after the final transcript is accepted/submitted.
 
-## How blackhole does it (reference implementation)
+## Current Flow
 
-blackhole's `AudioCapturePipeline` + `StreamingWhisperSession` demonstrate the pattern:
+Relevant files:
 
-1. **`AVAudioEngine` input tap** captures raw 16 kHz mono PCM audio into a growing `[Float]` accumulation buffer.
-2. Every **~500 ms of new audio**, a snapshot of the full accumulated buffer is passed to `whisperKit.transcribe(audioArray:decodeOptions:)`.
-3. The UI swaps in the latest result — text refines with each pass as more audio context is available.
-4. On stop, one final full-buffer transcription is run (`isFinal: true`).
+- `theVoid/theVoid/AudioAndDraft.swift`
+- `theVoid/theVoid/StreamingTranscription.swift`
+- `theVoid/theVoid/VoiceTranscription.swift`
+- `theVoid/theVoid/AppModel.swift`
+- `theVoid/theVoid/ViewsVoid.swift`
 
-WhisperKit has **no streaming API**. The "streaming" effect is achieved by repeatedly re-transcribing the growing buffer. Because `tiny.en` on A15+ processes ~10 s of audio in ~1 s, a 500 ms update stride keeps up comfortably in real time.
+Current path:
 
-Key file: `blackhole/ios/Sources/Dictation/StreamingWhisperSession.swift`
+1. `RecorderEngine` uses one `AVAudioEngine` input tap.
+2. The tap writes linear PCM to a temporary `.caf`, updates the amplitude meter, and feeds the selected live session. WhisperKit converts buffers to 16 kHz mono samples; Apple converts them to `SpeechAnalyzer.bestAvailableAudioFormat`.
+3. The selected `LiveTranscriptionSession` publishes provisional text during capture. Apple uses `SpeechAnalyzer`; WhisperKit starts after 0.4 seconds and refreshes after each additional second of audio.
+4. On stop, the review sheet opens immediately with the latest partial while transcription finalization and Apple M4A export run concurrently.
+5. The final text replaces the partial unless the user has already edited it.
+6. If streaming or the final sample pass fails, the existing file-based transcription path retries from the saved `.m4a`.
+7. Submit still calls `submitDraft(... overrideTranscript:)`, so Liquid analysis reuses the accepted transcript.
 
----
+## Blackhole Reference
 
-## What needs to change in theVoid
+Blackhole already has a useful implementation:
 
-### Problem
+- `../blackhole/ios/Sources/Dictation/DictationEngine.swift`
+- `../blackhole/ios/Sources/Dictation/AudioCapturePipeline.swift`
+- `../blackhole/ios/Sources/Dictation/StreamingWhisperSession.swift`
+- `../blackhole/ios/Sources/Dictation/PCMBufferSampleConverter.swift`
+- `../blackhole/ios/Sources/Dictation/WhisperKitDictationEngine.swift`
 
-theVoid uses `AVAudioRecorder` (writes directly to an `.m4a` file). `AVAudioEngine` and `AVAudioRecorder` can't share the same `AVAudioSession` tap simultaneously.
+Pattern:
 
-### Solution: port `RecorderEngine` from `AVAudioRecorder` → `AVAudioEngine`
+1. `AVAudioEngine` installs an input tap.
+2. Tap buffers are converted to 16 kHz mono `Float` samples.
+3. A session accumulates samples.
+4. Every stride, it retranscribes the accumulated sample array using `WhisperKit.transcribe(audioArray:)`.
+5. The latest result replaces the visible text.
+6. On stop, it runs one final transcription over the full sample buffer.
 
-`AVAudioEngine` can do everything `AVAudioRecorder` does today, plus expose raw PCM buffers:
+Important constraint: WhisperKit is not doing true token streaming for speech. This is repeated partial transcription over a growing buffer.
 
-| Responsibility | Current | After |
-|---|---|---|
-| Write `.m4a` file | `AVAudioRecorder` | `AVAudioEngine` + `AVAudioFile` |
-| Feed PCM to WhisperKit | ❌ | `AVAudioEngine` input tap |
-| Amplitude metering | `AVAudioRecorder.averagePower` | manual RMS on tap buffers |
-| Session config | `AVAudioRecorder` | manual `AVAudioSession` setup |
+## Implemented Architecture
 
-### New architecture
+Keep the `theVoid` product flow, but split recording into two outputs:
 
+```text
+Microphone
+  -> AVAudioEngine input tap
+      -> amplitude meter for the dot UI
+      -> PCM buffers for the selected LiveTranscriptionSession
+      -> durable audio writer for existing draft/audio storage
 ```
-AVAudioEngine
-  └── inputNode
-        └── tap (16 kHz, 1024 samples/buffer, ~64 ms)
-              ├── PCMBufferSampleConverter → [Float] accumulation buffer
-              │     └── StreamingWhisperSession (throttled at 500 ms stride)
-              │           └── WhisperTranscriptionRuntime.shared.transcribe(audioArray:)
-              │                 └── publishes AppModel.liveTranscript (updates TextEditor live)
-              └── AVAudioFile (.m4a) — same file path as today, iCloud sync unchanged
-```
 
-### Files to create / modify
+The engine boundary lives in `TranscriptionEngine.swift`:
 
-| File | Change |
-|---|---|
-| `RecorderEngine.swift` | Replace `AVAudioRecorder` with `AVAudioEngine`; add file writing via `AVAudioFile`; expose PCM tap |
-| `AudioCapturePipeline.swift` (new) | Port from blackhole — manages AVAudioEngine setup, session config, buffer tap |
-| `StreamingWhisperSession.swift` (new) | Port from blackhole — accumulation buffer, 500 ms stride, partial/final transcription |
-| `VoiceTranscription.swift` | Add `transcribe(audioArray: [Float], ...)` overload alongside existing file-based method |
-| `AppModel.swift` | `beginTranscriptionForReview` becomes a no-op (transcript already populated by the time recording stops) |
-| `ViewsVoid.swift` | Remove the post-stop transcription spinner — transcript is ready immediately |
+- `TranscriptionEngine` prepares a language, creates a live session, transcribes a file, and unloads its resources.
+- `LiveTranscriptionSession` accepts PCM buffers and exposes provisional/final text.
+- `TranscriptionEngineCoordinator` owns exactly one selected engine and swaps implementations when settings change.
+- `TranscriptionConfiguration` is the persisted engine/language pair.
 
-### What stays the same
+Implementations:
 
-- `.m4a` file written to `DraftStore` — path, iCloud sync, playback: unchanged
-- `WhisperTranscriptionRuntime.shared` (actor singleton) — reused, add `audioArray` overload
-- `TranscriptReviewSheet` — still shows editable text, just pre-populated without a wait
-- Model download flow — unchanged
+- `AppleSpeechTranscriptionEngine` uses iOS 26 `SpeechAnalyzer` and `SpeechTranscriber` with progressive volatile/final results. It converts hardware input to Apple's compatible analyzer format, and its input queue is bounded to prevent microphone buffers from accumulating under pressure.
+- `WhisperKitTranscriptionEngine` owns an isolated Whisper runtime so replacing one engine cannot unload another operation's model.
+- `StreamingWhisperSession` provides repeated partial Whisper inference plus one accurate final pass.
 
----
+Both live sessions provide:
 
-## Trade-offs
+- Partial transcript updates while recording.
+- Final transcript after stop.
+- Silent partial-failure tolerance so audio capture continues and file transcription can take over.
 
-| | Live streaming | Current (post-stop) |
-|---|---|---|
-| UX | Text visible while speaking | ~3–5s wait after stop |
-| Complexity | High — AVAudioEngine rewrite | Low |
-| Battery / CPU | Higher (continuous inference) | Low (one-shot) |
-| Accuracy | Same model, same quality | Same |
-| Older devices | May lag on A13 and below | Fine |
+`RecorderEngine` remains the UI-facing object, with `AVAudioEngine` replacing `AVAudioRecorder` internally.
 
----
+## Audio Persistence Decision
 
-## Implementation order
+The implementation writes the microphone's linear PCM format to a temporary `.caf` with `AVAudioFile`. After capture stops, `AVAssetExportSession` converts that file to the existing draft `.m4a` while the selected engine finalizes transcription concurrently.
 
-1. Port `AudioCapturePipeline` from blackhole (thin wrapper — mostly a copy)
-2. Port `StreamingWhisperSession` from blackhole (same)
-3. Add `transcribe(audioArray:)` to `WhisperTranscriptionRuntime`
-4. Rewrite `RecorderEngine` to use `AVAudioEngine` + `AVAudioFile`, wiring the tap to `StreamingWhisperSession`
-5. Update `AppModel` — remove `beginTranscriptionForReview` task, wire `liveTranscript` to session updates
-6. Update `ViewsVoid` — `TranscriptReviewSheet` opens immediately on stop (no spinner)
-7. Delete old `SFSpeechRecognizer` permission handling if it crept back in
+This preserves the existing storage contract while keeping codec negotiation out of recording startup:
+
+- Keeps the existing draft, playback, journal, and iCloud file contract unchanged.
+- Lets the review sheet open immediately from the live partial transcript while export completes.
+- Uses Apple's M4A export path instead of asking an AAC writer to accept a live hardware format.
+- Avoids running `AVAudioRecorder` and `AVAudioEngine` at the same time.
+
+Direct AAC writing was rejected on physical hardware with `kAudioCodecUnsupportedFormatError` (`!dat`). PCM capture plus M4A export is covered by a focused simulator test; microphone behavior still needs a physical-device retest.
+
+## Implemented Components
+
+- `TranscriptionEngine.swift` owns the implementation-neutral protocols, engine/language preferences, and coordinator.
+- `AppleSpeechTranscription.swift` owns iOS 26 SpeechAnalyzer asset preparation, live analysis, final file analysis, and result reconciliation.
+- `StreamingTranscription.swift` owns Whisper PCM conversion, bounded partial scheduling, rolling transcript reconciliation, and the final sample pass.
+- `WhisperTranscriptionRuntime` supports file, full-sample, and fast plain-text partial transcription with a prewarmed language-appropriate model.
+- `RecorderEngine` owns the engine tap, PCM writer, M4A export, metering, warnings, auto-stop, live text, and finalization task.
+- `VoidExperienceView` shows the latest transcript tail during recording and opens review immediately on stop.
+- `TranscriptReviewSheet` shows text while the final pass is running and preserves user edits if they begin before final reconciliation.
+- `AppModel` retains file transcription as the fallback and the accepted-transcript seam for Liquid analysis.
+
+## Engine And Language Settings
+
+Settings exposes two controls:
+
+- Engine: Apple or WhisperKit. Apple is the default on iOS 26 and WhisperKit is the fallback on earlier supported OS versions.
+- Language: device language or a specific supported locale.
+
+For WhisperKit, English locales select `tiny.en`; every other locale selects multilingual `tiny` and passes its language code into decoding. Changing model families may require a one-time model download. Apple resolves the requested locale against `SpeechTranscriber` support and installs/reserves the matching system speech asset.
+
+## Whisper Memory Policy
+
+The original growing-buffer approach repeatedly decoded the entire recording and eventually caused memory pressure. Live decoding is now bounded while the full pass after stop remains the source of truth.
+
+Policy:
+
+- Start partial transcription after 0.4 seconds of audio.
+- Run at most one partial transcription at a time.
+- Queue the newest audio whenever another 1 second is available during inference.
+- Decode at most the latest 15 seconds for each live update.
+- Merge each rolling window into already displayed text using normalized word overlap.
+- Use the lower-cost plain-text decode path for live updates; reserve the accurate full pass for stop.
+- Always run one final transcription at stop.
+
+At the 2:30 recording limit, retained 16 kHz mono samples are about 9.6 MB. Live inference input stays capped at about 0.96 MB rather than growing to the full recording on every pass.
+
+## UX Notes
+
+Recording screen:
+
+- Show partial transcript below the timer or in a compact live preview.
+- Keep the primary touch target unchanged.
+- Do not make the user manage transcription state.
+
+Review sheet:
+
+- Remove the default spinner when final text is already available.
+- Keep spinner only for fallback final transcription.
+- Preserve edit-before-share behavior.
+
+Error handling:
+
+- If live partials fail, do not interrupt recording.
+- If final transcription fails, keep the audio draft and show the existing retry/retranscribe path.
+
+## Known Risks
+
+- `AVAudioEngine` rewrite can regress recording reliability.
+- PCM capture and post-stop M4A export still need interruption and Bluetooth-route testing.
+- Repeated WhisperKit inference can raise battery/thermal cost.
+- Apple SpeechAnalyzer requires iOS 26 and a supported downloadable language asset.
+- The newest words can revise as Whisper gains context; the UI distinguishes that active tail from older text.
+- Simulator microphone behavior is not enough; this needs device testing.
+
+## Release Checklist
+
+- [x] Build with Xcode 26.6 / iOS 26.5 SDK.
+- [x] Unit tests pass on iPhone 17 Pro / iOS 26.5 Simulator (22 passed, 0 failed), including 0.4-second live callback, 15-second inference bound, rolling-window merge, language/model selection, provider attribution, and PCM-to-M4A playback validation.
+- [x] Partial-text reconciliation has focused unit coverage.
+- [x] Apple and WhisperKit implementations compile behind the same engine/session interfaces with Xcode 26.6.
+- [ ] Recording starts/stops reliably on device.
+- [ ] Lock recording still works.
+- [ ] Auto-stop still works.
+- [ ] Live partials appear within a few seconds.
+- [ ] Apple volatile/final text behaves correctly for a full 2:30 device recording.
+- [ ] WhisperKit stays within acceptable memory/thermal limits for a full 2:30 device recording.
+- [ ] Switching engine and language downloads/prepares the correct assets and persists after relaunch.
+- [ ] Final transcript appears without post-stop wait on normal devices.
+- [ ] Fallback file transcription still works.
+- [ ] Draft deletion still works.
+- [ ] Saved entry playback still works.
+- [ ] iCloud draft/audio sync still works.
+- [ ] 2:30 recording does not overheat or stall.

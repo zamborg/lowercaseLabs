@@ -1,40 +1,31 @@
-# Liquid Insights: V0
+# Liquid Insights
 
-## V0 (implemented, always on)
-Flow:
-1. Apple on-device speech recognition creates transcript text.
-2. Liquid structured extraction runs on transcript text.
-3. Output is normalized to app taxonomy, capped at 4 tags.
-4. Existing signal/mood/color logic remains unchanged.
-5. If Liquid fails, keyword extraction fallback runs automatically.
+## V0 Pipeline
 
-Output contract stays stable:
-- `title` is generated in V0 as a concise 2-5 word heading for the entry
-- `APIInsight.moodTags` max 4
-- `APIInsight.themes` is set to `[]` by local extraction (no local theme extraction in V0)
-- No warning/context sections are generated in local V0 output
+1. On-device transcription creates transcript text.
+2. Liquid structured extraction runs locally on transcript text.
+3. Output is normalized to the app taxonomy and capped at 4 mood tags.
+4. Existing mood/color logic remains unchanged.
+5. If Liquid extraction fails, keyword fallback runs automatically.
 
-Runtime metadata is saved in `APITranscript.providerMetadata`:
-- `insight_provider`
-- `insight_pipeline`
-- `insight_mode_requested`
-- `insight_latency_ms`
-- `insight_model` (when available)
-- `insight_fallback_reason` (when fallback occurs)
-- `insight_title`
+Output contract:
+- `title` is a concise 2-5 word entry heading.
+- `APIInsight.moodTags` contains at most 4 tags.
+- `APIInsight.themes` is `[]` for local extraction.
+- Runtime metadata is saved in `APITranscript.providerMetadata`.
 
-## App UX: model preparation gate
-- On first completed login/onboarding, app shows a full-screen model preparation page.
-- The page displays circular progress (0-100%) while downloading/loading model artifacts.
-- A retry button appears if download/load fails.
-- In Settings, `Redownload Liquid Model` triggers the same full-screen preparation flow.
-- Prepared state is cached in `UserDefaults` key `thevoid.liquidModelPrepared`.
+## Runtime Configuration
 
-## Runtime configuration
-Optional `UserDefaults` keys used by Liquid runtime:
-- `thevoid.liquid.model`
-- `thevoid.liquid.quantization`
+Current defaults in `LocalReflectionAnalyzer.swift`:
+- model: `LFM2.5-1.2B-Instruct`
+- quantization: `Q5_K_M`
+- sequence length: `1024`
+- max output tokens: `256`
+- unload after each generation: enabled
+
+Supported developer override keys:
 - `thevoid.liquid.localBundlePath`
+- `thevoid.liquid.enableCustomModelSources`
 - `thevoid.liquid.modelFileURL`
 - `thevoid.liquid.modelManifestURL`
 - `thevoid.liquid.verboseLogs`
@@ -42,53 +33,24 @@ Optional `UserDefaults` keys used by Liquid runtime:
 - `thevoid.liquid.maxOutputTokens`
 - `thevoid.liquid.unloadAfterEachGeneration`
 
-Defaults when unset:
-- model: `LFM2.5-1.2B-Instruct`
-- quantization: `Q5_K_M`
-- verbose logs: enabled
-- sequence length: `2048`
-- max output tokens: `128`
-- unload after each generation: enabled
+## Load Order
 
-Load order:
-1. `thevoid.liquid.localBundlePath` file URL (if set).
+1. `thevoid.liquid.localBundlePath` file URL, if set.
 2. Bundled `<model>.bundle` resource.
-3. Bundled `.gguf` resource matching model/quantization (root bundle or `ModelAssets/`).
-4. `thevoid.liquid.modelFileURL` (direct file URL, downloaded once and cached to app support).
-5. `thevoid.liquid.modelManifestURL` (manifest URL via `Leap.load(manifestURL:)`).
-6. Remote `Leap.load(model:quantization:)` download.
+3. Bundled `.gguf` resource matching model/quantization in app resources or `ModelAssets/`.
+4. `thevoid.liquid.modelFileURL`, only when custom model sources are enabled.
+5. `thevoid.liquid.modelManifestURL`, only when custom model sources are enabled.
+6. Leap model download by model/quantization.
 
-If `thevoid.liquid.modelFileURL` is unset, runtime also tries:
-- `https://thevoid-local.fly.dev/models/<model>-<quantization>.gguf`
+There is no default Fly-hosted model endpoint.
 
-Remote loading resilience:
-- Uses retry with backoff for transient network errors.
-- Custom `modelFileURL` downloads are cached at `Application Support/LiquidModelCache`.
-- If `Leap.load(model:quantization:)` times out, runtime falls back to explicit `ModelDownloader` download and then local `Leap.load(options:)`.
-- Downloader fallback uses `URLSessionConfiguration.leapDefault` with longer request/resource timeouts.
-- If load errors indicate missing/corrupt model artifacts (for example `fopen failed for data file`), runtime purges cached model files and redownloads.
-- If llama backend still fails to initialize for the configured quantization, runtime tries alternates in order: `Q4_K_M`, `Q4_0`, `Q8_0`.
+## Built-In Model Packaging
 
-## Built-in model packaging
 To avoid first-run download, ship a model file in app resources.
 
 Recommended local folder:
-- `theVoidLocal/theVoid/theVoid/ModelAssets/`
-
-This folder is gitignored by default (except `.gitkeep`) so large model files stay local.
+- `theVoid/theVoid/ModelAssets/`
 
 Supported bundle options:
 - `LFM2.5-1.2B-Instruct.bundle`
-- `.gguf` file, ideally named with model and quantization (for example `LFM2.5-1.2B-Instruct-Q5_K_M.gguf`)
-
-Behavior:
-- If a bundled resource is present, runtime loads from the app bundle and skips remote download.
-- Initial app gate uses explicit prepare/download before entering main tabs.
-- Analysis also starts preload in parallel with transcription to reduce first-use latency.
-
-## Fly-hosted model file setup
-If you host a `.gguf` on Fly, set:
-- `thevoid.liquid.modelFileURL` = `https://<your-fly-domain>/<path>/model.gguf`
-
-Optional manifest-based setup:
-- `thevoid.liquid.modelManifestURL` = `https://<your-fly-domain>/<path>/manifest.json`
+- `.gguf` file named with model and quantization, for example `LFM2.5-1.2B-Instruct-Q5_K_M.gguf`

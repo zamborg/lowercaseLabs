@@ -12,7 +12,7 @@ import LeapModelDownloader
 #endif
 
 private enum LiquidInsightsConfig {
-    // Update this tuple to test different hosted Liquid model variants.
+    // Update this tuple to test different bundled or custom Liquid model variants.
     static let modelTuple: (model: String, quantization: String) = ("LFM2.5-1.2B-Instruct", "Q5_K_M")
     static let defaultSequenceLength: UInt32 = 1024
     static let maxOutputTokens: UInt32 = 256
@@ -42,6 +42,7 @@ private struct LiquidStructuredOutput {
 
 private struct LocalTranscriptionResult {
     let text: String
+    let provider: String
     let strategy: String
     let audioDurationSeconds: Double?
     let coverageSeconds: Double?
@@ -101,7 +102,8 @@ enum LocalReflectionAnalyzer {
         audioURL: URL,
         durationSeconds: Int,
         useLiquidInsights: Bool,
-        overrideTranscriptText: String? = nil
+        overrideTranscriptText: String? = nil,
+        transcriptionConfiguration: TranscriptionConfiguration? = nil
     ) async -> (APITranscript?, APIInsight?, String?) {
         debugLog("analyze start duration=\(durationSeconds) useLiquidInsights=\(useLiquidInsights) override=\(overrideTranscriptText != nil)")
         // Warm model load while speech transcription runs so first-run latency is hidden when possible.
@@ -116,7 +118,9 @@ enum LocalReflectionAnalyzer {
             let audioDuration = audioDurationSeconds(for: audioURL)
             transcription = LocalTranscriptionResult(
                 text: override,
-                strategy: "whisperkit_tiny_en_edited",
+                provider: transcriptionConfiguration?.engine.providerIdentifier ?? "on_device",
+                strategy: transcriptionConfiguration?.acceptedTranscriptStrategy
+                    ?? "on_device_accepted",
                 audioDurationSeconds: audioDuration,
                 coverageSeconds: audioDuration,
                 chunkFallbackUsed: false
@@ -133,7 +137,7 @@ enum LocalReflectionAnalyzer {
         let transcriptText = transcription.text
         let normalized = transcriptText.trimmingCharacters(in: .whitespacesAndNewlines)
         var metadata: [String: JSONValue] = [
-            "provider": .string("whisperkit"),
+            "provider": .string(transcription.provider),
             "duration_seconds": .int(max(1, min(durationSeconds, 150))),
             "transcription_strategy": .string(transcription.strategy),
         ]
@@ -191,14 +195,22 @@ enum LocalReflectionAnalyzer {
 
     private static func transcribeOnDevice(audioURL: URL) async throws -> LocalTranscriptionResult {
         let audioDuration = audioDurationSeconds(for: audioURL)
-        let text = try await WhisperTranscriptionRuntime.shared.transcribe(audioURL: audioURL)
-        return LocalTranscriptionResult(
-            text: text,
-            strategy: "whisperkit_tiny_en",
-            audioDurationSeconds: audioDuration,
-            coverageSeconds: audioDuration,
-            chunkFallbackUsed: false
-        )
+        let runtime = WhisperTranscriptionRuntime.shared
+        do {
+            let text = try await runtime.transcribe(audioURL: audioURL)
+            await runtime.unload()
+            return LocalTranscriptionResult(
+                text: text,
+                provider: "whisperkit",
+                strategy: "whisperkit_tiny_en_fallback",
+                audioDurationSeconds: audioDuration,
+                coverageSeconds: audioDuration,
+                chunkFallbackUsed: false
+            )
+        } catch {
+            await runtime.unload()
+            throw error
+        }
     }
 
     private static func normalizeTranscriptSpacing(_ text: String) -> String {
@@ -475,7 +487,6 @@ private actor LiquidInsightsRuntime {
     private let remoteLoadMaxAttempts = 3
     private let defaultSequenceLength: UInt32 = LiquidInsightsConfig.defaultSequenceLength
     private let defaultMaxOutputTokens: UInt32 = LiquidInsightsConfig.maxOutputTokens
-    private let defaultHostedModelBaseURL = "https://thevoid-local.fly.dev/models"
 
 #if canImport(LeapSDK)
     private var modelRunner: ModelRunner?
@@ -1012,8 +1023,7 @@ private actor LiquidInsightsRuntime {
         }
 
         if customModelSourcesEnabled() {
-            if let customModelFileURL = configuredURL(forKey: DefaultsKeys.modelFileURL)
-                ?? defaultHostedModelFileURL(modelName: modelName, quantization: quantization) {
+            if let customModelFileURL = configuredURL(forKey: DefaultsKeys.modelFileURL) {
                 debugLog("getRunner attempting custom modelFileURL=\(customModelFileURL.absoluteString)")
                 do {
                     let runner = try await loadRunnerFromCustomModelFileURL(
@@ -1253,15 +1263,6 @@ private actor LiquidInsightsRuntime {
         }
 
         return nil
-    }
-
-    private func defaultHostedModelFileURL(modelName: String, quantization: String) -> URL? {
-        guard let baseURL = URL(string: defaultHostedModelBaseURL) else {
-            return nil
-        }
-
-        let filename = "\(modelName)-\(quantization).gguf"
-        return baseURL.appendingPathComponent(filename)
     }
 
     private func loadRunnerFromCustomModelFileURL(

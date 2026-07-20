@@ -11,10 +11,9 @@ struct VoidExperienceView: View {
     @State private var showWelcomeOverlay = false
     @State private var showModelDownloadPrompt = false
     @State private var hasPresentedModelDownloadPrompt = false
-    @State private var showWhisperDownloadPrompt = false
-    @State private var hasPresentedWhisperDownloadPrompt = false
     @State private var autoWelcomePendingAck = false
     @State private var isRecordingLocked = false
+    @State private var activeReviewID: UUID?
 
     private struct PendingSubmission {
         let url: URL
@@ -80,16 +79,27 @@ struct VoidExperienceView: View {
                         )
                         .frame(width: signalSize, height: signalSize)
 
-                        Text(recordingInstructionTitle)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.9))
-                            .multilineTextAlignment(.center)
+                        if recorder.isRecording {
+                            LiveTranscriptPreview(text: recorder.liveTranscript)
+                                .frame(height: isVeryCompactHeight ? 76 : 96)
 
-                        Text(recordingInstructionDetail)
-                            .font(.footnote)
-                            .foregroundStyle(.white.opacity(0.68))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
+                            Text(recordingInstructionTitle)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.76))
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                        } else {
+                            Text(recordingInstructionTitle)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .multilineTextAlignment(.center)
+
+                            Text(recordingInstructionDetail)
+                                .font(.footnote)
+                                .foregroundStyle(.white.opacity(0.68))
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                        }
 
                         if model.submissionState == .transcribing {
                             Text("Processing transcription and tags on this device…")
@@ -147,6 +157,7 @@ struct VoidExperienceView: View {
                 }
             }
             .sheet(isPresented: $showTranscriptReview, onDismiss: {
+                activeReviewID = nil
                 pendingSubmission = nil
                 model.submissionState = .idle
                 model.cancelTranscriptionForReview()
@@ -166,29 +177,17 @@ struct VoidExperienceView: View {
             } message: {
                 Text("Download Liquid on this device to enable mood tags and dots. This is a one-time setup.")
             }
-            .alert("Download Transcription Model?", isPresented: $showWhisperDownloadPrompt) {
-                Button("Not Now", role: .cancel) {}
-                Button("Download") {
-                    model.prepareWhisperModelIfNeeded()
-                }
-            } message: {
-                Text("theVoid uses an on-device model to transcribe your voice. Download it once to enable recording.")
-            }
             .onAppear {
                 recorder.onWarning = { _ in
                     UINotificationFeedbackGenerator().notificationOccurred(.warning)
                 }
-                recorder.onAutoStop = { url, duration in
-                    pendingSubmission = PendingSubmission(url: url, durationSeconds: duration)
-                    isRecordingLocked = false
-                    model.submissionState = .transcribing
-                    showTranscriptReview = true
-                    model.beginTranscriptionForReview(url: url)
+                recorder.onAutoStop = {
+                    finalizeRecordingForChoice()
                 }
                 model.reloadDrafts()
                 maybePresentWelcomeOverlayIfNeeded()
                 maybePresentModelDownloadPromptIfNeeded()
-                maybePresentWhisperDownloadPromptIfNeeded()
+                model.prepareTranscriptionEngineIfNeeded()
             }
             .onChange(of: model.userID) { _, _ in
                 hasPresentedModelDownloadPrompt = false
@@ -200,23 +199,16 @@ struct VoidExperienceView: View {
                     maybePresentModelDownloadPromptIfNeeded()
                 }
             }
-            .onChange(of: model.whisperModelPrepared) { _, prepared in
-                if prepared {
-                    showWhisperDownloadPrompt = false
-                }
-            }
             .animation(.easeInOut(duration: 0.2), value: showWelcomeOverlay)
         }
     }
 
     private func startRecording() {
         Task { @MainActor in
-            guard model.whisperModelPrepared else {
-                if model.isPreparingWhisperModel {
-                    model.errorMessage = "Transcription model is still downloading. Try again in a moment."
-                } else {
-                    showWhisperDownloadPrompt = true
-                }
+            guard model.isTranscriptionEngineReady else {
+                model.prepareTranscriptionEngineIfNeeded()
+                model.errorMessage = model.transcriptionEnginePreparationError
+                    ?? "Live transcription is still getting ready. Try again in a moment."
                 return
             }
 
@@ -230,26 +222,63 @@ struct VoidExperienceView: View {
                 model.errorMessage = "Microphone access is required"
                 return
             }
+            let draftURL = model.makeDraftURL()
             do {
-                let draftURL = model.makeDraftURL()
-                try recorder.startRecording(at: draftURL)
+                try recorder.startRecording(at: draftURL) { inputFormat in
+                    try model.makeLiveTranscriptionSession(inputFormat: inputFormat)
+                }
                 model.submissionState = .recording
             } catch {
+                model.deleteDraft(draftURL)
+#if targetEnvironment(simulator)
                 model.errorMessage = "Failed to start recording: \(error.localizedDescription)\nIf using a Simulator, ensure an audio input is available."
+#else
+                model.errorMessage = "Failed to start recording: \(error.localizedDescription)"
+#endif
             }
         }
     }
 
     private func finalizeRecordingForChoice() {
-        guard let recordedURL = recorder.stopRecording() else {
+        guard let finalization = recorder.stopRecording() else {
             return
         }
         isRecordingLocked = false
-        let duration = max(1, Int(recorder.elapsed))
-        pendingSubmission = PendingSubmission(url: recordedURL, durationSeconds: duration)
+        pendingSubmission = PendingSubmission(
+            url: finalization.url,
+            durationSeconds: finalization.durationSeconds
+        )
         model.submissionState = .transcribing
+        model.beginStreamingTranscriptionForReview(
+            initialTranscript: finalization.initialTranscript
+        )
+        let reviewID = UUID()
+        activeReviewID = reviewID
         showTranscriptReview = true
-        model.beginTranscriptionForReview(url: recordedURL)
+
+        Task { @MainActor in
+            let result = await finalization.task.value
+            guard activeReviewID == reviewID else { return }
+
+            if let audioErrorDescription = result.audioErrorDescription {
+                activeReviewID = nil
+                pendingSubmission = nil
+                showTranscriptReview = false
+                model.failStreamingTranscriptionForReview()
+                model.errorMessage = "Failed to save recording: \(audioErrorDescription)"
+                model.reloadDrafts()
+                return
+            }
+
+            if let transcript = result.transcript, !transcript.isEmpty {
+                model.completeStreamingTranscriptionForReview(transcript)
+            } else {
+                model.beginTranscriptionForReview(
+                    url: result.url,
+                    initialTranscript: finalization.initialTranscript
+                )
+            }
+        }
     }
 
     private func submitPending(shareToSocial: Bool, transcript: String) {
@@ -322,16 +351,6 @@ struct VoidExperienceView: View {
         showModelDownloadPrompt = true
     }
 
-    private func maybePresentWhisperDownloadPromptIfNeeded() {
-        guard !showWelcomeOverlay else { return }
-        guard !model.userID.isEmpty else { return }
-        guard !model.whisperModelPrepared else { return }
-        guard !model.isPreparingWhisperModel else { return }
-        guard !hasPresentedWhisperDownloadPrompt else { return }
-        hasPresentedWhisperDownloadPrompt = true
-        showWhisperDownloadPrompt = true
-    }
-
     private var recordingInstructionTitle: String {
         if recorder.isRecording {
             return isRecordingLocked
@@ -347,7 +366,10 @@ struct VoidExperienceView: View {
                 ? "Recording continues until you touch the pad again."
                 : "Slide outside and lift to keep recording hands-free."
         }
-        return model.isPreparingWhisperModel ? "Downloading transcription model…" : "Max 2:30."
+        if model.isPreparingTranscriptionEngine {
+            return "Preparing \(model.transcriptionEngine.title)…"
+        }
+        return "\(model.transcriptionEngine.title) · Max 2:30."
     }
 
     private var touchAndHoldPad: some View {
@@ -365,13 +387,15 @@ struct VoidExperienceView: View {
             .frame(maxWidth: .infinity)
             .overlay {
                 VStack(spacing: 10) {
-                    Image(systemName: recorder.isRecording ? (isRecordingLocked ? "lock.fill" : "waveform.circle.fill") : "hand.tap.fill")
+                    Image(systemName: recorder.isRecording
+                        ? (isRecordingLocked ? "lock.fill" : "waveform.circle.fill")
+                        : (model.isTranscriptionEngineReady ? "hand.tap.fill" : "waveform"))
                         .font(.system(size: 38, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.88))
                     Text(
                         recorder.isRecording
                             ? (isRecordingLocked ? "Recording Locked" : "Recording…")
-                            : "Touch and hold here"
+                            : (model.isTranscriptionEngineReady ? "Touch and hold here" : "Getting Ready…")
                     )
                         .font(.headline)
                         .foregroundStyle(.white.opacity(0.92))
@@ -393,6 +417,10 @@ struct VoidExperienceView: View {
                             }
                             return
                         }
+                        guard model.isTranscriptionEngineReady else {
+                            model.prepareTranscriptionEngineIfNeeded()
+                            return
+                        }
                         isRecordingLocked = false
                         startRecording()
                     },
@@ -410,6 +438,78 @@ struct VoidExperienceView: View {
             .contentShape(RoundedRectangle(cornerRadius: 22))
     }
 
+}
+
+private struct LiveTranscriptPreview: View {
+    let text: String
+    private let bottomAnchor = "live-transcript-bottom"
+
+    private var visibleWords: [Substring] {
+        let words = text.split(whereSeparator: \.isWhitespace)
+        return Array(words.suffix(40))
+    }
+
+    private var settledText: String {
+        visibleWords.dropLast(min(3, visibleWords.count)).joined(separator: " ")
+    }
+
+    private var activeText: String {
+        visibleWords.suffix(3).joined(separator: " ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(Color.cyan)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: Color.cyan.opacity(0.65), radius: 4)
+                Text(text.isEmpty ? "LISTENING" : "LIVE TRANSCRIPT")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.54))
+            }
+
+            if visibleWords.isEmpty {
+                Text("Listening…")
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(0.46))
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            (
+                                Text(settledText.isEmpty ? "" : "\(settledText) ")
+                                    .foregroundColor(.white.opacity(0.9))
+                                + Text(activeText)
+                                    .foregroundColor(.cyan.opacity(0.95))
+                            )
+                            .font(.body.weight(.medium))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentTransition(.opacity)
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomAnchor)
+                        }
+                    }
+                    .scrollIndicators(.hidden)
+                    .scrollDisabled(true)
+                    .defaultScrollAnchor(.bottom)
+                    .onAppear {
+                        proxy.scrollTo(bottomAnchor, anchor: .bottom)
+                    }
+                    .onChange(of: text) { _, _ in
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            proxy.scrollTo(bottomAnchor, anchor: .bottom)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text.isEmpty ? "Listening" : "Live transcript: \(text)")
+    }
 }
 
 private struct PressAndHoldCaptureView: UIViewRepresentable {
@@ -544,31 +644,39 @@ struct PulsingSignalDot: View {
 struct TranscriptReviewSheet: View {
     @EnvironmentObject private var model: AppModel
     @State private var editedTranscript: String = ""
-    @State private var hasPopulated = false
+    @State private var hasUserEdited = false
 
     let onShare: (String) -> Void
     let onLocalOnly: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Your Reflection")
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .center)
+            HStack(spacing: 10) {
+                Spacer()
+                Text("Your Reflection")
+                    .font(.headline)
+                if model.isTranscribingForReview, !editedTranscript.isEmpty {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Polishing transcript")
+                }
+                Spacer()
+            }
 
-            if model.isTranscribingForReview {
+            if model.isTranscribingForReview, editedTranscript.isEmpty {
                 VStack(spacing: 12) {
                     ProgressView()
-                    Text("Transcribing…")
+                    Text("Listening back…")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, minHeight: 100)
             } else {
-                TextEditor(text: $editedTranscript)
+                TextEditor(text: transcriptBinding)
                     .font(.body)
                     .scrollContentBackground(.hidden)
                     .padding(10)
-                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                     .frame(minHeight: 140, maxHeight: 260)
             }
 
@@ -597,11 +705,23 @@ struct TranscriptReviewSheet: View {
                 .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(20)
-        .onChange(of: model.liveTranscript) { _, newValue in
-            guard !hasPopulated, !newValue.isEmpty else { return }
-            editedTranscript = newValue
-            hasPopulated = true
+        .onAppear {
+            editedTranscript = model.liveTranscript
         }
+        .onChange(of: model.liveTranscript) { _, newValue in
+            guard !hasUserEdited, !newValue.isEmpty else { return }
+            editedTranscript = newValue
+        }
+    }
+
+    private var transcriptBinding: Binding<String> {
+        Binding(
+            get: { editedTranscript },
+            set: { newValue in
+                editedTranscript = newValue
+                hasUserEdited = true
+            }
+        )
     }
 
     private func actionButton(
@@ -624,7 +744,7 @@ struct TranscriptReviewSheet: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
+            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
     }

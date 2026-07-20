@@ -1,10 +1,18 @@
 SHELL := /bin/bash
-BACKEND_DIR := backend
 
-.PHONY: help api worker stack stack-lan deps test migrate migration-new ingest compose-build compose-up compose-down compose-logs compose-ps compose-migrate fly-bootstrap fly-mpg-create fly-mpg-attach fly-deploy fly-status fly-logs fly-health fly-secrets fly-selfhosted-pg-bootstrap fly-pg-sync fly-pg-parity fly-pg-cutover
+IOS_PROJECT := theVoid/theVoid.xcodeproj
+IOS_SCHEME := theVoid
+IOS_DESTINATION ?= platform=iOS Simulator,name=iPhone 16 Pro
+
+.PHONY: help ios-build ios-test
 
 help:
-	@$(MAKE) -C $(BACKEND_DIR) help
+	@echo "theVoid local targets"
+	@echo "  make ios-build    # build iOS app for simulator"
+	@echo "  make ios-test     # run iOS tests on simulator"
 
-api worker stack stack-lan deps test migrate migration-new ingest compose-build compose-up compose-down compose-logs compose-ps compose-migrate fly-bootstrap fly-mpg-create fly-mpg-attach fly-deploy fly-status fly-logs fly-health fly-secrets fly-selfhosted-pg-bootstrap fly-pg-sync fly-pg-parity fly-pg-cutover:
-	@$(MAKE) -C $(BACKEND_DIR) $@
+ios-build:
+	@xcodebuild -project "$(IOS_PROJECT)" -scheme "$(IOS_SCHEME)" -destination "$(IOS_DESTINATION)" build
+
+ios-test:
+	@xcodebuild -project "$(IOS_PROJECT)" -scheme "$(IOS_SCHEME)" -destination "$(IOS_DESTINATION)" test

@@ -10,6 +10,7 @@ actor ICloudSyncService {
         static let entryRecordType = "TVJournalEntry"
         static let audioRecordType = "TVJournalAudio"
         static let draftRecordType = "TVDraft"
+        static let ownerUserIDField = "ownerUserID"
     }
 
     private struct RemoteEntryRecord {
@@ -288,7 +289,7 @@ actor ICloudSyncService {
         }
 
         let record = existing ?? CKRecord(recordType: Constants.entryRecordType, recordID: recordID)
-        record["backendUserID"] = userID as CKRecordValue
+        record[Constants.ownerUserIDField] = userID as CKRecordValue
         record["entryID"] = entryID as CKRecordValue
         record["localDate"] = localRecord.entry.localDate as CKRecordValue
         record["createdAt"] = (ICloudSyncTimestamp.date(from: localRecord.entry.createdAt) ?? localUpdatedAt) as CKRecordValue
@@ -323,7 +324,7 @@ actor ICloudSyncService {
         }
 
         let record = existing ?? CKRecord(recordType: Constants.entryRecordType, recordID: recordID)
-        record["backendUserID"] = userID as CKRecordValue
+        record[Constants.ownerUserIDField] = userID as CKRecordValue
         record["entryID"] = entryID as CKRecordValue
         record["updatedAt"] = deletionDate as CKRecordValue
         record["isDeleted"] = true as CKRecordValue
@@ -354,7 +355,7 @@ actor ICloudSyncService {
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
         let record = existing ?? CKRecord(recordType: Constants.audioRecordType, recordID: recordID)
-        record["backendUserID"] = userID as CKRecordValue
+        record[Constants.ownerUserIDField] = userID as CKRecordValue
         record["entryID"] = entryID as CKRecordValue
         record["updatedAt"] = localUpdatedAt as CKRecordValue
         record["audioAsset"] = CKAsset(fileURL: tempURL)
@@ -377,7 +378,7 @@ actor ICloudSyncService {
         }
 
         let record = existing ?? CKRecord(recordType: Constants.audioRecordType, recordID: recordID)
-        record["backendUserID"] = userID as CKRecordValue
+        record[Constants.ownerUserIDField] = userID as CKRecordValue
         record["entryID"] = entryID as CKRecordValue
         record["updatedAt"] = deletionDate as CKRecordValue
         record["isDeleted"] = true as CKRecordValue
@@ -410,7 +411,7 @@ actor ICloudSyncService {
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
         let record = existing ?? CKRecord(recordType: Constants.draftRecordType, recordID: recordID)
-        record["backendUserID"] = userID as CKRecordValue
+        record[Constants.ownerUserIDField] = userID as CKRecordValue
         record["draftID"] = draftID as CKRecordValue
         record["createdAt"] = (ICloudSyncTimestamp.date(from: localDraft.createdAt) ?? localUpdatedAt) as CKRecordValue
         record["updatedAt"] = localUpdatedAt as CKRecordValue
@@ -435,7 +436,7 @@ actor ICloudSyncService {
         }
 
         let record = existing ?? CKRecord(recordType: Constants.draftRecordType, recordID: recordID)
-        record["backendUserID"] = userID as CKRecordValue
+        record[Constants.ownerUserIDField] = userID as CKRecordValue
         record["draftID"] = draftID as CKRecordValue
         record["updatedAt"] = deletionDate as CKRecordValue
         record["isDeleted"] = true as CKRecordValue
@@ -542,7 +543,7 @@ actor ICloudSyncService {
     }
 
     private func fetchAllRecords(recordType: String, userID: String) async throws -> [CKRecord] {
-        let predicate = NSPredicate(format: "backendUserID == %@", userID)
+        let predicate = NSPredicate(format: "%K == %@", Constants.ownerUserIDField, userID)
         let query = CKQuery(recordType: recordType, predicate: predicate)
 
         var allRecords: [CKRecord] = []

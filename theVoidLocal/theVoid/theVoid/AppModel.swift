@@ -30,15 +30,24 @@ enum SubmissionState: String {
     }
 }
 
+private enum AppModelError: LocalizedError {
+    case missingLocalUserIdentity
+
+    var errorDescription: String? {
+        switch self {
+        case .missingLocalUserIdentity:
+            return "Missing local user identity."
+        }
+    }
+}
+
 // MARK: - App model
 
 @MainActor
 final class AppModel: ObservableObject {
     private static let socialHistoryLimit = 300
 
-    @Published var apiBaseURL: String = BackendClient.defaultBaseURLString
-    @Published var apiConnectionStatus: String?
-    @Published var sessionToken: String?
+    @Published var appleUserID: String = ""
     @Published var userID: String = ""
     @Published var displayName: String = ""
     @Published var anonymousHandle: String = ""
@@ -63,9 +72,11 @@ final class AppModel: ObservableObject {
     @Published var liquidModelPreparationStatus: String = "Preparing on-device AI model..."
     @Published var liquidModelPreparationError: String?
 
-    @Published var whisperModelPrepared: Bool = false
-    @Published var isPreparingWhisperModel: Bool = false
-    @Published var whisperModelPreparationError: String?
+    @Published var transcriptionEngine: TranscriptionEngineKind = .defaultChoice
+    @Published var transcriptionLanguage: TranscriptionLanguage = .device
+    @Published var isTranscriptionEngineReady: Bool = false
+    @Published var isPreparingTranscriptionEngine: Bool = false
+    @Published var transcriptionEnginePreparationError: String?
     @Published var liveTranscript: String = ""
     @Published var isTranscribingForReview: Bool = false
     @Published var healthAuthorizationState: HealthAuthorizationState = .notDetermined
@@ -79,23 +90,21 @@ final class AppModel: ObservableObject {
     @Published var inviteURL: String?
     @Published var inviteToken: String?
     @Published var errorMessage: String?
-    @Published var needsSessionReauthentication: Bool = false
-    @Published var showsSessionReauthenticationPrompt: Bool = false
-    @Published var sessionReauthenticationMessage: String?
 
-    private let client = BackendClient()
+    private let socialClient: any SocialFeatureClient
     private let draftStore = DraftStore()
     private let localStore = LocalJournalStore()
     private let healthKitManager = HealthKitManager()
     private let iCloudSyncService: ICloudSyncService
     private var liquidModelPreparationTask: Task<Void, Never>?
     private var liquidModelPreparationOperationID: UUID?
-    private var whisperModelPreparationTask: Task<Void, Never>?
+    private let transcriptionEngineCoordinator = TranscriptionEngineCoordinator()
+    private var transcriptionEnginePreparationTask: Task<Void, Never>?
+    private var transcriptionEnginePreparationOperationID: UUID?
     private var transcriptionForReviewTask: Task<Void, Never>?
 
     private enum Keys {
-        static let apiBaseURL = "thevoid.apiBaseURL"
-        static let sessionToken = "thevoid.sessionToken"
+        static let appleUserID = "thevoid.appleUserID"
         static let userID = "thevoid.userID"
         static let displayName = "thevoid.displayName"
         static let anonymousHandle = "thevoid.anonymousHandle"
@@ -106,14 +115,15 @@ final class AppModel: ObservableObject {
         static let reminderTimesByWeekday = "thevoid.reminderTimesByWeekday"
         static let onboardingComplete = "thevoid.onboardingComplete"
         static let liquidModelPrepared = "thevoid.liquidModelPrepared"
-        static let whisperModelPrepared = "thevoid.whisperModelPrepared"
+        static let transcriptionEngine = "thevoid.transcription.engine"
+        static let transcriptionLanguage = "thevoid.transcription.language"
         static let healthIntegrationEnabled = "thevoid.healthkit.enabled"
         static let iCloudSyncEnabled = "thevoid.icloud.sync.enabled"
         static let iCloudBootstrapSyncedUsers = "thevoid.icloud.bootstrap.synced_users"
     }
 
     var needsOnboarding: Bool {
-        sessionToken == nil || !onboardingComplete
+        userID.isEmpty || !onboardingComplete
     }
 
     var iCloudSyncStatusText: String {
@@ -131,7 +141,19 @@ final class AppModel: ObservableObject {
         }
     }
 
-    init() {
+    private var currentSocialProfile: SocialProfile? {
+        guard !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return SocialProfile(
+            userID: userID,
+            displayName: displayName.isEmpty ? nil : displayName,
+            anonymousHandle: anonymousHandle.isEmpty ? "void-\(userID.prefix(8))" : anonymousHandle
+        )
+    }
+
+    init(socialClient: any SocialFeatureClient = CloudKitSocialFeatureClient()) {
+        self.socialClient = socialClient
         iCloudSyncService = ICloudSyncService(localJournalStore: localStore, draftStore: draftStore)
         loadPersistedState()
         Task {
@@ -142,7 +164,7 @@ final class AppModel: ObservableObject {
             }
         }
         reloadDrafts()
-        if sessionToken != nil {
+        if !userID.isEmpty {
             Task {
                 await configureICloudSyncForCurrentUser()
                 await refreshAll()
@@ -154,21 +176,12 @@ final class AppModel: ObservableObject {
                 await refreshLiveHealthSnapshot()
             }
         }
-        if !whisperModelPrepared {
-            prepareWhisperModelIfNeeded()
-        }
+        prepareTranscriptionEngineIfNeeded()
     }
 
     func loadPersistedState() {
         let defaults = UserDefaults.standard
-        let persistedBaseURL = defaults.string(forKey: Keys.apiBaseURL) ?? BackendClient.defaultBaseURLString
-        if (try? client.updateBaseURL(persistedBaseURL)) != nil {
-            apiBaseURL = client.baseURLString
-        } else {
-            apiBaseURL = BackendClient.defaultBaseURLString
-            try? client.updateBaseURL(apiBaseURL)
-        }
-        sessionToken = defaults.string(forKey: Keys.sessionToken)
+        appleUserID = defaults.string(forKey: Keys.appleUserID) ?? ""
         userID = defaults.string(forKey: Keys.userID) ?? ""
         displayName = defaults.string(forKey: Keys.displayName) ?? ""
         anonymousHandle = defaults.string(forKey: Keys.anonymousHandle) ?? ""
@@ -200,7 +213,19 @@ final class AppModel: ObservableObject {
         }
 
         liquidModelPrepared = defaults.bool(forKey: Keys.liquidModelPrepared)
-        whisperModelPrepared = defaults.bool(forKey: Keys.whisperModelPrepared)
+        if let rawEngine = defaults.string(forKey: Keys.transcriptionEngine),
+           let storedEngine = TranscriptionEngineKind(rawValue: rawEngine),
+           storedEngine.isAvailable {
+            transcriptionEngine = storedEngine
+        } else {
+            transcriptionEngine = .defaultChoice
+        }
+        if let rawLanguage = defaults.string(forKey: Keys.transcriptionLanguage),
+           let storedLanguage = TranscriptionLanguage(rawValue: rawLanguage) {
+            transcriptionLanguage = storedLanguage
+        } else {
+            transcriptionLanguage = .device
+        }
         if defaults.object(forKey: Keys.healthIntegrationEnabled) != nil {
             healthIntegrationEnabled = defaults.bool(forKey: Keys.healthIntegrationEnabled)
         } else {
@@ -215,8 +240,7 @@ final class AppModel: ObservableObject {
 
     func persistState() {
         let defaults = UserDefaults.standard
-        defaults.set(apiBaseURL, forKey: Keys.apiBaseURL)
-        defaults.set(sessionToken, forKey: Keys.sessionToken)
+        defaults.set(appleUserID, forKey: Keys.appleUserID)
         defaults.set(userID, forKey: Keys.userID)
         defaults.set(displayName, forKey: Keys.displayName)
         defaults.set(anonymousHandle, forKey: Keys.anonymousHandle)
@@ -231,46 +255,43 @@ final class AppModel: ObservableObject {
         defaults.set(onboardingComplete, forKey: Keys.onboardingComplete)
         defaults.set(healthIntegrationEnabled, forKey: Keys.healthIntegrationEnabled)
         defaults.set(iCloudSyncEnabled, forKey: Keys.iCloudSyncEnabled)
+        defaults.set(transcriptionEngine.rawValue, forKey: Keys.transcriptionEngine)
+        defaults.set(transcriptionLanguage.rawValue, forKey: Keys.transcriptionLanguage)
     }
 
-    func signIn(identityToken: String, nonce: String? = nil, suggestedName: String?) async {
+    func signIn(appleUserID: String, suggestedName: String?) async {
         do {
-            let session = try await client.signInWithApple(
-                identityToken: identityToken,
-                nonce: nonce,
-                displayName: suggestedName,
-                dailyCheckinTimeLocal: DateFormatter.hhmm.string(from: dailyCheckin),
-                timezone: timezone
-            )
+            try await AppleICloudIdentity.requireAvailableICloudAccount()
 
-            sessionToken = session.accessToken
-            userID = session.user.id
-            displayName = session.user.displayName ?? ""
-            anonymousHandle = session.user.anonymousHandle
-            notificationEnabled = session.user.notificationEnabled
-            timezone = session.user.timezone
-            needsSessionReauthentication = false
-            showsSessionReauthenticationPrompt = false
-            sessionReauthenticationMessage = nil
-
-            if let parsed = DateFormatter.hhmm.date(from: session.user.dailyCheckinTimeLocal) {
-                dailyCheckin = parsed
+            self.appleUserID = appleUserID
+            if userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                userID = AppleICloudIdentity.localUserID(for: appleUserID)
+            }
+            if displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let suggestedName,
+               !suggestedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                displayName = suggestedName
+            }
+            if anonymousHandle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                anonymousHandle = AppleICloudIdentity.anonymousHandle(for: appleUserID)
             }
 
             persistState()
             await configureICloudSyncForCurrentUser()
             await refreshAll()
         } catch {
-            errorMessage = "\(error.localizedDescription)\nAPI: \(apiBaseURL)"
+            errorMessage = error.localizedDescription
         }
     }
 
-    func signInDev(identityToken: String?) async {
-        let trimmed = identityToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+#if DEBUG
+    func signInDev(localIdentifier: String?) async {
+        let trimmed = localIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let baseToken = trimmed.isEmpty ? UUID().uuidString : trimmed
-        let token = baseToken.hasPrefix("dev-") ? baseToken : "dev-\(baseToken)"
-        await signIn(identityToken: token, nonce: nil, suggestedName: nil)
+        let localAppleUserID = baseToken.hasPrefix("dev-") ? baseToken : "dev-\(baseToken)"
+        await signIn(appleUserID: localAppleUserID, suggestedName: nil)
     }
+#endif
 
     func completeOnboarding() {
         onboardingComplete = true
@@ -278,34 +299,23 @@ final class AppModel: ObservableObject {
     }
 
     func saveProfile() async {
-        guard let sessionToken else { return }
-        do {
-            let profile = try await client.updateProfile(
-                token: sessionToken,
-                displayName: displayName.isEmpty ? nil : displayName,
-                dailyCheckinTimeLocal: DateFormatter.hhmm.string(from: dailyCheckin),
-                timezone: timezone,
-                notificationEnabled: notificationEnabled
-            )
-
-            displayName = profile.displayName ?? ""
-            anonymousHandle = profile.anonymousHandle
-            timezone = profile.timezone
-            notificationEnabled = profile.notificationEnabled
-            if let parsed = DateFormatter.hhmm.date(from: profile.dailyCheckinTimeLocal) {
-                dailyCheckin = parsed
-            }
-            persistState()
-        } catch {
-            errorMessage = describeRemoteError(
-                error,
-                includeAPIBaseURL: true,
-                authenticationFailureMessage: sessionRefreshMessage(for: "profile updates")
-            )
+        if anonymousHandle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            anonymousHandle = appleUserID.isEmpty
+                ? "void-\(UUID().uuidString.prefix(8).lowercased())"
+                : AppleICloudIdentity.anonymousHandle(for: appleUserID)
         }
+        persistState()
     }
 
     func signOut() {
+        transcriptionEnginePreparationTask?.cancel()
+        transcriptionEnginePreparationTask = nil
+        transcriptionEnginePreparationOperationID = nil
+        isPreparingTranscriptionEngine = false
+        isTranscriptionEngineReady = false
+        Task {
+            await transcriptionEngineCoordinator.unload()
+        }
         liquidModelPreparationTask?.cancel()
         liquidModelPreparationTask = nil
         liquidModelPreparationOperationID = nil
@@ -314,7 +324,7 @@ final class AppModel: ObservableObject {
         liquidModelPreparationProgress = 0
         liquidModelPreparationStatus = "Preparing on-device AI model..."
         liquidModelPreparationError = nil
-        sessionToken = nil
+        appleUserID = ""
         userID = ""
         displayName = ""
         anonymousHandle = ""
@@ -328,9 +338,6 @@ final class AppModel: ObservableObject {
         isFetchingLiveHealthSnapshot = false
         iCloudLastSyncAt = nil
         iCloudSyncStatus = .idle
-        needsSessionReauthentication = false
-        showsSessionReauthenticationPrompt = false
-        sessionReauthenticationMessage = nil
         onboardingComplete = false
         persistState()
     }
@@ -381,10 +388,13 @@ final class AppModel: ObservableObject {
     }
 
     func refreshSocialDots() async {
-        guard let sessionToken else { return }
+        guard let profile = currentSocialProfile else {
+            socialDots = []
+            return
+        }
         do {
-            let envelope = try await client.fetchSocialDots(
-                token: sessionToken,
+            let envelope = try await socialClient.fetchSocialDots(
+                for: profile,
                 history: true,
                 limit: Self.socialHistoryLimit
             )
@@ -393,10 +403,7 @@ final class AppModel: ObservableObject {
             // Pull-to-refresh and view transitions can cancel in-flight tasks; keep last good state.
             return
         } catch {
-            errorMessage = describeRemoteError(
-                error,
-                authenticationFailureMessage: sessionRefreshMessage(for: "social features")
-            )
+            errorMessage = describeError(error)
         }
     }
 
@@ -488,12 +495,8 @@ final class AppModel: ObservableObject {
     }
 
     func submitDraft(url: URL, durationSeconds: Int, shareToSocial: Bool = true, overrideTranscript: String? = nil) async {
-        guard let sessionToken else {
-            errorMessage = "Sign in required"
-            return
-        }
         guard !userID.isEmpty else {
-            errorMessage = "Missing user identity. Sign in again."
+            errorMessage = "Sign in required"
             return
         }
         do {
@@ -507,7 +510,11 @@ final class AppModel: ObservableObject {
                 audioURL: url,
                 durationSeconds: normalizedDuration,
                 useLiquidInsights: liquidModelPrepared,
-                overrideTranscriptText: overrideTranscript
+                overrideTranscriptText: overrideTranscript,
+                transcriptionConfiguration: TranscriptionConfiguration(
+                    engine: transcriptionEngine,
+                    language: transcriptionLanguage
+                )
             )
             async let healthSnapshotTask = captureHealthSnapshotForNote(at: noteTimestamp)
 
@@ -533,18 +540,12 @@ final class AppModel: ObservableObject {
 
             if shareToSocial, let insight {
                 do {
-                    try await client.publishLocalDot(
-                        token: sessionToken,
+                    try await publishSocialDot(
                         localDate: localDate,
-                        moodScore: insight.moodScore,
-                        moodTags: insight.moodTags,
-                        dotColor: EmotionColorMixer.mixedHex(for: insight.moodTags)
+                        insight: insight
                     )
                 } catch {
-                    errorMessage = describeRemoteError(
-                        error,
-                        authenticationFailureMessage: "Saved locally, but the backend session for \(apiBaseURL) is no longer valid. Reconnect with Sign in with Apple to restore social sync."
-                    )
+                    errorMessage = "Saved locally, but iCloud social sync failed: \(error.localizedDescription)"
                 }
             } else if shareToSocial {
                 errorMessage = "Saved audio note locally without tags. Retranscribe from the entry to generate dots."
@@ -556,7 +557,7 @@ final class AppModel: ObservableObject {
             await iCloudSyncService.syncNow(userID: userID, reason: "submit_draft")
         } catch {
             submissionState = .failed
-            errorMessage = describeRemoteError(error)
+            errorMessage = describeError(error)
             reloadDrafts()
         }
     }
@@ -588,7 +589,7 @@ final class AppModel: ObservableObject {
     }
 
     private func startLiquidModelPreparation(forceRedownload: Bool) {
-        guard sessionToken != nil, onboardingComplete else { return }
+        guard !userID.isEmpty, onboardingComplete else { return }
         if isPreparingLiquidModel { return }
         if !forceRedownload, liquidModelPrepared {
             showsLiquidModelPreparationScreen = false
@@ -667,47 +668,125 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.set(prepared, forKey: Keys.liquidModelPrepared)
     }
 
-    // MARK: - WhisperKit model
+    // MARK: - Transcription engine
 
-    func prepareWhisperModelIfNeeded() {
-        guard !isPreparingWhisperModel, !whisperModelPrepared else { return }
-        isPreparingWhisperModel = true
-        whisperModelPreparationError = nil
-        whisperModelPreparationTask?.cancel()
-        whisperModelPreparationTask = Task { [weak self] in
+    var transcriptionEngineStatusText: String {
+        if isTranscriptionEngineReady {
+            return "Ready"
+        }
+        if isPreparingTranscriptionEngine {
+            return "Preparing..."
+        }
+        return transcriptionEnginePreparationError == nil ? "Not ready" : "Needs attention"
+    }
+
+    func setTranscriptionEngine(_ engine: TranscriptionEngineKind) {
+        guard engine.isAvailable, transcriptionEngine != engine else { return }
+        transcriptionEngine = engine
+        persistState()
+        prepareTranscriptionEngineIfNeeded(force: true)
+    }
+
+    func setTranscriptionLanguage(_ language: TranscriptionLanguage) {
+        guard transcriptionLanguage != language else { return }
+        transcriptionLanguage = language
+        persistState()
+        prepareTranscriptionEngineIfNeeded(force: true)
+    }
+
+    func prepareTranscriptionEngineIfNeeded(force: Bool = false) {
+        if !force, isTranscriptionEngineReady || isPreparingTranscriptionEngine {
+            return
+        }
+
+        let previousPreparationTask = transcriptionEnginePreparationTask
+        previousPreparationTask?.cancel()
+        let operationID = UUID()
+        transcriptionEnginePreparationOperationID = operationID
+        isTranscriptionEngineReady = false
+        isPreparingTranscriptionEngine = true
+        transcriptionEnginePreparationError = nil
+        let configuration = TranscriptionConfiguration(
+            engine: transcriptionEngine,
+            language: transcriptionLanguage
+        )
+
+        transcriptionEnginePreparationTask = Task { [weak self] in
             guard let self else { return }
+            await previousPreparationTask?.value
+            guard !Task.isCancelled else { return }
             do {
-                try await WhisperTranscriptionRuntime.shared.prepare()
-                await MainActor.run {
-                    self.isPreparingWhisperModel = false
-                    self.setWhisperModelPrepared(true)
-                    self.whisperModelPreparationError = nil
+                try await transcriptionEngineCoordinator.prepare(configuration: configuration)
+                guard !Task.isCancelled,
+                      transcriptionEnginePreparationOperationID == operationID else {
+                    return
                 }
+                isPreparingTranscriptionEngine = false
+                isTranscriptionEngineReady = true
+                transcriptionEnginePreparationError = nil
             } catch {
-                if error is CancellationError { return }
-                await MainActor.run {
-                    self.isPreparingWhisperModel = false
-                    self.whisperModelPreparationError = error.localizedDescription
+                guard !(error is CancellationError),
+                      transcriptionEnginePreparationOperationID == operationID else {
+                    return
                 }
+                isPreparingTranscriptionEngine = false
+                isTranscriptionEngineReady = false
+                transcriptionEnginePreparationError = error.localizedDescription
             }
         }
     }
 
-    func cancelWhisperModelPreparation() {
-        whisperModelPreparationTask?.cancel()
-        whisperModelPreparationTask = nil
-        isPreparingWhisperModel = false
-        whisperModelPreparationError = nil
+    func makeLiveTranscriptionSession(
+        inputFormat: AVAudioFormat
+    ) throws -> any LiveTranscriptionSession {
+        try transcriptionEngineCoordinator.makeSession(inputFormat: inputFormat)
     }
 
-    func beginTranscriptionForReview(url: URL) {
+    func transcribeAudio(at url: URL) async throws -> String {
+        if !isTranscriptionEngineReady {
+            try await transcriptionEngineCoordinator.prepare(
+                configuration: TranscriptionConfiguration(
+                    engine: transcriptionEngine,
+                    language: transcriptionLanguage
+                )
+            )
+            isTranscriptionEngineReady = true
+            isPreparingTranscriptionEngine = false
+        }
+        return try await transcriptionEngineCoordinator.transcribe(audioURL: url)
+    }
+
+    func beginStreamingTranscriptionForReview(initialTranscript: String) {
+        transcriptionForReviewTask?.cancel()
+        transcriptionForReviewTask = nil
+        liveTranscript = initialTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        isTranscribingForReview = true
+    }
+
+    func completeStreamingTranscriptionForReview(_ transcript: String) {
+        transcriptionForReviewTask?.cancel()
+        transcriptionForReviewTask = nil
+        let normalized = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalized.isEmpty {
+            liveTranscript = normalized
+        }
+        isTranscribingForReview = false
+    }
+
+    func failStreamingTranscriptionForReview() {
+        transcriptionForReviewTask?.cancel()
+        transcriptionForReviewTask = nil
+        isTranscribingForReview = false
+    }
+
+    func beginTranscriptionForReview(url: URL, initialTranscript: String = "") {
         transcriptionForReviewTask?.cancel()
         isTranscribingForReview = true
-        liveTranscript = ""
+        liveTranscript = initialTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         transcriptionForReviewTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let text = try await WhisperTranscriptionRuntime.shared.transcribe(audioURL: url)
+                let text = try await transcribeAudio(at: url)
                 guard !Task.isCancelled else { return }
                 self.liveTranscript = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 self.isTranscribingForReview = false
@@ -724,11 +803,6 @@ final class AppModel: ObservableObject {
         transcriptionForReviewTask = nil
         isTranscribingForReview = false
         liveTranscript = ""
-    }
-
-    private func setWhisperModelPrepared(_ prepared: Bool) {
-        whisperModelPrepared = prepared
-        UserDefaults.standard.set(prepared, forKey: Keys.whisperModelPrepared)
     }
 
     private static func socialDotIsMoreRecent(_ lhs: APISocialDot, _ rhs: APISocialDot) -> Bool {
@@ -821,6 +895,22 @@ final class AppModel: ObservableObject {
         return ordered
     }
 
+    private func publishSocialDot(
+        localDate: String,
+        insight: APIInsight
+    ) async throws {
+        guard let profile = currentSocialProfile else { return }
+        try await socialClient.publishLocalDot(
+            for: profile,
+            publication: SocialDotPublication(
+                localDate: localDate,
+                moodScore: insight.moodScore,
+                moodTags: insight.moodTags,
+                dotColor: EmotionColorMixer.mixedHex(for: insight.moodTags)
+            )
+        )
+    }
+
     @discardableResult
     func updateEntryTags(entryID: String, moodTags: [String]) async -> APIEntry? {
         guard !userID.isEmpty else {
@@ -842,22 +932,15 @@ final class AppModel: ObservableObject {
             )
             await iCloudSyncService.queueEntryUpsert(userID: userID, entryID: entryID)
 
-            if let sessionToken,
-               updateResult.wasSharedToSocial,
+            if updateResult.wasSharedToSocial,
                let insight = updateResult.updatedEntry.insight {
                 do {
-                    try await client.publishLocalDot(
-                        token: sessionToken,
+                    try await publishSocialDot(
                         localDate: updateResult.updatedEntry.localDate,
-                        moodScore: insight.moodScore,
-                        moodTags: insight.moodTags,
-                        dotColor: EmotionColorMixer.mixedHex(for: insight.moodTags)
+                        insight: insight
                     )
                 } catch {
-                    errorMessage = describeRemoteError(
-                        error,
-                        authenticationFailureMessage: "Tags updated locally, but the backend session for \(apiBaseURL) is no longer valid. Reconnect with Sign in with Apple to restore social sync."
-                    )
+                    errorMessage = "Tags updated locally, but iCloud social sync failed: \(error.localizedDescription)"
                 }
             }
 
@@ -869,7 +952,7 @@ final class AppModel: ObservableObject {
 
             return entries.first(where: { $0.id == entryID }) ?? updateResult.updatedEntry
         } catch {
-            errorMessage = describeRemoteError(error)
+            errorMessage = describeError(error)
             return nil
         }
     }
@@ -913,10 +996,16 @@ final class AppModel: ObservableObject {
         do {
             let audioURL = try localStore.audioURL(for: userID, entryID: entryID)
             let durationSeconds = max(1, min(baseEntry.durationSeconds, 300))
+            let selectedTranscript = try await transcribeAudio(at: audioURL)
             let (transcript, insight, generatedTitle) = await LocalReflectionAnalyzer.analyze(
                 audioURL: audioURL,
                 durationSeconds: durationSeconds,
-                useLiquidInsights: liquidModelPrepared
+                useLiquidInsights: liquidModelPrepared,
+                overrideTranscriptText: selectedTranscript,
+                transcriptionConfiguration: TranscriptionConfiguration(
+                    engine: transcriptionEngine,
+                    language: transcriptionLanguage
+                )
             )
             guard let transcript else {
                 errorMessage = "Could not transcribe this audio note. Try again."
@@ -933,22 +1022,15 @@ final class AppModel: ObservableObject {
             )
             await iCloudSyncService.queueEntryUpsert(userID: userID, entryID: entryID)
 
-            if let sessionToken,
-               updateResult.wasSharedToSocial,
+            if updateResult.wasSharedToSocial,
                let updatedInsight = updateResult.updatedEntry.insight {
                 do {
-                    try await client.publishLocalDot(
-                        token: sessionToken,
+                    try await publishSocialDot(
                         localDate: updateResult.updatedEntry.localDate,
-                        moodScore: updatedInsight.moodScore,
-                        moodTags: updatedInsight.moodTags,
-                        dotColor: EmotionColorMixer.mixedHex(for: updatedInsight.moodTags)
+                        insight: updatedInsight
                     )
                 } catch {
-                    errorMessage = describeRemoteError(
-                        error,
-                        authenticationFailureMessage: "Retranscribed locally, but the backend session for \(apiBaseURL) is no longer valid. Reconnect with Sign in with Apple to restore social sync."
-                    )
+                    errorMessage = "Retranscribed locally, but iCloud social sync failed: \(error.localizedDescription)"
                 }
             }
 
@@ -960,7 +1042,7 @@ final class AppModel: ObservableObject {
 
             return entries.first(where: { $0.id == entryID }) ?? updateResult.updatedEntry
         } catch {
-            errorMessage = describeRemoteError(error)
+            errorMessage = describeError(error)
             return nil
         }
     }
@@ -974,29 +1056,22 @@ final class AppModel: ObservableObject {
         do {
             let result = try localStore.deleteEntry(for: userID, entryID: entryID)
             await iCloudSyncService.queueEntryDelete(userID: userID, entryID: entryID)
-            if let sessionToken {
+            if let profile = currentSocialProfile {
                 do {
                     if let replacement = result.replacementSharedEntryForDate,
                        let replacementInsight = replacement.insight {
-                        let replacementColor = EmotionColorMixer.mixedHex(for: replacementInsight.moodTags)
-                        try await client.publishLocalDot(
-                            token: sessionToken,
+                        try await publishSocialDot(
                             localDate: result.deletedEntry.localDate,
-                            moodScore: replacementInsight.moodScore,
-                            moodTags: replacementInsight.moodTags,
-                            dotColor: replacementColor
+                            insight: replacementInsight
                         )
                     } else {
-                        try await client.deleteLocalDot(
-                            token: sessionToken,
+                        try await socialClient.deleteLocalDot(
+                            for: profile,
                             localDate: result.deletedEntry.localDate
                         )
                     }
                 } catch {
-                    errorMessage = describeRemoteError(
-                        error,
-                        authenticationFailureMessage: "Entry deleted locally, but the backend session for \(apiBaseURL) is no longer valid. Reconnect with Sign in with Apple to restore social sync."
-                    )
+                    errorMessage = "Entry deleted locally, but iCloud social sync failed: \(error.localizedDescription)"
                 }
             }
 
@@ -1004,7 +1079,7 @@ final class AppModel: ObservableObject {
             await refreshSocialDots()
             await iCloudSyncService.syncNow(userID: userID, reason: "delete_entry")
         } catch {
-            errorMessage = describeRemoteError(error)
+            errorMessage = describeError(error)
         }
     }
 
@@ -1019,173 +1094,46 @@ final class AppModel: ObservableObject {
 
     func fetchAudio(entryID: String) async throws -> Data {
         guard !userID.isEmpty else {
-            throw APIError.server(401, "Missing local user identity")
+            throw AppModelError.missingLocalUserIdentity
         }
         return try localStore.audioData(for: userID, entryID: entryID)
     }
 
     func createInvite() async {
-        guard let sessionToken else { return }
+        guard let profile = currentSocialProfile else {
+            errorMessage = "Sign in required"
+            return
+        }
         do {
-            let invite = try await client.createInvite(token: sessionToken)
+            let invite = try await socialClient.createInvite(for: profile)
             inviteURL = invite.inviteUrl
             inviteToken = invite.inviteToken
         } catch {
-            errorMessage = describeRemoteError(
-                error,
-                includeAPIBaseURL: true,
-                authenticationFailureMessage: sessionRefreshMessage(for: "social features")
-            )
+            errorMessage = describeError(error)
         }
     }
 
-    func acceptInvite(token: String) async {
-        guard let sessionToken else { return }
-        let inviteToken = normalizedInviteToken(from: token)
-        if inviteToken.isEmpty {
-            errorMessage = "Paste a valid invite token or invite link."
+    func acceptInvite(link: String) async {
+        guard currentSocialProfile != nil else {
+            errorMessage = "Sign in required"
             return
         }
         do {
-            try await client.acceptInvite(token: sessionToken, inviteToken: inviteToken)
+            try await socialClient.acceptInvite(from: cleanInviteLink(link))
             await refreshSocialDots()
         } catch {
-            errorMessage = describeRemoteError(
-                error,
-                includeAPIBaseURL: true,
-                authenticationFailureMessage: sessionRefreshMessage(for: "social features")
-            )
+            errorMessage = describeError(error)
         }
     }
 
-    @discardableResult
-    func submitFeedback(kind: String, message: String) async -> Bool {
-        guard let sessionToken else {
-            errorMessage = "Sign in required"
-            return false
-        }
-
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            errorMessage = "Please enter your idea or bug report."
-            return false
-        }
-
-        do {
-            try await client.submitFeedback(token: sessionToken, kind: kind, message: trimmed)
-            return true
-        } catch {
-            errorMessage = describeRemoteError(
-                error,
-                includeAPIBaseURL: true,
-                authenticationFailureMessage: sessionRefreshMessage(for: "feedback")
-            )
-            return false
-        }
+    private func cleanInviteLink(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'`<> \n\r\t"))
+            .removingPercentEncoding ?? value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func normalizedInviteToken(from rawValue: String) -> String {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return ""
-        }
-
-        let stripped = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`<>"))
-
-        if let components = URLComponents(string: stripped),
-           let token = components.queryItems?.first(where: { $0.name == "token" })?.value {
-            return cleanInviteToken(token)
-        }
-
-        if let tokenRange = stripped.range(of: "token=") {
-            var candidate = String(stripped[tokenRange.upperBound...])
-            if let cut = candidate.firstIndex(where: { $0 == "&" || $0.isWhitespace }) {
-                candidate = String(candidate[..<cut])
-            }
-            return cleanInviteToken(candidate)
-        }
-
-        return cleanInviteToken(stripped)
-    }
-
-    private func cleanInviteToken(_ value: String) -> String {
-        let decoded = value.removingPercentEncoding ?? value
-        return decoded.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`<> \n\r\t"))
-    }
-
-    func applyAPIBaseURL() {
-        let previousBaseURL = client.baseURLString
-        do {
-            try client.updateBaseURL(apiBaseURL)
-            apiBaseURL = client.baseURLString
-            if sessionToken != nil, apiBaseURL != previousBaseURL {
-                presentSessionReauthenticationPrompt(
-                    message: "You changed the backend to \(apiBaseURL). Sign in again so social features use a valid session on this server."
-                )
-                apiConnectionStatus = "API URL saved. Reconnect session."
-            } else {
-                apiConnectionStatus = "API URL saved"
-            }
-            persistState()
-        } catch {
-            errorMessage = "Invalid API base URL"
-        }
-    }
-
-    func testAPIConnection() async {
-        do {
-            let health = try await client.healthCheck()
-            apiConnectionStatus = "Connected (\(health.status))"
-        } catch {
-            apiConnectionStatus = "Connection failed"
-            errorMessage = describeRemoteError(error, includeAPIBaseURL: true)
-        }
-    }
-
-    func dismissSessionReauthenticationPrompt() {
-        showsSessionReauthenticationPrompt = false
-    }
-
-#if DEBUG
-    func simulateExpiredSessionForTesting() async {
-        guard sessionToken != nil else {
-            errorMessage = "Sign in required"
-            return
-        }
-
-        sessionToken = "expired-test-\(UUID().uuidString)"
-        persistState()
-        await refreshSocialDots()
-    }
-#endif
-
-    private func sessionRefreshMessage(for featureName: String) -> String {
-        "Your backend session is no longer valid for \(apiBaseURL). Reconnect with Sign in with Apple to restore \(featureName)."
-    }
-
-    private func presentSessionReauthenticationPrompt(message: String) {
-        needsSessionReauthentication = true
-        showsSessionReauthenticationPrompt = true
-        sessionReauthenticationMessage = message
-    }
-
-    private func describeRemoteError(
-        _ error: Error,
-        includeAPIBaseURL: Bool = false,
-        authenticationFailureMessage: String? = nil
-    ) -> String? {
-        if let apiError = error as? APIError, apiError.isAuthenticationFailure {
-            presentSessionReauthenticationPrompt(
-                message: authenticationFailureMessage ?? sessionRefreshMessage(for: "social features")
-            )
-            return nil
-        }
-
-        let message = error.localizedDescription
-        if includeAPIBaseURL {
-            return "\(message)\nAPI: \(apiBaseURL)"
-        }
-        return message
+    private func describeError(_ error: Error) -> String {
+        error.localizedDescription
     }
 
     func configureDailyReminder() async {

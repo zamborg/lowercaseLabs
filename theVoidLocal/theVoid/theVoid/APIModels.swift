@@ -1,22 +1,6 @@
-import CryptoKit
 import Foundation
 
 // MARK: - DTOs
-
-struct APIUserProfile: Codable {
-    let id: String
-    let displayName: String?
-    let anonymousHandle: String
-    let dailyCheckinTimeLocal: String
-    let timezone: String
-    let notificationEnabled: Bool
-}
-
-struct APIAuthSession: Codable {
-    let accessToken: String
-    let tokenType: String
-    let user: APIUserProfile
-}
 
 enum JSONValue: Codable, Hashable {
     case string(String)
@@ -314,30 +298,4 @@ struct APIInvite: Codable {
     let inviteToken: String
     let inviteUrl: String
     let expiresAt: String
-}
-
-struct APIMessage: Codable {
-    let message: String
-}
-
-enum AppleNonce {
-    static func random(length: Int = 32) -> String {
-        let charset: [Character] = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
-        var result = ""
-        result.reserveCapacity(length)
-
-        while result.count < length {
-            let randomByte = UInt8.random(in: 0 ... 255)
-            if randomByte < charset.count {
-                result.append(charset[Int(randomByte)])
-            }
-        }
-        return result
-    }
-
-    static func sha256(_ value: String) -> String {
-        let inputData = Data(value.utf8)
-        let hashed = SHA256.hash(data: inputData)
-        return hashed.compactMap { String(format: "%02x", $0) }.joined()
-    }
 }

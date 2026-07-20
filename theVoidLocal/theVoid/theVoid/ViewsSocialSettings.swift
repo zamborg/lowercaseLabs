@@ -1,4 +1,3 @@
-import AuthenticationServices
 import SwiftUI
 import UIKit
 
@@ -53,7 +52,7 @@ struct SocialView: View {
                     Color.black.opacity(0.02).ignoresSafeArea()
 
                     if model.socialDots.isEmpty {
-                        Text("No friend dots yet.\nAdd friends in Settings.")
+                        Text("No friend dots yet.\nExchange iCloud share links in Settings.")
                             .font(.subheadline)
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
@@ -120,7 +119,7 @@ struct SocialView: View {
                 }
             }
             .navigationTitle("Social")
-            .task(id: model.sessionToken) {
+            .task(id: model.userID) {
                 await model.refreshSocialDots()
             }
             .refreshable {
@@ -342,33 +341,6 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var acceptInviteToken: String = ""
     @State private var clipboardStatus: String?
-    @State private var currentAppleNonce: String?
-    @State private var feedbackKind: FeedbackKind = .idea
-    @State private var feedbackMessage: String = ""
-    @State private var feedbackStatus: String?
-    @State private var isSubmittingFeedback = false
-    @State private var feedbackToastMessage: String?
-    @FocusState private var focusedInput: FocusedInput?
-
-    private enum FocusedInput: Hashable {
-        case feedbackMessage
-    }
-
-    private enum FeedbackKind: String, CaseIterable, Identifiable {
-        case idea
-        case bug
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .idea:
-                return "Idea"
-            case .bug:
-                return "Bug"
-            }
-        }
-    }
 
     var body: some View {
         NavigationStack {
@@ -439,7 +411,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    Text("Health data stays on this device in V1 and is not sent to social or backend.")
+                    Text("Health data stays on this device and is not sent to social or shared iCloud records.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -481,7 +453,59 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("On-Device AI") {
+                Section("Transcription") {
+                    Picker(
+                        "Engine",
+                        selection: Binding(
+                            get: { model.transcriptionEngine },
+                            set: { model.setTranscriptionEngine($0) }
+                        )
+                    ) {
+                        ForEach(TranscriptionEngineKind.availableCases) { engine in
+                            Text(engine.compactTitle).tag(engine)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Picker(
+                        "Language",
+                        selection: Binding(
+                            get: { model.transcriptionLanguage },
+                            set: { model.setTranscriptionLanguage($0) }
+                        )
+                    ) {
+                        ForEach(TranscriptionLanguage.allCases) { language in
+                            Text(language.title).tag(language)
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        Label(
+                            model.transcriptionEngine.title,
+                            systemImage: model.transcriptionEngine.systemImage
+                        )
+                        Spacer()
+                        if model.isPreparingTranscriptionEngine {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(model.transcriptionEngineStatusText)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let error = model.transcriptionEnginePreparationError {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+
+                        Button("Retry") {
+                            model.prepareTranscriptionEngineIfNeeded(force: true)
+                        }
+                    }
+                }
+
+                Section("Insights Model") {
                     Button(model.isPreparingLiquidModel ? "Preparing Model..." : "Redownload Liquid Model") {
                         model.redownloadLiquidModel()
                     }
@@ -496,73 +520,8 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if model.needsSessionReauthentication {
-                    Section("Backend Session") {
-                        Text(
-                            model.sessionReauthenticationMessage
-                                ?? "Social features need a fresh Apple sign-in for \(model.apiBaseURL). This usually means the backend token expired or the selected server changed."
-                        )
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-
-                        SignInWithAppleButton(.signIn) { request in
-                            request.requestedScopes = [.fullName]
-                            let nonce = AppleNonce.random()
-                            currentAppleNonce = nonce
-                            request.nonce = AppleNonce.sha256(nonce)
-                        } onCompletion: { result in
-                            switch result {
-                            case .failure(let error):
-                                model.errorMessage = error.localizedDescription
-                            case .success(let auth):
-                                guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
-                                      let tokenData = credential.identityToken,
-                                      let token = String(data: tokenData, encoding: .utf8) else {
-                                    model.errorMessage = "Unable to read Apple identity token"
-                                    return
-                                }
-
-                                let fullName = [credential.fullName?.givenName, credential.fullName?.familyName]
-                                    .compactMap { $0 }
-                                    .joined(separator: " ")
-                                let nonce = currentAppleNonce
-                                currentAppleNonce = nil
-                                Task {
-                                    await model.signIn(
-                                        identityToken: token,
-                                        nonce: nonce,
-                                        suggestedName: fullName.isEmpty ? nil : fullName
-                                    )
-                                }
-                            }
-                        }
-                        .signInWithAppleButtonStyle(.black)
-                        .frame(height: 46)
-
-                        Button("Dismiss Prompt") {
-                            model.dismissSessionReauthenticationPrompt()
-                        }
-                    }
-                }
-
-#if DEBUG
-                if model.sessionToken != nil {
-                    Section("Developer") {
-                        Button("Simulate Expired Session") {
-                            Task {
-                                await model.simulateExpiredSessionForTesting()
-                            }
-                        }
-
-                        Text("Forces the next backend-backed social request to fail auth so you can test the reconnect prompt immediately.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-#endif
-
                 Section("Social") {
-                    Button("Create Invite Link") {
+                    Button("Create iCloud Share Link") {
                         Task {
                             await model.createInvite()
                         }
@@ -574,8 +533,8 @@ struct SettingsView: View {
                                 .font(.footnote.monospaced())
                                 .textSelection(.enabled)
                             Spacer()
-                            Button("Copy Token") {
-                                copyToClipboard(inviteToken, label: "invite token")
+                            Button("Copy Link") {
+                                copyToClipboard(inviteToken, label: "share link")
                             }
                             .buttonStyle(.bordered)
                         }
@@ -587,16 +546,20 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    TextField("Paste invite link or token", text: $acceptInviteToken)
+                    TextField("Paste iCloud share link", text: $acceptInviteToken)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
 
-                    Button("Accept Invite") {
+                    Button("Accept iCloud Share") {
                         Task {
-                            await model.acceptInvite(token: acceptInviteToken)
+                            await model.acceptInvite(link: acceptInviteToken)
                             acceptInviteToken = ""
                         }
                     }
+
+                    Text("Sharing uses CloudKit. Send your link to people who should see your dots; accept their links to see theirs.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Actions") {
@@ -615,44 +578,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Send Idea / Bug Report") {
-                    Picker("Type", selection: $feedbackKind) {
-                        ForEach(FeedbackKind.allCases) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    ZStack(alignment: .topLeading) {
-                        TextEditor(text: $feedbackMessage)
-                            .frame(minHeight: 110)
-                            .focused($focusedInput, equals: .feedbackMessage)
-                        if feedbackMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("Tell us what happened or what you'd like to see.")
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 8)
-                                .allowsHitTesting(false)
-                        }
-                    }
-
-                    Button(isSubmittingFeedback ? "Sending..." : "Send Report") {
-                        Task {
-                            await submitFeedback()
-                        }
-                    }
-                    .disabled(
-                        isSubmittingFeedback
-                            || feedbackMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
-
-                    if let feedbackStatus {
-                        Text(feedbackStatus)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 Section("About") {
                     Text("Made by Zubin @ lowercaseLabs")
                         .font(.footnote)
@@ -664,29 +589,6 @@ struct SettingsView: View {
                 await model.refreshHealthAuthorizationState()
             }
             .scrollDismissesKeyboard(.interactively)
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") {
-                        focusedInput = nil
-                    }
-                }
-            }
-            .overlay(alignment: .bottom) {
-                if let feedbackToastMessage {
-                    Text(feedbackToastMessage)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.black.opacity(0.82))
-                        )
-                        .padding(.bottom, 22)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
         }
     }
 
@@ -695,30 +597,6 @@ struct SettingsView: View {
         clipboardStatus = "Copied \(label)."
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
             clipboardStatus = nil
-        }
-    }
-
-    private func submitFeedback() async {
-        guard !isSubmittingFeedback else { return }
-        focusedInput = nil
-        isSubmittingFeedback = true
-        let succeeded = await model.submitFeedback(kind: feedbackKind.rawValue, message: feedbackMessage)
-        if succeeded {
-            feedbackMessage = ""
-            feedbackStatus = "Submitted."
-            showFeedbackToast("Report submitted")
-        }
-        isSubmittingFeedback = false
-    }
-
-    private func showFeedbackToast(_ message: String) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            feedbackToastMessage = message
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                feedbackToastMessage = nil
-            }
         }
     }
 
