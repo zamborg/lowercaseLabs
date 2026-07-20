@@ -1,7 +1,0 @@
-runs/
-node_modules/
-*.db
-*.db-shm
-*.db-wal
-*.db-journal
-bun.lockb

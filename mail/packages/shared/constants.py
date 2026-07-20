@@ -1,4 +1,0 @@
-AGENT_QUEUE_NAME = "agent_jobs"
-DEFAULT_INBOX_LIMIT = 50
-
-DEFAULT_NOTES_TITLE = "Remembered"
