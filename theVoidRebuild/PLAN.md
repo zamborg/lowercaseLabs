@@ -22,3 +22,9 @@ Old app is 12k lines of Swift. Mine it, do not port it: AppleSpeechTranscription
 ## Open questions (carried)
 - Tags per memo: recommend exactly 1 dominant quadrant + optional 2nd. With only 4 values, 3 tags is meaningless.
 - Old memo migration: depends on step 0 export.
+
+## Status (Nov 7, 2026 evening)
+- Done + verified on iPhone 14 Pro: step 2 capture (press->capturing 5-12 ms, release->final 50-160 ms).
+- Done, compiles, NOT yet run end to end: step 3 tagging (LFM2-1.2B, MLX Swift, schema-constrained), step 4 persistence (SwiftData, CloudKit private DB config), step 6 dots code (DotStore, zone-wide CKShare, friends view, share acceptance).
+- Blocked: device builds with iCloud need an Apple ID signed in under Xcode > Settings > Accounts (or the iCloud container created at developer.apple.com). Step 5 needs two iCloud accounts to confirm the friend flow and the 30 cap.
+- Known gaps: audio files are not synced (SwiftData syncs text only); friends are labeled by opaque id, not name; invite is one-way (accepting does not auto-invite back); tag accuracy unproven on real memos.

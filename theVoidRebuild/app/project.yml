@@ -36,9 +36,17 @@ targets:
         product: HuggingFace
       - package: SwiftTransformers
         product: Tokenizers
+    entitlements:
+      path: Sources/TheVoid.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers: [iCloud.com.lowercaselabs.thevoid]
+        com.apple.developer.icloud-services: [CloudKit]
+        aps-environment: development
     info:
       path: Sources/Info.plist
       properties:
+        CKSharingSupported: true
+        UIBackgroundModes: [remote-notification]
         CFBundleDisplayName: The Void
         UILaunchScreen: {UIColorName: "", UIImageName: ""}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]

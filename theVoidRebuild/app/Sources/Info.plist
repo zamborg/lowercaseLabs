@@ -20,10 +20,16 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>CKSharingSupported</key>
+	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>The Void records your voice notes on this device.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>The Void transcribes your voice notes on this device.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

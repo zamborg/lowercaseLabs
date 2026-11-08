@@ -24,7 +24,11 @@ struct MemoListView: View {
                     .padding(.vertical, 4)
                 }
                 .onDelete { offsets in
-                    for i in offsets { context.delete(memos[i]) }
+                    for i in offsets {
+                        let id = memos[i].id
+                        context.delete(memos[i])
+                        Task { await DotStore.shared.unpublish(memoID: id) }
+                    }
                 }
             }
             .overlay { if memos.isEmpty { Text("no memos yet").foregroundStyle(.secondary) } }

@@ -91,6 +91,11 @@ final class CaptureModel {
             try? context?.save()
             lastTitle = tagging.title
             lastTags = tagging.tags
+            do {
+                try await DotStore.shared.publish(memoID: memo.id, tags: tagging.tags, createdAt: memo.createdAt)
+            } catch {
+                note = "dot not published: \(error.localizedDescription)"
+            }
             taggingMs = (CFAbsoluteTimeGetCurrent() - started) * 1000
         } catch {
             note = "tagging failed: \(error)"
@@ -136,6 +141,7 @@ struct CaptureView: View {
     @State private var model = CaptureModel()
     @State private var pressed = false
     @State private var showMemos = false
+    @State private var showFriends = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
 
@@ -144,6 +150,9 @@ struct CaptureView: View {
             Color.black.ignoresSafeArea()
             VStack(spacing: 20) {
                 HStack {
+                    Button { showFriends = true } label: {
+                        Image(systemName: "person.2").font(.title3).foregroundStyle(.white.opacity(0.5))
+                    }
                     Spacer()
                     Button { showMemos = true } label: {
                         Image(systemName: "list.bullet").font(.title3).foregroundStyle(.white.opacity(0.5))
@@ -194,6 +203,7 @@ struct CaptureView: View {
             }
         }
         .sheet(isPresented: $showMemos) { MemoListView() }
+        .sheet(isPresented: $showFriends) { FriendsView() }
         .task {
             model.context = modelContext
             model.seedIfRequested()
