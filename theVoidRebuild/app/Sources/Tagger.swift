@@ -47,7 +47,7 @@ final class Tagger: @unchecked Sendable {
 
     /// Load the weights bundled in the app (no network) and build the grammar tokenizer. Do at app open.
     func warm() async throws {
-        guard let directory = Bundle.main.url(forResource: "LFM2-1.2B-4bit", withExtension: nil) else {
+        guard let directory = Bundle.main.url(forResource: "LFM2-1.2B-4bit", withExtension: nil, subdirectory: "Model") else {
             throw TaggerError.weightsMissing
         }
         let container = try await loadModelContainer(from: directory, using: #huggingFaceTokenizerLoader())
