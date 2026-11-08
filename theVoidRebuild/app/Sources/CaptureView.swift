@@ -154,6 +154,8 @@ final class CaptureModel {
     /// `-seed` launch argument: sample entries for exercising the UI where mic/speech don't exist.
     func seedIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains("-seed") else { return }
+        // Deterministic: a seeded launch always starts from exactly these entries.
+        for old in (try? journal.context.fetch(FetchDescriptor<Entry>())) ?? [] { journal.context.delete(old) }
         let samples: [(String, String, Quadrant, Visibility)] = [
             ("Big launch day", "I can't believe we shipped it, I'm buzzing, so much energy today.", .highPleasant, .shared),
             ("Quiet evening", "Just sitting on the porch, tea in hand, feeling really calm and content.", .lowPleasant, .private),

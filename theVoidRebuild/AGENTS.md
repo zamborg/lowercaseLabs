@@ -59,13 +59,13 @@ A new module brings its own flows in the same shape. When behavior changes, chan
 
 Test against real code, with as little faked as possible. Substitute only at the boundary where the outside world enters (the mic, a second person), and say in every report what was substituted. Current understanding of where each layer can run without the phone:
 
-- **Mac, command line** (`app/MacHarness`, `app/validate.sh`): the app's own transcriber and tagger on real Metal, with audio fixtures in place of the mic. Works today.
+- **Mac, command line** (`app/MacHarness`, `app/validate.sh`): the app's own transcriber, tagger, `Journal` and `DotStore` on real Metal, with audio fixtures in place of the mic and an in-memory stand-in for the CloudKit zone. Works today.
 - **The iOS app running on the Mac, under UI tests**: potentially everything real except the mic. The most valuable rig, and unproven. Needs Xcode signed in ([SETUP.md](SETUP.md)).
-- **Simulator**: UI and storage only. It can't run SpeechAnalyzer or MLX, so anything verified there has replayed enrichment, and the report says so.
+- **Simulator** (`app/UITests`): UI and storage only. It can't run SpeechAnalyzer or MLX, so anything verified there has seeded enrichment, and the report says so. Works today.
 - **Two test iCloud accounts** on CloudKit development: the only honest way to verify sharing.
 - **Zubin's phone**: only for what nothing else can see (A16 latency, memory, heat, the real mic). Rare, deliberate, never the default loop.
 
-How these become a one-command `verify` that writes a report is the implementer's call. The report must always include **what this run did not cover**.
+`app/verify.sh` runs the Mac harness and the simulator flows and writes `app/build/verify-report.md`, which always ends with **what this run did not cover**. Run it before reporting anything done.
 
 ## Judgment: decide or ask
 
@@ -89,6 +89,9 @@ These happened. Don't repeat them.
 - **The model was shaped around the first module.** `Memo` is voice-only, with no kind, no visibility, no record of user edits. → *Shape data around the primitives before any schema is deployed; CloudKit production schemas can only be extended.*
 - **The planner micromanaged the implementer.** Plans dictated struct fields and launch flags instead of outcomes and constraints. → *Planning docs say what must be true and why. The implementer decides how, and writes its own plan against these principles.*
 
+- **GPU work in the background kills the app.** Locking the phone while tagging ran crashed MLX with an uncatchable fatal error. → *Anything that touches Metal must check the app is active; the Mac harness can't see this, so every new GPU path needs a lifecycle thought.*
+- **A failed build ran a stale binary.** `validate.sh` kept going after `xcodebuild` failed and reported results from the old build. → *A verification script must stop when its build fails.*
+
 When something new goes wrong, add it here in one line: what happened, and the rule it teaches.
 
 ## Milestones
@@ -106,7 +109,7 @@ The ML loop runs alongside all of these, not after.
 
 - **Project:** XcodeGen. Edit `app/project.yml`, never the generated `.xcodeproj`. Build with `-skipMacroValidation -skipPackagePluginValidation`.
 - **Model weights:** `app/Model/` is gitignored. `app/fetch-model.sh` restores it.
-- **iCloud** is off in builds until signing is set up: `VoidICloud` in `project.yml`.
+- **Phone builds:** `app/build-phone.sh` (iCloud off) or `--icloud` (needs Xcode signed into the Apple ID; today it fails with "No Accounts"). The phone is for deliberate checks, not the loop.
 - **Codex:** for long-running or deterministic work (the ML loop especially), delegate through `~/.shepherd` persistent workstreams. Whoever delegates writes the brief at the time, from these principles. Treat Codex as an engineer and judge its output by flows and evals.
 - **Roadmap:** [ROADMAP.md](ROADMAP.md) has the sequencing, risks and Zubin-gated decisions to the first TestFlight.
 - **History:** [PLAN.md](PLAN.md) and `briefs/00–02` record how the first build was done.

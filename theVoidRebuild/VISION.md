@@ -118,18 +118,19 @@ These hold until we decide otherwise, on purpose.
 - Android, iPad, Mac apps; web; public feeds; cloud LLMs.
 - Accounts beyond iCloud.
 
-## Where the code is versus this doc (2026-11-08)
+## Where the code is versus this doc (2026-11-08, end of day)
 
 | Area | State |
 |---|---|
-| Capture: hold, live transcript, save | Working on iPhone 14 Pro: touch to recording ~5 ms, release to final transcript ~60 ms |
-| Enrichment: title and tags | Working on iPhone 14 Pro, Release build: ~1.45 s. Title quality is weak, tag accuracy unproven on real messages |
-| Data model | `Memo`, with no `kind`, no visibility and no edit provenance. **Rename to `Entry` and add these before v1 ships**, because changing a CloudKit schema after release is painful |
-| Visibility | Missing. The current code publishes a dot for every message, which contradicts this doc |
-| Lock gesture, voice-reactive circle | Missing |
-| Tab bar, Void card, Social grid | Missing. Today there are sheets for a plain list and a friends list |
-| Editing transcript, title, tags | Missing |
-| Dots and friends | Code exists, never run against real iCloud accounts. Friends show as opaque ids, and invites are one-way |
+| Capture: hold, live transcript, save | Working on iPhone 14 Pro: touch to recording ~5 ms, release to final transcript ~35-90 ms |
+| Voice-reactive circle, slide-up lock, visibility toggle | Built and compiled; screen checked in the simulator. **Not yet felt or measured on the phone** (needs the mic) |
+| Enrichment: title and tags | ~1.25-1.5 s on the phone (Release). Title quality weak, tag accuracy unproven on real messages. Stops when the app isn't active and resumes on return |
+| Data model | `Entry` with kind, visibility, per-field provenance. Store is named `Entries`, separate from the first build's `Memo` store |
+| Visibility and dots | Dots are derived from shared, tagged entries and reconciled after every change. Verified against an in-memory cloud |
+| Void tab: list, card, playback, edit, delete | Built. List, edit, visibility and delete verified by UI flows in the simulator; **playback sound is unverified** |
+| Social tab | Built: friends' dots over the week, tap for tags and time, invite, friend cap 30. Screen checked with seeded friends. **Never run against real iCloud** |
+| Mutual friendship | Accepting an invite shows a prompt to send yours back; a single link can't auto-reciprocate |
+| iCloud on the phone | Blocked: Xcode has no Apple ID, so the entitlement can't be provisioned (SETUP step 1) |
 | Audio sync across your devices | Missing. Only text syncs. Not needed for single-device v1 |
 
 ## Open questions

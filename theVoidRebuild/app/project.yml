@@ -51,12 +51,27 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSMicrophoneUsageDescription: The Void records your voice notes on this device.
         NSSpeechRecognitionUsageDescription: The Void transcribes your voice notes on this device.
+    scheme:
+      testTargets:
+        - TheVoidUITests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.thevoid
         CODE_SIGN_ENTITLEMENTS: ${VOID_ENTITLEMENTS}
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: NO
+  TheVoidUITests:
+    # Simulator flows: UI and storage only. The simulator has no speech or MLX, so entries are seeded (-seed).
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: TheVoid
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.thevoid.uitests
+        GENERATE_INFOPLIST_FILE: YES
   MacHarness:
     # Mac command-line check of the exact Tagger.swift the app ships. Real Metal, no phone needed.
     # ./validate.sh builds and runs it.
