@@ -55,3 +55,30 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.thevoid
         GENERATE_INFOPLIST_FILE: NO
+  TagTest:
+    # Mac command-line check of the exact Tagger.swift the app ships. Real Metal, no phone needed.
+    # ./validate.sh builds and runs it.
+    type: tool
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - TagTest
+      - Sources/Tagger.swift
+      - Sources/Taxonomy.swift
+    dependencies:
+      - package: MLXSwiftLM
+        product: MLXLLM
+      - package: MLXSwiftLM
+        product: MLXLMCommon
+      - package: MLXSwiftLM
+        product: MLXHuggingFace
+      - package: MLXSwiftLM
+        product: MLXGuidedGeneration
+      - package: SwiftHuggingFace
+        product: HuggingFace
+      - package: SwiftTransformers
+        product: Tokenizers
+    settings:
+      base:
+        PRODUCT_NAME: TagTest
+        CODE_SIGN_IDENTITY: "-"

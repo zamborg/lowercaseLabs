@@ -47,7 +47,8 @@ final class Tagger: @unchecked Sendable {
 
     /// Load the weights bundled in the app (no network) and build the grammar tokenizer. Do at app open.
     func warm() async throws {
-        guard let directory = Bundle.main.url(forResource: "LFM2-1.2B-4bit", withExtension: nil, subdirectory: "Model") else {
+        let override = ProcessInfo.processInfo.environment["VOID_MODEL_DIR"].map { URL(fileURLWithPath: $0) }
+        guard let directory = override ?? Bundle.main.url(forResource: "LFM2-1.2B-4bit", withExtension: nil, subdirectory: "Model") else {
             throw TaggerError.weightsMissing
         }
         let container = try await loadModelContainer(from: directory, using: #huggingFaceTokenizerLoader())
@@ -76,23 +77,28 @@ final class Tagger: @unchecked Sendable {
                 hostTokenizer: context.tokenizer
             )
             let input = try await context.processor.prepare(input: UserInput(prompt: userPrompt))
+            let (whitespace, whitespaceIDs) = WhitespaceTokenBias.compute(tokenizer: context.tokenizer)
+            let closing = ClosingTokenBias.compute(tokenizer: context.tokenizer, eosTokenId: context.tokenizer.eosTokenId)
             var output = ""
-            try GuidedGenerationLoop.run(
+            do { try GuidedGenerationLoop.run(
                 input: input,
                 context: context,
                 constraint: constraint,
                 maxTokens: 96,
-                vocabSize: grammarTokenizer.vocabSize
+                vocabSize: grammarTokenizer.vocabSize,
+                closingBias: closing,
+                whitespaceBias: whitespace,
+                whitespaceTokenIDs: whitespaceIDs
             ) { delta in
                 output += delta
                 return true
-            }
+            } } catch { throw TaggerError.generation("\(error) after output: \(output)") }
             return output
         }
         struct Raw: Decodable { let title: String; let tags: [Quadrant] }
         let raw = try JSONDecoder().decode(Raw.self, from: Data(json.utf8))
-        return Tagging(title: raw.title, tags: Array(raw.tags.prefix(2)))
+        return Tagging(title: raw.title, tags: Array(NSOrderedSet(array: raw.tags).array.compactMap { $0 as? Quadrant }.prefix(2)))
     }
 }
 
-enum TaggerError: Error { case notWarm, weightsMissing }
+enum TaggerError: Error { case notWarm, weightsMissing, generation(String) }
