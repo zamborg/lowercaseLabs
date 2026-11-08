@@ -134,7 +134,4 @@ These hold until we decide otherwise, on purpose.
 
 ## Open questions
 
-- **Default visibility for a new message**: private or shared? I'd default to private on first use, then remember the last choice.
-- **Lock gesture direction**: slide up (like iMessage voice notes) or any direction off the circle?
-- **The friend cap**: confirm the limit CloudKit sharing actually imposes.
-- **Old messages from the previous app**: import them or start fresh?
+Each one has a working default in [DECISIONS.md](DECISIONS.md) so building isn't blocked: default visibility (D5), lock gesture (D6), friend cap (D7) and old-message import (D8). Override any of them there.

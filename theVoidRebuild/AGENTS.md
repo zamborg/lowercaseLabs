@@ -112,17 +112,21 @@ Title quality has no automated score yet. Until it does, a title change includes
 
 **Data Zubin provides when he can:** about 50 hand-labeled real messages (the holdout), and about 20 recordings with corrected transcripts for WER. Synthetic data, generated and judged by models from the same vendor, overstates accuracy, so treat it as a regression check, not a quality claim.
 
-## Bootstrap: making this real
+## Roadmap: making this real
 
-Ordered. Each one makes the loop more autonomous.
+Each step has an execution brief in `briefs/`. Briefs are self-contained: an agent can start one cold. Update the status column when a step lands.
 
-1. **`./verify` and rig A flows.** Extract the capture → save → enrich → publish pipeline out of `CaptureView`'s model into a plain object the UI observes, so it can run without a screen. Extend rig A to run F1, F2, F6 (up to the CloudKit call) and F8 against an in-memory store with fixture audio. Write the report generator.
-2. **Rig B.** Add `-fixtureAudio`. Get the app running on the Mac under XCUITest with real speech and LLM. If it can't be made to work, build rig B′ instead and record why in `DECISIONS.md`. *Needs: Xcode signed into Zubin's Apple ID.*
-3. **v1 UI per [VISION.md](VISION.md)** (tab bar, lock gesture, Void card, Social grid, visibility, editing) with flows F3–F5 and F8 written alongside, not after.
-4. **Data model to v1 shape**: `Entry` with kind, visibility and edit provenance, before any real data or CloudKit schema exists in production.
-5. **Rig C**: dots end to end with two test accounts, measuring F6, F7 and F9. *Needs: two test Apple IDs from Zubin.*
-6. **Rig E gate**: run the eval gate, store the first baseline, and hand the ML loop to Codex.
-7. **TestFlight and `./ship`.** *Needs: an App Store Connect app record and an API key from Zubin.* After this, a green `main` goes to Zubin's phone without anyone touching it.
+| Step | Brief | Executor | Needs first | Status |
+|---|---|---|---|---|
+| 1 | [10: Entry model and pipeline extraction](briefs/10-entry-and-pipeline.md) | Claude | — | Not started |
+| 2 | [11: `./verify` and rig A flows](briefs/11-verify-and-rig-a.md) | Claude | 1 | Not started |
+| 3 | [12: rig B (app on Mac) or B′ (simulator) UI flows](briefs/12-rig-b-app-ui.md) | Claude | 2. Rig B also needs [SETUP](SETUP.md) step 1 | Not started |
+| 4 | [13: v1 UI](briefs/13-v1-ui.md) | Claude | 3 | Not started |
+| 5 | [14: dots on CloudKit (rig C)](briefs/14-rig-c-cloudkit.md) | Claude | 2, and SETUP steps 1 and 2 | Blocked on SETUP |
+| ∥ | [15: ML eval gate and improvement loop](briefs/15-eval-gate.md) | Codex | — (runs in parallel) | Not started |
+| 6 | [16: TestFlight and `./ship`](briefs/16-testflight.md) | Claude | 4, 5, SETUP step 3, Zubin's go-ahead | Blocked on SETUP |
+
+Things only Zubin can do (signing in, test accounts, API key) are in [SETUP.md](SETUP.md). Settled and default decisions are in [DECISIONS.md](DECISIONS.md). Check both before asking him anything.
 
 ## Practicalities
 
