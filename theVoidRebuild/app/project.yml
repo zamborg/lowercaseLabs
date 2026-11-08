@@ -22,7 +22,11 @@ targets:
   TheVoid:
     type: application
     platform: iOS
-    sources: [Sources]
+    sources:
+      - Sources
+      - path: Model
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: MLXSwiftLM
         product: MLXLLM
@@ -36,16 +40,11 @@ targets:
         product: HuggingFace
       - package: SwiftTransformers
         product: Tokenizers
-    entitlements:
-      path: Sources/TheVoid.entitlements
-      properties:
-        com.apple.developer.icloud-container-identifiers: [iCloud.com.lowercaselabs.thevoid]
-        com.apple.developer.icloud-services: [CloudKit]
-        aps-environment: development
     info:
       path: Sources/Info.plist
       properties:
         CKSharingSupported: true
+        VoidICloud: false   # set true together with CODE_SIGN_ENTITLEMENTS: Sources/TheVoid-iCloud.entitlements
         UIBackgroundModes: [remote-notification]
         CFBundleDisplayName: The Void
         UILaunchScreen: {UIColorName: "", UIImageName: ""}

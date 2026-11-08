@@ -15,8 +15,10 @@ struct FriendDot: Identifiable {
 final class DotStore {
     static let shared = DotStore()
     nonisolated static let containerID = "iCloud.com.lowercaselabs.thevoid"
+    /// Off unless the build carries the iCloud entitlement (Info.plist VoidICloud = true).
+    nonisolated static let enabled = Bundle.main.object(forInfoDictionaryKey: "VoidICloud") as? Bool == true
 
-    private let container = CKContainer(identifier: DotStore.containerID)
+    @ObservationIgnored private lazy var container = CKContainer(identifier: DotStore.containerID)
     private let zoneID = CKRecordZone.ID(zoneName: "Dots", ownerName: CKCurrentUserDefaultName)
     private var zoneReady = false
 
@@ -27,6 +29,7 @@ final class DotStore {
 
     /// A dot is derived from a memo at save time: id, owner (implicit), createdAt, tags.
     func publish(memoID: UUID, tags: [Quadrant], createdAt: Date) async throws {
+        guard Self.enabled else { return }
         try await ensureZone()
         let record = CKRecord(recordType: "Dot", recordID: CKRecord.ID(recordName: memoID.uuidString, zoneID: zoneID))
         record["createdAt"] = createdAt
@@ -36,6 +39,7 @@ final class DotStore {
 
     /// Deleting a memo deletes its dot.
     func unpublish(memoID: UUID) async {
+        guard Self.enabled else { return }
         let id = CKRecord.ID(recordName: memoID.uuidString, zoneID: zoneID)
         _ = try? await container.privateCloudDatabase.modifyRecords(saving: [], deleting: [id])
     }
@@ -50,6 +54,7 @@ final class DotStore {
 
     /// The zone-wide share (created on first use). Read-only for participants, invite-only.
     func shareForInvite() async throws -> CKShare {
+        guard Self.enabled else { throw DotError.iCloudOff }
         try await ensureZone()
         let shareID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: zoneID)
         if let existing = try? await container.privateCloudDatabase.record(for: shareID) as? CKShare {
@@ -67,6 +72,7 @@ final class DotStore {
     // MARK: Accept
 
     func accept(_ metadata: CKShare.Metadata) async {
+        guard Self.enabled else { return }
         do {
             _ = try await container.accept([metadata])
             // Friendship is mutual: after accepting, also invite back by sharing our own zone.
@@ -80,6 +86,7 @@ final class DotStore {
     // MARK: Read friends' dots (pull on open)
 
     func refreshFriends() async {
+        guard Self.enabled else { status = "iCloud sharing is off in this build"; return }
         let db = container.sharedCloudDatabase
         do {
             let zones = try await db.allRecordZones()
@@ -101,4 +108,9 @@ final class DotStore {
             status = "couldn't load friends' dots: \(error.localizedDescription)"
         }
     }
+}
+
+enum DotError: Error, LocalizedError {
+    case iCloudOff
+    var errorDescription: String? { "iCloud sharing is off in this build" }
 }

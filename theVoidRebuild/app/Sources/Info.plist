@@ -41,5 +41,7 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>VoidICloud</key>
+	<false/>
 </dict>
 </plist>

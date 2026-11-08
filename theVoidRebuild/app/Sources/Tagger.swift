@@ -14,7 +14,6 @@ struct Tagging: Sendable {
 /// The one tagger: LFM2-1.2B 4-bit via MLX Swift, JSON-schema constrained.
 /// Model chosen by the Mac eval (eval/tagging/report.md). No protocol, no alternatives.
 final class Tagger: @unchecked Sendable {
-    static let modelID = "mlx-community/LFM2-1.2B-4bit"
 
     private var container: ModelContainer?
     private var grammarTokenizer: GrammarTokenizer?
@@ -46,11 +45,12 @@ final class Tagger: @unchecked Sendable {
 
     """
 
-    /// Load weights (downloads on first run) and build the grammar tokenizer. Do at app open.
+    /// Load the weights bundled in the app (no network) and build the grammar tokenizer. Do at app open.
     func warm() async throws {
-        let container = try await #huggingFaceLoadModelContainer(
-            configuration: ModelConfiguration(id: Self.modelID)
-        )
+        guard let directory = Bundle.main.url(forResource: "LFM2-1.2B-4bit", withExtension: nil) else {
+            throw TaggerError.weightsMissing
+        }
+        let container = try await loadModelContainer(from: directory, using: #huggingFaceTokenizerLoader())
         let grammar = try await container.perform { context in
             let vocab = TokenizerVocabExtractor.extractForGrammar(from: context.tokenizer)
             return try GrammarTokenizer(
@@ -95,4 +95,4 @@ final class Tagger: @unchecked Sendable {
     }
 }
 
-enum TaggerError: Error { case notWarm }
+enum TaggerError: Error { case notWarm, weightsMissing }

@@ -4,3 +4,4 @@ app/build/
 eval/data/cache/
 eval/tagging/runs/
 eval/tagging/smoke*/
+Model/
