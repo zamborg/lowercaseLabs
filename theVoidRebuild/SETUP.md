@@ -4,7 +4,11 @@ Agents can't do these, because each one involves signing in, creating accounts, 
 
 What already exists (checked 2026-11-08): an Apple Development certificate for zubinaysola@gmail.com, team `9G57J2JMF7` ("Zubin Aysola"), development profiles, and an **App Store distribution profile for the old app** (`com.lowercaseLabs.theVoid`). So the paid developer account and an App Store Connect record are already there.
 
-## 1. Sign Xcode into your Apple ID (about 2 minutes). Unblocks running the app on the Mac, iCloud, TestFlight
+## 1. Sign Xcode into your Apple ID. DONE 2026-11-08
+
+Note: Xcode's command-line build can't see the account on this Mac, so a **new** capability or bundle id needs one ⌘R in the Xcode window to create its provisioning profile. After that, `app/build-phone.sh --icloud` works from the command line.
+
+(Original note) Unblocks running the app on the Mac, iCloud, TestFlight
 
 Xcode → Settings → Accounts → **+** → Apple ID → zubinaysola@gmail.com. Make sure team "Zubin Aysola" appears.
 

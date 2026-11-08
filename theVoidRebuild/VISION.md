@@ -130,7 +130,7 @@ These hold until we decide otherwise, on purpose.
 | Void tab: list, card, playback, edit, delete | Built. List, edit, visibility and delete verified by UI flows in the simulator; **playback sound is unverified** |
 | Social tab | Built: friends' dots over the week, tap for tags and time, invite, friend cap 30. Screen checked with seeded friends. **Never run against real iCloud** |
 | Mutual friendship | Accepting an invite shows a prompt to send yours back; a single link can't auto-reciprocate |
-| iCloud on the phone | Blocked: Xcode has no Apple ID, so the entitlement can't be provisioned (SETUP step 1) |
+| iCloud on the phone | Working. Signed with the iCloud entitlement; a `-cloudtest` run on the phone published a dot, withdrew it on flip to private, re-published, and removed it on delete, against the real CloudKit development zone (first publish ~2 s incl. zone creation, withdraw ~0.6 s). **Friends seeing each other still needs two accounts** |
 | Audio sync across your devices | Missing. Only text syncs. Not needed for single-device v1 |
 
 ## Open questions
