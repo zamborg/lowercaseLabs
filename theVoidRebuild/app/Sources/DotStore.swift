@@ -91,6 +91,13 @@ final class DotStore {
         }
     }
 
+    /// Dot ids currently in this account's zone. Used by the `-cloudtest` check, never by the UI.
+    func ownDotIDs() async throws -> Set<String> {
+        let changes = try await container.privateCloudDatabase.recordZoneChanges(inZoneWith: zoneID, since: nil)
+        return Set(changes.modificationResultsByID.compactMap { try? $0.value.get().record }
+            .filter { $0.recordType == "Dot" }.map(\.recordID.recordName))
+    }
+
     private func ensureZone() async throws {
         guard !zoneReady else { return }
         _ = try await container.privateCloudDatabase.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)], deleting: [])

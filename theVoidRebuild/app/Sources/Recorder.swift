@@ -32,6 +32,7 @@ final class Recorder: @unchecked Sendable {
     private var warm: LiveTranscription.Warm?
 
     private let lock = NSLock()
+    private let engineLock = NSLock()
     private var isRecording = false
     private var file: AVAudioFile?
     private var live: LiveTranscription?
@@ -63,6 +64,9 @@ final class Recorder: @unchecked Sendable {
 
     /// Mic on, audio discarded except the pre-roll. Call again after returning to foreground.
     func startListening() throws {
+        // prewarm (background executor) and the foreground hook (main) can both land here at launch;
+        // AVAudioEngine asserts if two taps are installed, so this is serialized.
+        engineLock.lock(); defer { engineLock.unlock() }
         guard !engine.isRunning else { return }
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -77,6 +81,7 @@ final class Recorder: @unchecked Sendable {
 
     /// Mic off (app backgrounded). Never leave the mic running in the background.
     func stopListening() {
+        engineLock.lock(); defer { engineLock.unlock() }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         lock.withLock { ring = []; ringFrames = 0 }

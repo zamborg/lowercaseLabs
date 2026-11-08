@@ -51,6 +51,29 @@ final class CaptureModel {
         }
         await journal.reconcileDots()
         if ProcessInfo.processInfo.arguments.contains("-autotest") { await autotest() }
+        if ProcessInfo.processInfo.arguments.contains("-cloudtest") { await cloudTest() }
+    }
+
+    /// `-cloudtest` launch argument: F6 against the real CloudKit zone (this account, development environment).
+    private func cloudTest() async {
+        func line(_ s: String) { print("CLOUD \(s)"); fflush(stdout) }
+        let dots = DotStore.shared
+        guard DotStore.enabled else { line("FAILED iCloud off in this build"); return }
+        let e = journal.save(audioFileName: "none.caf", duration: 1, transcript: "cloud test", visibility: .shared)
+        journal.setTags([.highPleasant], on: e)
+        func present() async -> Bool? { try? await dots.ownDotIDs().contains(e.id.uuidString) }
+        var t = CFAbsoluteTimeGetCurrent()
+        await journal.reconcileDots()
+        line("shared+tagged -> dot present=\(String(describing: await present())) ms=\(Int((CFAbsoluteTimeGetCurrent() - t) * 1000)) status=\(dots.status)")
+        journal.setVisibility(.private, on: e); t = CFAbsoluteTimeGetCurrent()
+        await journal.reconcileDots()
+        line("flipped private -> dot present=\(String(describing: await present())) ms=\(Int((CFAbsoluteTimeGetCurrent() - t) * 1000))")
+        journal.setVisibility(.shared, on: e)
+        await journal.reconcileDots()
+        line("flipped shared -> dot present=\(String(describing: await present()))")
+        journal.delete(e); await journal.reconcileDots()
+        line("deleted -> dot present=\(String(describing: await present())) status=\(dots.status)")
+        line("done")
     }
 
     /// Background/foreground: the mic only runs while the app is visible.
