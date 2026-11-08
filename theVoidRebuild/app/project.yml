@@ -44,7 +44,7 @@ targets:
       path: Sources/Info.plist
       properties:
         CKSharingSupported: true
-        VoidICloud: false   # set true together with CODE_SIGN_ENTITLEMENTS: Sources/TheVoid-iCloud.entitlements
+        VoidICloud: ${VOID_ICLOUD}   # "true" only with the entitlements below; set by build-phone.sh
         UIBackgroundModes: [remote-notification]
         CFBundleDisplayName: The Void
         UILaunchScreen: {UIColorName: "", UIImageName: ""}
@@ -54,6 +54,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.thevoid
+        CODE_SIGN_ENTITLEMENTS: ${VOID_ENTITLEMENTS}
+        CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: NO
   MacHarness:
     # Mac command-line check of the exact Tagger.swift the app ships. Real Metal, no phone needed.

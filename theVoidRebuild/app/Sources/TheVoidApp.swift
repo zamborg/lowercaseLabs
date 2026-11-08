@@ -45,7 +45,7 @@ struct RootView: View {
         TabView(selection: $tab) {
             Tab("Capture", systemImage: "circle.fill", value: 0) { CaptureView(model: app.capture) }
             Tab("Void", systemImage: "tray.full", value: 1) { VoidView(journal: app.journal) }
-            Tab("Friends", systemImage: "person.2", value: 2) { FriendsView() }
+            Tab("Friends", systemImage: "person.2", value: 2) { SocialView() }
         }
         .onAppear {
             let args = ProcessInfo.processInfo.arguments

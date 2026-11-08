@@ -158,6 +158,14 @@ final class CaptureModel {
             e.tagValues = [s.2.rawValue]; e.tagsSourceValue = Source.model.rawValue
         }
         try? journal.context.save()
+        let now = Date()
+        func dot(_ hours: Double, _ tags: [Quadrant]) -> FriendDot {
+            FriendDot(id: UUID().uuidString, ownerID: "x", createdAt: now.addingTimeInterval(-hours * 3600), tags: tags)
+        }
+        DotStore.shared.seedFriends([
+            Friend(id: "a", name: "Maya", dots: [dot(2, [.lowPleasant]), dot(20, [.lowPleasant, .highPleasant]), dot(30, [.highPleasant]), dot(55, [.lowPleasant]), dot(100, [.highUnpleasant])]),
+            Friend(id: "b", name: "Dev", dots: [dot(1, [.lowUnpleasant]), dot(5, [.lowUnpleasant]), dot(26, [.lowUnpleasant, .highUnpleasant]), dot(75, [.lowPleasant])], sharesBack: false),
+        ])
     }
 }
 
