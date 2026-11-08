@@ -1,137 +1,111 @@
 # Working on The Void
 
-For any coding agent (Claude Code, Codex, others) picking up work here. Read [VISION.md](VISION.md) first for what we're building. This file is how we build it.
+For any agent picking up work here: Claude, Codex, anyone. [VISION.md](VISION.md) says what we're building. This file says **how to think** while building it: what we care about, what to do when those things conflict, what good looks like, and what went wrong last time. It does not tell you what to type. You own the how; this is so your judgment matches Zubin's when he isn't there.
 
-## The one rule
+## What we're optimizing for
 
-**You verify your own work.** Zubin sends a request (a feature, a bug, a question) from wherever he is and does not run builds, hold the phone, or relay what he saw. You change the code, prove the affected user flows work by running them yourself, and come back with a report in the terms he asked in. If you can't verify something yourself, say so plainly. Never imply it was verified.
+A place you drop your life into that costs nothing to use, organizes itself, and lets friends see how you've been without seeing what you said. Everything here serves one of those three. If a piece of work serves none of them, don't do it.
 
-Until the app is on TestFlight, nobody pushes builds to Zubin's phone as part of the loop.
+The product is built from a few general primitives (entry, module, enrichment, dot; see [VISION.md](VISION.md#primitives)) so that voice is the first module, not the only one. **Build for the primitive, ship the instance.** When you touch something voice-specific, ask whether the next module (say, a photo) would need you to tear it up. If yes, fix the shape now. Don't build the photo module.
 
-## The three layers
+## Priorities, in order when they conflict
 
-| Layer | What it is | How it's verified | Cadence |
-|---|---|---|---|
-| **UI** | Screens, gestures, navigation | Flows driven through the real app UI (rig B) | With every change |
-| **Infra** | Capture, storage, enrichment pipeline, sync, dots | Flows on the real pipeline with fixture audio (rigs A, B, C) | With every change |
-| **ML** | Transcription quality, title quality, tag accuracy, model choice | Eval sets with stored baselines (rig E) | Its own ongoing loop, asynchronous |
+1. **Never lose what the user put in.** Once capture ends, the entry is saved, before enrichment, before the network, before anything that can fail. A crash, a model failure or a full disk must not cost someone a thought.
+2. **Capture feels instant.** Touch to recording within one frame; the circle reacts on the same frame. Nothing slow happens on press. Pay for speed with work at launch or after release, never during.
+3. **Privacy by construction.** Only dots leave for friends, and only for entries the user chose to share. That's enforced by what the data model *can* carry, not by being careful. A shared default, an accidental publish, or content in the shared zone is a severity-one bug.
+4. **Small and legible.** One implementation per layer. No protocols with one conformer, no pluggable engines, no abstraction for a future module that doesn't exist. The codebase should be readable in an afternoon. Deleting code is progress.
+5. **Enrichment quality.** Titles and tags matter, but they improve continuously and asynchronously, and they never block or slow priorities 1–3.
+6. **Social.** Light, summary-level, opt-in. It's a layer over the journal, not the point of it.
 
-UI and infra changes are judged by flows. ML changes are judged by evals. A change to the ML layer still has to keep every flow passing.
+A faster capture that risks losing a recording loses. A cleverer model that adds a second to release loses. A feature that needs a new abstraction layer should usually be cut.
 
-## Flows: the unit of verification
+## What good looks like
 
-A **flow** is a user-level scenario with assertions and measurements, written the way Zubin would ask about it ("when I record a message and share it, how long until a friend sees the dot?"). Unit tests are welcome where they give you confidence, but the flows are what you report on.
+**Product.** Dark, quiet and immediate. One obvious action per screen. Opening the app and getting a thought in should feel like dropping something into a void: no setup, no forms, no settings screens, no onboarding beyond the two permissions. Model output is a quiet suggestion the user can overrule in one tap, never something they have to manage. When unsure, do less, more beautifully.
 
-Each flow has an id, steps, what must be true, and what gets measured against [VISION.md budgets](VISION.md#budgets).
+**Engineering.** It works on the phone, not just in the compiler. Real numbers, measured, beat estimates. Every claim in a report is something you saw. The fewest moving parts that meet the budgets.
+
+## How we work: you are the tester
+
+Zubin sends requests from wherever he is, then expects working software and an honest account of it. He does not run builds, hold the phone, or relay what he saw. Until the app is on TestFlight, nobody puts a build on his phone for him to try. **Verification is your job, and "I couldn't verify X" is a complete, acceptable sentence. "Done" when it wasn't run is not.**
+
+Three layers, judged differently:
+
+| Layer | Judged by | Cadence |
+|---|---|---|
+| **UI**: screens, gestures, feel | User flows through the real app, plus screenshots you actually look at | Every change |
+| **Infra**: capture, storage, enrichment pipeline, sync, dots | User flows on the real pipeline | Every change |
+| **ML**: transcription, titles, tags, model choice | Evals against stored baselines | Its own continuous loop, asynchronous. It must never break a flow |
+
+### Flows are the contract
+
+A flow is a user-level scenario, phrased the way Zubin asks questions ("when I record something and share it, how long until a friend sees the dot?"), with what must be true and what gets measured against [VISION.md budgets](VISION.md#budgets). Report in flows. Unit tests are fine when they help you, but nobody asks about them.
 
 | ID | Flow | Must be true | Measures |
 |---|---|---|---|
-| F1 | **Record a message.** Launch, hold, speak, release | Message saved with audio and a transcript matching the speech | Launch to ready; touch to recording; release to saved |
-| F2 | **Enrichment.** After F1 | Non-empty title of 60 characters or fewer, 1–2 distinct valid tags, shown on Capture and in the Void list | Release to title and tags shown |
-| F3 | **Locked recording.** Hold, slide off, let go, keep talking, tap to stop | Recording continued after the finger lifted; one message saved | Same as F1 |
-| F4 | **Edit.** Open a card, edit transcript, title and tags | Edits persist across relaunch; a later enrichment run doesn't overwrite them | — |
-| F5 | **Playback.** Open a card, play | Audio plays; duration matches the recording | Tap to audio |
-| F6 | **Share.** Record as shared; flip one to private; flip back | Dot exists exactly while the message is shared; no content in the shared zone | Release to dot written |
-| F7 | **Friend sees it.** Second account, after F6 | Friend's Social tab shows the dot with tags and time only | Dot written to dot visible |
-| F8 | **Delete.** Delete a shared message | Message, audio file and dot are all gone | — |
-| F9 | **Invite.** Invite a friend, friend accepts | Both see each other in Social | — |
+| F1 | **Record.** Launch, hold, speak, release | Entry saved with audio and a faithful transcript | Launch to ready; touch to recording; release to saved |
+| F2 | **Enrich.** After F1 | Sensible title, 1–2 valid tags, shown on Capture and in the Void | Release to title and tags shown |
+| F3 | **Locked recording.** Hold, slide to lock, let go, keep talking, stop | Recording continued hands-free; one entry saved | As F1 |
+| F4 | **Edit.** Change transcript, title, tags | Edits persist, and the model never overwrites them | — |
+| F5 | **Play back.** Open a message, play | Audio plays and matches the recording | Tap to audio |
+| F6 | **Share.** Record shared; flip private; flip back | Dot exists exactly while shared; no content ever leaves | Release to dot written |
+| F7 | **Friend sees it.** Second account | Dot appears with tags and time only | Dot written to dot visible |
+| F8 | **Delete.** Delete a shared message | Entry, audio and dot all gone | — |
+| F9 | **Invite.** Invite a friend; they accept | Each sees the other in Social | — |
 
-Flow definitions live in `flows/` as test code, one file per flow, named by id. When behavior changes, change the flow in the same commit. **Never weaken an assertion or loosen a budget to make a flow pass.** If a budget is wrong, say so in the report and let Zubin decide.
+A new module brings its own flows in the same shape. When behavior changes, change the flow in the same commit. **Never weaken an assertion or a budget to get green.** If a budget is wrong, make the case to Zubin with numbers.
 
-A new module adds its own flows (for a camera module: swipe to camera, snap, post, see it in the Void, share). They follow the same shape.
+### Run the real thing, substitute only at the edges
 
-## Rigs: where flows run
+Test against real code, with as little faked as possible. Substitute only at the boundary where the outside world enters (the mic, a second person), and say in every report what was substituted. Current understanding of where each layer can run without the phone:
 
-Each rig runs the real code with as little substitution as possible. **No engine protocols.** The only test seams are launch arguments at the edges of the app, for example `-fixtureAudio <file>`, which feeds a WAV file into the recorder's tap in place of the mic.
+- **Mac, command line** (`app/MacHarness`, `app/validate.sh`): the app's own transcriber and tagger on real Metal, with audio fixtures in place of the mic. Works today.
+- **The iOS app running on the Mac, under UI tests**: potentially everything real except the mic. The most valuable rig, and unproven. Needs Xcode signed in ([SETUP.md](SETUP.md)).
+- **Simulator**: UI and storage only. It can't run SpeechAnalyzer or MLX, so anything verified there has replayed enrichment, and the report says so.
+- **Two test iCloud accounts** on CloudKit development: the only honest way to verify sharing.
+- **Zubin's phone**: only for what nothing else can see (A16 latency, memory, heat, the real mic). Rare, deliberate, never the default loop.
 
-| Rig | What it is | Real | Substituted | Covers | Status |
-|---|---|---|---|---|---|
-| **A. Mac pipeline** | `app/MacHarness`, a Mac command-line tool compiled from the app's own `Transcriber.swift` and `Tagger.swift` | Speech model, LLM, Metal | Mic → audio fixtures | Infra and ML truth: transcripts, enrichment output and timing, on Mac hardware | **Exists**, passes (`app/validate.sh`). Doesn't cover storage or sharing yet |
-| **B. App on Mac** | The actual iOS app running on this Mac ("Designed for iPad"), driven by XCUITest | Everything: UI, SwiftData, speech, LLM on Metal | Mic → `-fixtureAudio` | UI + infra flows end to end: F1–F5, F8 | **Not built.** Needs Xcode signed into Zubin's Apple ID so the Mac can run a signed build. Unproven that MLX and SpeechAnalyzer behave there the way they do on the phone; validating that is the first job |
-| **B′. Simulator** | iOS simulator with XCUITest | UI, SwiftData | Mic, and also speech and LLM (neither runs in the simulator: no speech model, and MLX crashes without Metal) | UI-only flows and screenshots at phone size | Fallback if B fails. Weaker, because it can't see real enrichment |
-| **C. CloudKit** | Two test iCloud accounts against the CloudKit **development** environment: one in rig B, one in a simulator | CloudKit | — | F6, F7, F9 and share timing | **Not built.** Needs Zubin to create two test Apple IDs once. Agents never create accounts |
-| **D. Phone** | Zubin's iPhone 14 Pro over `devicectl`, scripted with `-autotest` | Everything, including the real mic and A16 | — | Only what no other rig can see: on-device latency budgets, memory, heat | Exists, manual. Needs the phone connected and unlocked. Run on request or before a release, never as part of the default loop |
-| **E. Evals** | `eval/` (Python and Swift) plus rig A's `--eval` gate | Models | Real voice → synthetic and labeled text | ML quality: WER, top-1 tag accuracy, title quality, per-memo latency | Synthetic evals exist. The rig A gate is written but **never run**. Real holdout data isn't collected yet |
+How these become a one-command `verify` that writes a report is the implementer's call. The report must always include **what this run did not cover**.
 
-## Commands
+## Judgment: decide or ask
 
-One entry point, run from `theVoidRebuild/`:
+You're standing in for Zubin. Decide anything reversible that [VISION.md](VISION.md) and the priorities above settle, write the decision down in [DECISIONS.md](DECISIONS.md) if it's a product choice, and move on. Asking him something you could have decided or verified yourself costs more than a reversible wrong guess.
 
-```bash
-./verify            # build, then rig A and rig B flows. The default before any commit. Target: under 10 minutes
-./verify --full     # adds rig C (CloudKit) and rig E (eval gates)
-./verify --device   # adds rig D on the phone, if connected and unlocked
-./verify F6         # run one flow
-```
+**Ask first** when it is:
 
-Every run exits non-zero on any failure and writes `reports/<date>-<short-sha>.md`: the flow table (pass/fail, measured vs budget), screenshots of each screen the flows touched, and **a section listing what this run did not cover**.
+- **Irreversible:** shipping to TestFlight or the App Store, deploying a CloudKit production schema, deleting real data.
+- **Outward-facing or account-bound:** Apple account steps, new entitlements or permissions, anything involving money. Agents never create accounts or enter passwords; [SETUP.md](SETUP.md) lists what only he can do.
+- **A change to what the product is:** new scope, a new primitive, anything that moves privacy defaults toward sharing.
+- **A budget or principle that looks wrong.** Make the case; don't route around it.
 
-`./verify` doesn't exist yet. Building it is workstream 1 below.
+## Lessons from the first build (2026-11-07 and 08)
 
-## The loop for a request
+These happened. Don't repeat them.
 
-1. **Restate the request as flows.** Which existing flows does it touch? Does it need a new one? If the request is ambiguous about product behavior, ask before building. That's the one place to involve Zubin early.
-2. **Write or change the flow first** where practical, and watch it fail.
-3. **Implement.** Keep the codebase small. No new protocols. No new dependencies without saying why.
-4. **Run `./verify`** until green. For ML changes, also the eval gate (below).
-5. **Look at the screenshots yourself** for any UI change. A passing flow with an ugly or broken screen is not done.
-6. **Commit** with the report path in the message. Open a PR if asked.
-7. **Report back** in Zubin's terms: what changed, the flow results and timings that answer his question, screenshots, and what wasn't verified and why.
-8. **Ship.** After TestFlight is set up: a green `./verify --full` on `main` goes out as a TestFlight build via `./ship`. Before then: stop at step 7.
+- **"Compiles" was reported as progress.** CloudKit dots, sharing and tagging were written and committed before anything had run end to end. The first time Zubin opened the app, tagging failed (`weightsMissing`, a wrong bundle path). Then it looped on whitespace until it hit the token limit. A one-command local run would have caught both in minutes. → *Nothing is "done" until a flow ran it.*
+- **The user became the test runner.** Fixes went to his phone for him to try and report back. When he pushed back, the proposal was more phone testing instead of building the loop that removes him. → *When verification needs a human, the fix is a rig, not a request.*
+- **Infrastructure silently broke a principle.** The pipeline publishes a dot for every message, with no visibility choice at all, contradicting privacy by construction. No flow checked it, so nobody noticed. → *Every principle needs a flow that would fail if it were violated.*
+- **Misleading numbers.** A Debug build measured tagging at 7.3 s; Release with warm GPU kernels measured 1.45 s. → *Measure what ships (Release, warm), and label every number with where it was measured.*
+- **The model was shaped around the first module.** `Memo` is voice-only, with no kind, no visibility, no record of user edits. → *Shape data around the primitives before any schema is deployed; CloudKit production schemas can only be extended.*
+- **The planner micromanaged the implementer.** Plans dictated struct fields and launch flags instead of outcomes and constraints. → *Planning docs say what must be true and why. The implementer decides how, and writes its own plan against these principles.*
 
-### Done means
+When something new goes wrong, add it here in one line: what happened, and the rule it teaches.
 
-- Every flow touched by the change passes, and no other flow regressed.
-- Budgets met, or misses called out with numbers.
-- Screenshots checked by you for any UI change.
-- The report says honestly what wasn't covered.
+## Milestones
 
-### Ask Zubin first when
+Outcomes, not tasks. Each is done when its flows pass on a rig that doesn't need Zubin.
 
-- A product decision isn't settled by [VISION.md](VISION.md).
-- A change needs new permissions, entitlements, an Apple account step, or money.
-- A change would touch real (non-test) iCloud data, or deploy a CloudKit schema to production.
-- A budget looks wrong.
+1. **Self-verifying.** Any change to capture, storage or enrichment can be verified end to end without the phone, with a report.
+2. **A journal you'd use.** The three-tab v1 in [VISION.md](VISION.md): capture with lock and visibility, the Void with playback and editing, F1–F5 and F8 green, at the taste bar above.
+3. **Friends.** Dots between two real accounts: F6, F7 and F9 green, cap measured.
+4. **On the phone without a cable.** TestFlight from a green main, with Zubin approving the first ship ([DECISIONS.md](DECISIONS.md) D10).
 
-Everything else: decide, do it, and report.
-
-## The ML loop
-
-ML improves on its own schedule, usually by a Codex workstream, without blocking app work.
-
-**The contract** between ML and the app is `Tagger.tag(transcript:) -> (title, tags)`: a title of 1–60 characters, and 1–2 distinct tags from the four quadrants. The app ships whatever model directory and prompt `Tagger.swift` points at.
-
-**A change lands only if:**
-
-- Top-1 tag accuracy on the labeled set (`eval/data/memos.jsonl`, clean split, plus the real holdout once it exists) is at or above the stored baseline, minus 2 points of noise.
-- Mac latency per message stays within budget, and phone latency is re-measured (rig D) before shipping if the model changed.
-- Every flow still passes.
-- The baseline file is updated in the same commit.
-
-Title quality has no automated score yet. Until it does, a title change includes a side-by-side of before and after for 20 real messages in the report.
-
-**Data Zubin provides when he can:** about 50 hand-labeled real messages (the holdout), and about 20 recordings with corrected transcripts for WER. Synthetic data, generated and judged by models from the same vendor, overstates accuracy, so treat it as a regression check, not a quality claim.
-
-## Roadmap: making this real
-
-Each step has an execution brief in `briefs/`. Briefs are self-contained: an agent can start one cold. Update the status column when a step lands.
-
-| Step | Brief | Executor | Needs first | Status |
-|---|---|---|---|---|
-| 1 | [10: Entry model and pipeline extraction](briefs/10-entry-and-pipeline.md) | Claude | — | Not started |
-| 2 | [11: `./verify` and rig A flows](briefs/11-verify-and-rig-a.md) | Claude | 1 | Not started |
-| 3 | [12: rig B (app on Mac) or B′ (simulator) UI flows](briefs/12-rig-b-app-ui.md) | Claude | 2. Rig B also needs [SETUP](SETUP.md) step 1 | Not started |
-| 4 | [13: v1 UI](briefs/13-v1-ui.md) | Claude | 3 | Not started |
-| 5 | [14: dots on CloudKit (rig C)](briefs/14-rig-c-cloudkit.md) | Claude | 2, and SETUP steps 1 and 2 | Blocked on SETUP |
-| ∥ | [15: ML eval gate and improvement loop](briefs/15-eval-gate.md) | Codex | — (runs in parallel) | Not started |
-| 6 | [16: TestFlight and `./ship`](briefs/16-testflight.md) | Claude | 4, 5, SETUP step 3, Zubin's go-ahead | Blocked on SETUP |
-
-Things only Zubin can do (signing in, test accounts, API key) are in [SETUP.md](SETUP.md). Settled and default decisions are in [DECISIONS.md](DECISIONS.md). Check both before asking him anything.
+The ML loop runs alongside all of these, not after.
 
 ## Practicalities
 
-- **Project**: XcodeGen. Edit `app/project.yml`, never the generated `.xcodeproj`. Build with `-skipMacroValidation -skipPackagePluginValidation`.
-- **Model weights**: `app/Model/` is gitignored. `app/fetch-model.sh` restores it from the pinned snapshot.
+- **Project:** XcodeGen. Edit `app/project.yml`, never the generated `.xcodeproj`. Build with `-skipMacroValidation -skipPackagePluginValidation`.
+- **Model weights:** `app/Model/` is gitignored. `app/fetch-model.sh` restores it.
 - **iCloud** is off in builds until signing is set up: `VoidICloud` in `project.yml`.
-- **Simulators** can't run MLX or SpeechAnalyzer. Don't spend time debugging either there.
-- **Codex**: delegate deterministic work through `~/.shepherd` (persistent sessions and workstreams). Write a brief, treat Codex as an engineer, and review its output against the flows.
+- **Codex:** for long-running or deterministic work (the ML loop especially), delegate through `~/.shepherd` persistent workstreams. Whoever delegates writes the brief at the time, from these principles. Treat Codex as an engineer and judge its output by flows and evals.
+- **History:** [PLAN.md](PLAN.md) and `briefs/00–02` record how the first build was done.

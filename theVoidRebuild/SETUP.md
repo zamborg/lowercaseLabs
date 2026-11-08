@@ -4,13 +4,13 @@ Agents can't do these, because each one involves signing in, creating accounts, 
 
 What already exists (checked 2026-11-08): an Apple Development certificate for zubinaysola@gmail.com, team `9G57J2JMF7` ("Zubin Aysola"), development profiles, and an **App Store distribution profile for the old app** (`com.lowercaseLabs.theVoid`). So the paid developer account and an App Store Connect record are already there.
 
-## 1. Sign Xcode into your Apple ID (about 2 minutes). Unblocks briefs 12, 14, 16
+## 1. Sign Xcode into your Apple ID (about 2 minutes). Unblocks running the app on the Mac, iCloud, TestFlight
 
 Xcode → Settings → Accounts → **+** → Apple ID → zubinaysola@gmail.com. Make sure team "Zubin Aysola" appears.
 
 Today Xcode has **no account** signed in. Device builds only work through cached profiles. This step lets agents add the iCloud capability, register this Mac to run the app (rig B), and archive for TestFlight.
 
-## 2. Two test iCloud accounts for sharing (about 20 minutes). Unblocks brief 14
+## 2. Two test iCloud accounts for sharing (about 20 minutes). Unblocks milestone 3 (friends)
 
 1. Create **two** new Apple IDs for testing, for example `thevoid.test.a@…` and `thevoid.test.b@…`. They can be free accounts.
 2. Boot two simulators (an agent can do this for you on request) and sign each into one test account: Settings app → Sign in → iCloud on.
@@ -18,7 +18,7 @@ Today Xcode has **no account** signed in. Device builds only work through cached
 
 Agents then run sharing flows between these two accounts against the CloudKit **development** environment only.
 
-## 3. App Store Connect API key (about 5 minutes). Unblocks brief 16
+## 3. App Store Connect API key (about 5 minutes). Unblocks milestone 4 (TestFlight)
 
 1. App Store Connect → Users and Access → Integrations → App Store Connect API → generate a key with the **App Manager** role.
 2. Download the `.p8` file to `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8`.
