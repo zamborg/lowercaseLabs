@@ -24,6 +24,7 @@ targets:
     platform: iOS
     sources:
       - Sources
+      - Assets.xcassets
       - path: Model
         type: folder
         buildPhase: resources
@@ -47,6 +48,9 @@ targets:
         VoidICloud: ${VOID_ICLOUD}   # "true" only with the entitlements below; set by build-phone.sh
         UIBackgroundModes: [remote-notification]
         CFBundleDisplayName: The Void
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false   # on-device only; no encryption beyond what the OS provides
         UILaunchScreen: {UIColorName: "", UIImageName: ""}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSMicrophoneUsageDescription: The Void records your voice notes on this device.
@@ -59,6 +63,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.void
         CODE_SIGN_ENTITLEMENTS: ${VOID_ENTITLEMENTS}
         CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
   TheVoidUITests:
     # Simulator flows: UI and storage only. The simulator has no speech or MLX, so entries are seeded (-seed).

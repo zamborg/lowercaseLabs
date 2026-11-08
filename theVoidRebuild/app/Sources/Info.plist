@@ -17,11 +17,13 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CKSharingSupported</key>
 	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>The Void records your voice notes on this device.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
@@ -42,6 +44,6 @@
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
 	<key>VoidICloud</key>
-	<string>true</string>
+	<string>false</string>
 </dict>
 </plist>
