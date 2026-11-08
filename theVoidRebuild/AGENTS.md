@@ -108,4 +108,5 @@ The ML loop runs alongside all of these, not after.
 - **Model weights:** `app/Model/` is gitignored. `app/fetch-model.sh` restores it.
 - **iCloud** is off in builds until signing is set up: `VoidICloud` in `project.yml`.
 - **Codex:** for long-running or deterministic work (the ML loop especially), delegate through `~/.shepherd` persistent workstreams. Whoever delegates writes the brief at the time, from these principles. Treat Codex as an engineer and judge its output by flows and evals.
+- **Roadmap:** [ROADMAP.md](ROADMAP.md) has the sequencing, risks and Zubin-gated decisions to the first TestFlight.
 - **History:** [PLAN.md](PLAN.md) and `briefs/00–02` record how the first build was done.
