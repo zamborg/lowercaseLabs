@@ -16,19 +16,18 @@ About 1,050 lines. Capture, live transcript and tagging work on the phone (touch
 - The code's iCloud container (`iCloud.com.lowercaselabs.thevoid`) contradicts D11 (`iCloud.com.lowercaseLabs.void`). Fix before any schema exists.
 - No app icon, no archive/upload path, no privacy manifest.
 
-## The shape of the plan: two drops, not one
+## The shape of the plan: one drop, full v1, on the phone first
 
-**Drop 1 (TestFlight 1): the journal.** Capture and the Void, local-only, iCloud off. Milestones 1 and 2.
-**Drop 2 (TestFlight 2): friends.** Social tab, dots, invites. Milestone 3.
+Zubin's call (D13): the full v1 feature set, Social included, is built and working on his phone **before** TestFlight. TestFlight exists to distribute to friends, so it comes after v1 is tight. The cable is fine for getting v1 onto his phone now; the no-cable promise starts at TestFlight.
 
-Why split: the two drops have very different risk. Drop 1 is all ours to verify and needs no Apple ID work except signing and upload. Drop 2 depends on CloudKit behaving between two real accounts, which nobody has seen yet. Splitting gets Zubin the app on his phone, uploaded without a cable, far sooner. It also teaches us the TestFlight mechanics (signing, icon, upload, export compliance) while the stakes are low, and gives him real journal use to judge taste before friends are layered on. Recorded as D13. If Zubin wants one drop, the work is identical; only the ship date moves.
+That moves the risky parts up: iCloud signing and the CloudKit sharing spike are on the critical path to the phone build, not deferred to a second drop. Start them early.
 
 ## Slices, in order
 
 Each slice is done when its flows pass on a rig that doesn't need Zubin. Slices marked ∥ can run in parallel with the one above.
 
 ### 0. Zubin's ten minutes (start now, ∥ everything)
-[SETUP.md](SETUP.md) steps 1 and 3: sign Xcode into the Apple ID; create the App Store Connect API key. Both are quick and both sit on the critical path later, so ask early, not at the end. Step 2 (two test iCloud accounts) isn't needed until drop 2 but is the slowest to arrange, so mention it now too. D10 (does TestFlight replace the old app?) needs his answer before slice 6; see risks.
+[SETUP.md](SETUP.md) steps 1 and 3: sign Xcode into the Apple ID; create the App Store Connect API key. Both are quick and both sit on the critical path later, so ask early, not at the end. Step 2 (two test iCloud accounts) is needed for slice 6 and is the slowest to arrange, so mention it now too. D10 (does TestFlight replace the old app?) only matters at slice 7; see risks.
 
 ### 1. Shape the data, then make it verifiable
 - `Memo` becomes `Entry`: kind, visibility (private/shared), per-field provenance for title/tags, created-at. Do this **before** any CloudKit schema exists (D4).
@@ -51,21 +50,24 @@ Order inside the slice is chosen to put the highest feel-risk first, while the c
 
 Done when: F1–F5 and F8 pass; budgets hold on Release (touch to recording, release to saved under 300 ms, release to title/tags under 2 s); screenshots checked against the taste bar in AGENTS.md.
 
-### 4. Ship pipeline (∥ with 3; needs slice 0)
+### 4. Ship pipeline (later, after the phone build; needs slice 0)
 Everything TestFlight needs that isn't the app: app icon, display name, version/build numbering, privacy manifest and the App Store Connect privacy answers, export-compliance flag, archive and upload from the command line with the API key. Do this early with a throwaway build so the first real upload isn't the first time any of it is tried.
 
 Done when: a build with the current app is uploaded and processed in App Store Connect.
 
-### 5. Drop 1 gate
-`verify` green on main. Zubin approves the first ship (D10), then upload. After this, TestFlight is the delivery route; no more cable.
+### 5. Full-v1 gate
+`verify` green on main, then build to Zubin's phone over the cable with iCloud on. This is the milestone he asked for.
 
-### 6. Friends (drop 2)
+### 6. Friends
 - **Spike first:** one zone-wide share between two test accounts on CloudKit development. It answers friend-cap, mutuality and latency questions before UI is built on them. Needs slice 0 steps 1 and 2.
 - Social tab: friends' dots over recent days; tap shows only tags and time; invite from here; names instead of opaque ids.
 - Flows F6, F7, F9 across both accounts; measure shared-to-visible.
 - **Deploy the CloudKit production schema.** TestFlight builds use the *production* environment, so dots and iCloud sync do nothing until the schema is deployed. Irreversible, so Zubin approves. Entry/Dot shape must be final by then.
 
-Done when: F6, F7, F9 green on two accounts, friend cap measured, then TestFlight 2.
+Done when: F6, F7, F9 green on two accounts and friend cap measured.
+
+### 7. TestFlight (later, for friends)
+After v1 is tight on Zubin's phone: D10, the production schema deploy and the upload below. He approves each.
 
 ## ML loop (alongside, never blocking)
 Title quality is weak ("Emotional State - Low Pleasant") and tag accuracy is 2/4 on a tiny sample. A model or prompt change is a separate asynchronous loop against the eval baseline from slice 1, and a good candidate for Codex through `~/.shepherd`. It ships only when it passes the flows and the 2 s budget. Zubin's labeled real messages (SETUP step 5) make it honest; until then synthetic scores overstate quality.
@@ -75,7 +77,7 @@ Title quality is weak ("Emotional State - Low Pleasant") and tag accuracy is 2/4
 | Risk | Why it matters | What to do |
 |---|---|---|
 | **TestFlight replaces the old app (D10)** | Same bundle id means the old app's on-device data and store sit under the new app, and the new SwiftData schema may fail to open it. Zubin's old journal could be affected | Decide the bundle id before slice 4. Either a new App Store Connect record (new name needed), or confirm the new app opens cleanly over the old store with a copy of the old data. Zubin approves either way |
-| **CloudKit production schema is one-way** | Wrong shape is permanent | Ship drop 1 with iCloud off; settle the Entry shape; deploy only in slice 6 |
+| **CloudKit production schema is one-way** | Wrong shape is permanent | Settle the Entry shape in slice 1; development environment only until slice 7; deploy to production only then |
 | **Container id mismatch** | Code and D11 disagree | Pick one, change the code and entitlements together, before any schema is created |
 | **Press-immediacy regressions** | The lock gesture and level metering both touch the press path, which is priority 2 | Budget measured on Release in `verify` for every capture change |
 | **No UI rig** | Without one, "done" falls back to hoping | Slice 2 is a spike for this reason; escalate if it fails |
@@ -86,9 +88,9 @@ Title quality is weak ("Emotional State - Low Pleasant") and tag accuracy is 2/4
 
 | When | What |
 |---|---|
-| Now | Sign Xcode in; create the API key (SETUP 1 and 3). Reply if he'd rather ship one drop than two |
+| Now | Sign Xcode in (SETUP 1), needed for iCloud on the phone build. API key (SETUP 3) can wait until TestFlight |
 | Before slice 4 | Bundle id for TestFlight and whether it replaces the old app (D10) |
-| Before drop 2 | Create the two test iCloud accounts (SETUP 2) |
-| At each ship | Approve the upload. For drop 2, also approve the CloudKit production schema deploy |
+| Before slice 6 | Create the two test iCloud accounts (SETUP 2) |
+| At TestFlight | Bundle id / replacing the old app (D10), the CloudKit production schema deploy, the upload |
 
 Nothing else should need him. Everything not on this list is the implementer's call.
