@@ -107,12 +107,21 @@ final class CaptureModel {
         return entry
     }
 
+    /// Back in the foreground: enrich whatever the model couldn't finish while we were away, and settle dots.
+    func resumeEnrichment() async {
+        guard tagger.isWarm else { return }
+        await journal.enrichPending()
+        await journal.reconcileDots()
+    }
+
     private func enrich(_ entry: Entry) async {
         guard tagger.isWarm else { return }   // enrichPending picks it up once the model is ready
         let started = CFAbsoluteTimeGetCurrent()
         do {
             try await journal.enrich(entry)
             taggingMs = (CFAbsoluteTimeGetCurrent() - started) * 1000
+        } catch TaggerError.paused {
+            // App left the foreground mid-tagging: the entry is saved and gets enriched on return.
         } catch {
             note = "tagging failed: \(error)"
         }

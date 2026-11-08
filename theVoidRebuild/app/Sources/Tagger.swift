@@ -67,8 +67,19 @@ final class Tagger: @unchecked Sendable {
 
     var isWarm: Bool { container != nil }
 
+    /// iOS kills any app that submits GPU work while inactive or backgrounded (MLX fatal-errors, uncatchable).
+    /// So the app flips this off the moment it stops being active and generation stops at the next token.
+    /// An aborted entry stays unenriched and is picked up when the app is active again.
+    private static let gpuLock = NSLock()
+    nonisolated(unsafe) private static var gpuAllowedFlag = true
+    static var gpuAllowed: Bool {
+        get { gpuLock.withLock { gpuAllowedFlag } }
+        set { gpuLock.withLock { gpuAllowedFlag = newValue } }
+    }
+
     func tag(transcript: String) async throws -> Tagging {
         guard let container, let grammarTokenizer else { throw TaggerError.notWarm }
+        guard Self.gpuAllowed else { throw TaggerError.paused }
         let userPrompt = Self.prompt + transcript
         let json: String = try await container.perform { context in
             let constraint = try GrammarConstraint(
@@ -92,8 +103,9 @@ final class Tagger: @unchecked Sendable {
                 whitespaceTokenIDs: whitespaceIDs
             ) { delta in
                 output += delta
-                return true
+                return Self.gpuAllowed
             } } catch { throw TaggerError.generation("\(error) after output: \(output)") }
+            guard Self.gpuAllowed else { throw TaggerError.paused }
             return output
         }
         struct Raw: Decodable { let title: String; let tags: [Quadrant] }
@@ -102,4 +114,4 @@ final class Tagger: @unchecked Sendable {
     }
 }
 
-enum TaggerError: Error { case notWarm, weightsMissing, generation(String) }
+enum TaggerError: Error { case notWarm, weightsMissing, paused, generation(String) }

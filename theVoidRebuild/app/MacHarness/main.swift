@@ -148,6 +148,16 @@ check(FileManager.default.fileExists(atPath: bAudio), "F8 setup: audio missing")
 journal.delete(b); await journal.reconcileDots()
 check(remote().isEmpty && !FileManager.default.fileExists(atPath: bAudio) && entryCount() == 3, "F8: delete left entry, audio or dot behind")
 check(remote().values.allSatisfy { _ in true }, "")
+// Backgrounding: no GPU work once the app isn't active (iOS would kill it); the entry waits and is enriched on return.
+let e2 = makeEntry("I'm thrilled, everything went better than I hoped.", .private)
+Tagger.gpuAllowed = false
+var paused = false
+do { try await journal.enrich(e2) } catch TaggerError.paused { paused = true } catch { check(false, "background: unexpected \(error)") }
+check(paused && e2.title.isEmpty && entryCount() == 4, "background: tagging should pause and leave the entry saved, untouched")
+Tagger.gpuAllowed = true
+await journal.enrichPending()
+check(!e2.title.isEmpty, "background: entry not enriched after returning to the foreground")
+journal.delete(e2); await journal.reconcileDots()
 print("journal flows done: \(entryCount()) entries, \(remote().count) dots")
 
 // 4. Optional full gate: `./validate.sh --eval` scores the shipped tagger on the labeled set.

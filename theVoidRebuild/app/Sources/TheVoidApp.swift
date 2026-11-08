@@ -40,12 +40,17 @@ struct TheVoidApp: App {
 struct RootView: View {
     let app: AppModel
     @State private var tab = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         TabView(selection: $tab) {
             Tab("Capture", systemImage: "circle.fill", value: 0) { CaptureView(model: app.capture) }
             Tab("Void", systemImage: "tray.full", value: 1) { VoidView(journal: app.journal) }
             Tab("Friends", systemImage: "person.2", value: 2) { SocialView() }
+        }
+        .onChange(of: scenePhase) { _, new in
+            Tagger.gpuAllowed = new == .active   // no GPU work unless active; see Tagger.gpuAllowed
+            if new == .active { Task { await app.capture.resumeEnrichment() } }
         }
         .onAppear {
             let args = ProcessInfo.processInfo.arguments
