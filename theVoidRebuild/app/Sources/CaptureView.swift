@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UIKit
 
 @MainActor
 @Observable
@@ -52,6 +53,28 @@ final class CaptureModel {
         await journal.reconcileDots()
         if ProcessInfo.processInfo.arguments.contains("-autotest") { await autotest() }
         if ProcessInfo.processInfo.arguments.contains("-cloudtest") { await cloudTest() }
+        if let i = ProcessInfo.processInfo.arguments.firstIndex(of: "-longtest"),
+           let secs = Double(ProcessInfo.processInfo.arguments.dropFirst(i + 1).first ?? "") { await longTest(seconds: secs) }
+    }
+
+    /// `-longtest <seconds>`: one long recording, then tagging of a long transcript. Run on the phone with auto-lock
+    /// on: the screen must stay awake while recording, and nothing may crash.
+    private func longTest(seconds: Double) async {
+        func line(_ s: String) { print("LONG \(s)"); fflush(stdout) }
+        press()
+        guard case .recording = phase else { line("FAILED could not start: \(phase)"); return }
+        line("recording \(Int(seconds)) s, idleTimerDisabled=\(UIApplication.shared.isIdleTimerDisabled)")
+        try? await Task.sleep(for: .seconds(seconds))
+        if case .recording = phase {
+            phase = .finishing
+            let entry = await finishRecording()
+            line("saved duration=\(Int(entry?.duration ?? -1)) s, kept=\(entry != nil), idleTimerDisabled=\(UIApplication.shared.isIdleTimerDisabled)")
+        } else { line("phase changed during recording: \(phase) (app was backgrounded?)") }
+        let long = String(repeating: "I felt a bit overwhelmed at work today but then a walk with a friend helped me feel calmer and more grateful. ", count: 40)
+        let t = CFAbsoluteTimeGetCurrent()
+        let r = try? await tagger.tag(transcript: long)
+        line(String(format: "tag %d words ms=%.0f ok=%@", long.split(separator: " ").count, (CFAbsoluteTimeGetCurrent() - t) * 1000, "\(r != nil)"))
+        line("done")
     }
 
     /// `-cloudtest` launch argument: F6 against the real CloudKit zone (this account, development environment).
@@ -76,10 +99,27 @@ final class CaptureModel {
         line("done")
     }
 
-    /// Background/foreground: the mic only runs while the app is visible.
-    func setActive(_ active: Bool) {
+    /// Foreground/background. `.inactive` (Control Center, notification, screen locking) is ignored for the mic: only a
+    /// real background stops it, and a recording in flight is saved first, never dropped or torn down mid-write.
+    func scenePhaseChanged(_ phase: ScenePhase) {
         guard recorder.isWarm else { return }
-        if active { try? recorder.startListening() } else { recorder.stopListening() }
+        switch phase {
+        case .active:
+            do { try recorder.startListening(); if case .failed = self.phase { self.phase = .ready } }
+            catch { note = "mic unavailable: \(error)" }
+        case .background:
+            if case .recording = self.phase {
+                self.phase = .finishing
+                Task {
+                    let entry = await finishRecording()
+                    recorder.stopListening()
+                    if let entry { await enrich(entry) }   // pauses itself: no GPU in the background
+                }
+            } else {
+                recorder.stopListening()
+            }
+        default: break
+        }
     }
 
     func press() {
@@ -91,6 +131,7 @@ final class CaptureModel {
         do {
             try recorder.start()
             phase = .recording
+            UIApplication.shared.isIdleTimerDisabled = true   // the screen must not lock mid-recording
         } catch {
             phase = .failed("\(error)")
         }
@@ -117,6 +158,7 @@ final class CaptureModel {
         phase = .ready
         level = 0
         locked = false
+        UIApplication.shared.isIdleTimerDisabled = false
         guard let capture else { return nil }
         liveText = capture.transcript
         // A real recording is never thrown away because speech failed; only accidental taps are.
@@ -208,7 +250,6 @@ struct CaptureView: View {
     @State private var pressed = false
     @State private var ignoreTouch = false
     @State private var dragUp: CGFloat = 0
-    @Environment(\.scenePhase) private var scenePhase
 
     private let lockThreshold: CGFloat = 90
     private var debug: Bool { ProcessInfo.processInfo.arguments.contains("-debug") }
@@ -239,7 +280,6 @@ struct CaptureView: View {
         .task {
             await model.warmUp()
         }
-        .onChange(of: scenePhase) { _, new in model.setActive(new == .active) }
     }
 
     private var status: some View {

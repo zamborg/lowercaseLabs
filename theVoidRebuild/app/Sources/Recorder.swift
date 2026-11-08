@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import UIKit
 
 struct Capture {
     let id: UUID
@@ -44,6 +45,24 @@ final class Recorder: @unchecked Sendable {
     private var ringSampleRate = 48_000.0
     private let preRollSeconds = 0.3
 
+    init() {
+        // A call, Siri, or a route change stops the engine under us. Come back when we can, only in the foreground.
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+            let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt ?? 0
+            if AVAudioSession.InterruptionType(rawValue: raw) == .ended { self?.recoverListening() }
+        }
+        nc.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            self?.recoverListening()
+        }
+    }
+
+    private func recoverListening() {
+        guard warm != nil, UIApplication.shared.applicationState == .active else { return }
+        stopListening()
+        try? startListening()
+    }
+
     var onText: (@Sendable (String) -> Void)?
     /// 0...1 voice level, ~30 Hz, on the main queue, only while recording.
     var onLevel: (@Sendable (Double) -> Void)?
@@ -68,8 +87,12 @@ final class Recorder: @unchecked Sendable {
         // AVAudioEngine asserts if two taps are installed, so this is serialized.
         engineLock.lock(); defer { engineLock.unlock() }
         guard !engine.isRunning else { return }
+        // The session may have been deactivated (interruption, lock, call). Reactivate, and refuse to touch the
+        // engine with a dead input format: installTap on one raises an Objective-C exception we can't catch.
+        try AVAudioSession.sharedInstance().setActive(true)
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw CaptureError.micUnavailable }
         ringSampleRate = format.sampleRate
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 512, format: format) { [weak self] buffer, _ in

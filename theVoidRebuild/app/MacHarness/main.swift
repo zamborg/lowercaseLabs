@@ -148,6 +148,16 @@ check(FileManager.default.fileExists(atPath: bAudio), "F8 setup: audio missing")
 journal.delete(b); await journal.reconcileDots()
 check(remote().isEmpty && !FileManager.default.fileExists(atPath: bAudio) && entryCount() == 3, "F8: delete left entry, audio or dot behind")
 check(remote().values.allSatisfy { _ in true }, "")
+// Long input: a few minutes of speech is ~600 words. Must still tag, and quickly.
+let longText = String(repeating: "I felt a bit overwhelmed at work today but then a walk with a friend helped me feel calmer and more grateful. ", count: 40)
+t0 = CFAbsoluteTimeGetCurrent()
+let longEntry = makeEntry(longText, .private)
+do { try await journal.enrich(longEntry) } catch { check(false, "long transcript failed to tag: \(error)") }
+let longMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+check(!longEntry.title.isEmpty && !longEntry.tags.isEmpty && longMs < 6000, "long transcript: \(Int(longMs)) ms")
+print(String(format: "long transcript (%d words) tagged in %.0f ms", longText.split(separator: " ").count, longMs))
+journal.delete(longEntry)
+
 // Backgrounding: no GPU work once the app isn't active (iOS would kill it); the entry waits and is enriched on return.
 let e2 = makeEntry("I'm thrilled, everything went better than I hoped.", .private)
 Tagger.gpuAllowed = false

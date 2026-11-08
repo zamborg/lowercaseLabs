@@ -50,6 +50,7 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, new in
             Tagger.gpuAllowed = new == .active   // no GPU work unless active; see Tagger.gpuAllowed
+            app.capture.scenePhaseChanged(new)
             if new == .active { Task { await app.capture.resumeEnrichment() } }
         }
         .onAppear {
