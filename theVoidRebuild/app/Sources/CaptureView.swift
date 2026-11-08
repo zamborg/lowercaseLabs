@@ -102,6 +102,7 @@ final class CaptureModel {
     /// Foreground/background. `.inactive` (Control Center, notification, screen locking) is ignored for the mic: only a
     /// real background stops it, and a recording in flight is saved first, never dropped or torn down mid-write.
     func scenePhaseChanged(_ phase: ScenePhase) {
+        print("SCENE \(phase) at \(Date().formatted(date: .omitted, time: .standard)) recording=\(isRecordingNow)"); fflush(stdout)
         guard recorder.isWarm else { return }
         switch phase {
         case .active:
@@ -121,6 +122,8 @@ final class CaptureModel {
         default: break
         }
     }
+
+    private var isRecordingNow: Bool { if case .recording = phase { true } else { false } }
 
     func press() {
         guard case .ready = phase else { return }
