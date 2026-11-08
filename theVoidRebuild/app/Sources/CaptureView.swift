@@ -117,6 +117,12 @@ final class CaptureModel {
                              i, t.pressToCapturingMs, t.releaseToFinalMs, taggingMs ?? -1)); fflush(stdout)
             }
         }
+        for i in 1...3 {
+            let t = CFAbsoluteTimeGetCurrent()
+            let r = try? await tagger.tag(transcript: "I'm so excited, I just got the job offer and I can't stop smiling.")
+            print(String(format: "TIMING tag_run=%d ms=%.0f tags=%@", i, (CFAbsoluteTimeGetCurrent() - t) * 1000,
+                         "\(r?.tags.map(\.rawValue) ?? [])")); fflush(stdout)
+        }
         print("TIMING done"); fflush(stdout)
     }
 
@@ -189,14 +195,19 @@ struct CaptureView: View {
                 Circle()
                     .fill(.white.opacity(pressed ? 1 : 0.85))
                     .frame(width: pressed ? 120 : 96, height: pressed ? 120 : 96)
+                    .animation(.spring(duration: 0.18, bounce: 0.3), value: pressed)
                     .opacity(isReady ? 1 : 0.3)
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { _ in
-                                if !pressed { pressed = true; model.press() }
+                                guard !pressed else { return }
+                                pressed = true
+                                // Let the circle draw this frame; recording setup follows on the next main-queue turn.
+                                DispatchQueue.main.async { model.press() }
                             }
                             .onEnded { _ in
-                                pressed = false; model.release()
+                                pressed = false
+                                DispatchQueue.main.async { model.release() }
                             }
                     )
                     .padding(.bottom, 48)

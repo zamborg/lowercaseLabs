@@ -62,6 +62,7 @@ final class Tagger: @unchecked Sendable {
         }
         self.container = container
         self.grammarTokenizer = grammar
+        _ = try? await tag(transcript: "Warm-up.")   // compiles GPU kernels now, not on the first real memo
     }
 
     var isWarm: Bool { container != nil }
