@@ -1,4 +1,6 @@
-# Rebuild plan
+# Rebuild plan (historical)
+
+Superseded 2026-11-08 by [VISION.md](VISION.md) (product) and [AGENTS.md](AGENTS.md) (workflow and roadmap). Kept for the record of how the first build was done.
 
 Legend: C = Claude (design, judgment, review), X = Codex (deterministic execution from a brief in briefs/).
 
