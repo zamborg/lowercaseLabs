@@ -1,0 +1,31 @@
+{
+  "source": "synthetic",
+  "generator": "/usr/bin/say",
+  "generatedAt": "2026-11-08T00:40:29.508258+00:00",
+  "macOS": "26.5.2",
+  "format": "say default AIFF, no recording or microphone",
+  "clips": [
+    {
+      "file": "synthetic-01-reminder.aiff",
+      "voice": "Samantha",
+      "wordsPerMinute": 175,
+      "durationSeconds": 3.606395,
+      "text": "Remind me to buy coffee and call my sister after lunch tomorrow."
+    },
+    {
+      "file": "synthetic-02-reflection.aiff",
+      "voice": "Samantha",
+      "wordsPerMinute": 145,
+      "durationSeconds": 6.078277,
+      "text": "I felt distracted this morning. A short walk helped me slow down and focus on one thing at a time."
+    },
+    {
+      "file": "synthetic-03-plan.aiff",
+      "voice": "Samantha",
+      "wordsPerMinute": 205,
+      "durationSeconds": 7.077098,
+      "text": "Let's keep the first version simple. Record the idea, save the transcript, and add a title. We can review the details on Friday."
+    }
+  ],
+  "limitation": "Text-to-speech smoke tests only; not evidence of real-world transcription accuracy."
+}

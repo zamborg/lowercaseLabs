@@ -1,0 +1,43 @@
+{
+  "created_at": "2026-11-08T01:44:52.363936+00:00",
+  "seed": 20261107,
+  "requested_n": 300,
+  "retained_n": 326,
+  "counts": {
+    "clean": {
+      "high_pleasant": 66,
+      "low_pleasant": 72,
+      "high_unpleasant": 68,
+      "low_unpleasant": 66
+    },
+    "hard": {
+      "high_pleasant": 28,
+      "low_pleasant": 3,
+      "high_unpleasant": 7,
+      "low_unpleasant": 16
+    }
+  },
+  "agreement_rate": 0.8343558282208589,
+  "clean_balance_min_over_max": 0.9166666666666666,
+  "clean_balanced_within_10_percent": true,
+  "mixed_n": 65,
+  "word_count_min": 8,
+  "word_count_max": 150,
+  "requested_length_range_misses": 0,
+  "long_letter_run_n": 21,
+  "quality_flag_policy": "25+ consecutive Unicode letters flags possible joined-word artifacts from word-count constraints; retained in both splits, and analyzed separately in eval metrics.",
+  "duplicates_removed": [],
+  "cache_hits": 652,
+  "api_calls": 0,
+  "gen_model": "gpt-4.1-mini-2025-04-14",
+  "judge_model": "gpt-4o-2024-08-06",
+  "generation_batch_size": 1,
+  "generator_prompt_sha256": "cc00eba171a2bfd9025a2a0c442cd76e5060e80020f39b17cd6ac98523f6a0f1",
+  "judge_prompt_sha256": "b1dfc74948de2e6ab5617267b12b592f2af712230ca58a999a15240f119dc25c",
+  "taxonomy_sha256": "4dfde0a3e577cb6fb4c333352567d5de6014ead4dfc28a9096218475be15816b",
+  "dataset_sha256": "e54e7064beb1d15d0008dce00fb432909f36df08b10fc1eeec802e3e8d73775a",
+  "judge_independence": "Different OpenAI model snapshots; blind separate requests, same vendor. Correlated errors remain unmeasured; agreement is not calibrated accuracy.",
+  "label_policy": "Generator target retained. Clean=judge top-1 agrees; hard=disagreement, not adjudicated ground truth.",
+  "seed_policy": "Fixed local random seeds and requested API seed; hosted outputs only reproducible from cache, not guaranteed by seed.",
+  "supplement_policy": "If needed, add examples to underrepresented clean quadrants. Keep all nonduplicate disagreements. No relabeling or balancing by deletion."
+}

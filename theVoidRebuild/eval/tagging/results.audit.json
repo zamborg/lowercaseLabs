@@ -1,0 +1,50 @@
+{
+  "audited_at": "2026-11-08T02:19:46.146263+00:00",
+  "run_id": "20261108T014510.925806Z",
+  "results_sha256": "73dd8aad6363ab2bc9a1c219223ecf94c1239923db6886d50bb4e987fcfba731",
+  "rows_checked": 1304,
+  "repeat_rows_identical": 40,
+  "models": [
+    {
+      "model": "lfm2-1.2b",
+      "rows": 326,
+      "schema_valid": 326,
+      "constraint_calls_min": 16,
+      "repeat_rows_identical": 10,
+      "clean_top1": 0.5036764705882353
+    },
+    {
+      "model": "qwen3-1.7b",
+      "rows": 326,
+      "schema_valid": 326,
+      "constraint_calls_min": 18,
+      "repeat_rows_identical": 10,
+      "clean_top1": 0.48161764705882354
+    },
+    {
+      "model": "qwen2.5-1.5b",
+      "rows": 326,
+      "schema_valid": 326,
+      "constraint_calls_min": 21,
+      "repeat_rows_identical": 10,
+      "clean_top1": 0.48161764705882354
+    },
+    {
+      "model": "llama3.2-1b",
+      "rows": 326,
+      "schema_valid": 326,
+      "constraint_calls_min": 20,
+      "repeat_rows_identical": 10,
+      "clean_top1": 0.3272058823529412
+    }
+  ],
+  "checks": [
+    "schema against raw outputs",
+    "saved predictions",
+    "constraint invocation",
+    "dataset/selected-input hashes",
+    "prompt hash",
+    "recomputed metrics",
+    "repeat raw outputs when provided"
+  ]
+}
