@@ -44,13 +44,18 @@ final class Recorder: @unchecked Sendable {
     private let preRollSeconds = 0.3
 
     var onText: (@Sendable (String) -> Void)?
+    /// 0...1 voice level, ~30 Hz, on the main queue, only while recording.
+    var onLevel: (@Sendable (Double) -> Void)?
+    private var lastLevelAt: CFAbsoluteTime = 0   // audio thread only
+    private var smoothedLevel = 0.0               // audio thread only
     var isWarm: Bool { warm != nil }
 
     /// Everything slow happens here, at app open, so press-down does almost nothing.
     func prewarm() async throws {
         guard await AVAudioApplication.requestRecordPermission() else { throw CaptureError.micDenied }
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .default)
+        // playAndRecord so entries can be played back while the mic stays warm for the next press.
+        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try session.setActive(true)
         warm = try await LiveTranscription.warm()
         try startListening()
@@ -137,6 +142,21 @@ final class Recorder: @unchecked Sendable {
         lock.unlock()
         try? file.write(from: buffer)
         live.append(buffer)
+        meter(buffer)
+    }
+
+    /// Cheap RMS to dB, smoothed, throttled to ~30 Hz. Runs after the audio is already written and queued.
+    private func meter(_ buffer: AVAudioPCMBuffer) {
+        let now = CFAbsoluteTimeGetCurrent()
+        guard now - lastLevelAt > 1.0 / 30, let data = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
+        lastLevelAt = now
+        var sum: Float = 0
+        for i in 0..<Int(buffer.frameLength) { sum += data[i] * data[i] }
+        let db = 20 * log10(max(Double((sum / Float(buffer.frameLength)).squareRoot()), 1e-6))
+        let target = min(max((db + 50) / 40, 0), 1)       // -50 dB silence ... -10 dB loud
+        smoothedLevel += (target - smoothedLevel) * (target > smoothedLevel ? 0.6 : 0.25)
+        let level = smoothedLevel
+        DispatchQueue.main.async { [weak self] in self?.onLevel?(level) }
     }
 
     func stop() async -> Capture? {
