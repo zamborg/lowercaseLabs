@@ -13,7 +13,7 @@ echo "== Mac harness"; ./validate.sh > build/harness.log 2>&1; HARNESS=$?; tail 
 [ $HARNESS -eq 0 ] || FAIL=1
 
 echo "== Simulator UI flows"
-xcrun simctl uninstall "$SIM" com.lowercaselabs.thevoid >/dev/null 2>&1   # fresh install: D5 default must hold
+xcrun simctl uninstall "$SIM" com.lowercaselabs.void >/dev/null 2>&1   # fresh install: D5 default must hold
 export VOID_ICLOUD=false VOID_ENTITLEMENTS= TEST_RUNNER_VOID_SHOTS="$SHOTS"
 xcodegen generate >/dev/null
 xcodebuild test -project TheVoid.xcodeproj -scheme TheVoid -destination "platform=iOS Simulator,id=$SIM" \

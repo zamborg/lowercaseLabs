@@ -56,7 +56,7 @@ targets:
         - TheVoidUITests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.thevoid
+        PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.void
         CODE_SIGN_ENTITLEMENTS: ${VOID_ENTITLEMENTS}
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: NO
@@ -70,7 +70,7 @@ targets:
       - target: TheVoid
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.thevoid.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.void.uitests
         GENERATE_INFOPLIST_FILE: YES
   MacHarness:
     # Mac command-line check of the exact Tagger.swift the app ships. Real Metal, no phone needed.
