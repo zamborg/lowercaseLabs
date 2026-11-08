@@ -1,8 +1,6 @@
 import AVFoundation
 import Foundation
 
-enum CaptureError: Error { case micDenied, speechUnavailable, notWarm }
-
 struct Capture {
     let id: UUID
     let audioURL: URL

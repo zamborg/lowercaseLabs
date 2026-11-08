@@ -55,15 +55,16 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.thevoid
         GENERATE_INFOPLIST_FILE: NO
-  TagTest:
+  MacHarness:
     # Mac command-line check of the exact Tagger.swift the app ships. Real Metal, no phone needed.
     # ./validate.sh builds and runs it.
     type: tool
     platform: macOS
-    deploymentTarget: "15.0"
+    deploymentTarget: "26.0"
     sources:
-      - TagTest
+      - MacHarness
       - Sources/Tagger.swift
+      - Sources/Transcriber.swift
       - Sources/Taxonomy.swift
     dependencies:
       - package: MLXSwiftLM
@@ -80,5 +81,5 @@ targets:
         product: Tokenizers
     settings:
       base:
-        PRODUCT_NAME: TagTest
+        PRODUCT_NAME: MacHarness
         CODE_SIGN_IDENTITY: "-"

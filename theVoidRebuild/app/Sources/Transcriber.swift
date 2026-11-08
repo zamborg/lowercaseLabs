@@ -1,6 +1,8 @@
 import AVFoundation
 import Speech
 
+enum CaptureError: Error { case micDenied, speechUnavailable, notWarm }
+
 /// One live transcription session: feed it PCM buffers, read streaming text, finalize on release.
 /// Single implementation on purpose: SpeechAnalyzer + SpeechTranscriber. No protocol.
 final class LiveTranscription: @unchecked Sendable {
