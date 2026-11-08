@@ -95,7 +95,7 @@ final class Recorder: @unchecked Sendable {
 
         let format = engine.inputNode.outputFormat(forBus: 0)
         let id = UUID()
-        let url = Self.audioDirectory().appendingPathComponent("\(id.uuidString).caf")
+        let url = Entry.audioDirectory().appendingPathComponent("\(id.uuidString).caf")
         let file = try AVAudioFile(forWriting: url, settings: format.settings)
         let live = try LiveTranscription(warm: warm, inputFormat: format)
         live.onText = onText
@@ -161,12 +161,6 @@ final class Recorder: @unchecked Sendable {
         let result = (live, current, t)
         live = nil; current = nil
         return result
-    }
-
-    static func audioDirectory() -> URL {
-        let dir = URL.documentsDirectory.appending(path: "audio", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
     }
 }
 

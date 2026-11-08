@@ -66,6 +66,9 @@ targets:
       - Sources/Tagger.swift
       - Sources/Transcriber.swift
       - Sources/Taxonomy.swift
+      - Sources/Entry.swift
+      - Sources/Journal.swift
+      - Sources/DotStore.swift
     dependencies:
       - package: MLXSwiftLM
         product: MLXLLM

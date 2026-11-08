@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import SwiftData
 
 // Mac harness: runs the app's real LiveTranscription and Tagger. No phone, no mic.
 // Audio fixtures stream through the same append()/finish() path the mic tap uses.
@@ -81,7 +82,75 @@ for (text, expected) in samples + transcripts.map({ ($0, Quadrant?.none) }).comp
 print("accuracy \(hits)/\(samples.count)")
 check(hits >= 2, "tag accuracy \(hits)/\(samples.count) below floor")
 
-// 3. Optional full gate: `./validate.sh --eval` scores the shipped tagger on the labeled set.
+
+// 3. Journal flows on the real Journal + DotStore code: in-memory SwiftData, and an in-memory stand-in for the
+// CloudKit zone so we can see exactly what would leave the device. Entry text comes from the real speech run above.
+print("== journal flows")
+let audioDir = FileManager.default.temporaryDirectory.appendingPathComponent("void-audio-\(UUID().uuidString)").path
+setenv("VOID_AUDIO_DIR", audioDir, 1)
+try? FileManager.default.createDirectory(atPath: audioDir, withIntermediateDirectories: true)
+let store = try ModelContainer(for: Entry.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+DotStore.shared.useFakeCloud()
+let journal = Journal(context: ModelContext(store), tagger: tagger)
+@MainActor func remote() -> [String: Dot] { DotStore.shared.fakeRemote ?? [:] }
+@MainActor func entryCount() -> Int { (try? journal.context.fetchCount(FetchDescriptor<Entry>())) ?? -1 }
+@MainActor func makeEntry(_ text: String, _ visibility: Visibility) -> Entry {
+    let id = UUID()
+    FileManager.default.createFile(atPath: "\(audioDir)/\(id.uuidString).caf", contents: Data([0]))
+    return journal.save(id: id, audioFileName: "\(id.uuidString).caf", duration: 5, transcript: text, visibility: visibility)
+}
+let calm = transcripts.first ?? "Quiet evening, tea on the porch, feeling really grateful and calm."
+
+// F1/F2: saved at once, before enrichment; then titled and tagged by the model.
+var t0 = CFAbsoluteTimeGetCurrent()
+let a = makeEntry(calm, .private)
+let savedMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+check(entryCount() == 1 && a.title.isEmpty, "F1: entry should exist before enrichment")
+check(savedMs < 300, "F1: save took \(Int(savedMs)) ms, budget 300")
+try await journal.enrich(a)
+check(!a.title.isEmpty && !a.tags.isEmpty && a.titleSource == .model && a.tagsSource == .model, "F2: enrichment missing or wrong provenance")
+check(remote().isEmpty, "PRIVACY: a private entry produced a dot")
+print(String(format: "F1 saved in %.1f ms; F2 title=\"%@\" tags=%@", savedMs, a.title, "\(a.tags.map(\.rawValue))"))
+
+// F6: a dot exists exactly while the entry is shared and tagged, and carries nothing else.
+let b = makeEntry(calm, .shared)
+await journal.reconcileDots()
+check(remote().isEmpty, "F6: shared but untagged entry published a dot")
+t0 = CFAbsoluteTimeGetCurrent()
+try await journal.enrich(b)
+let dotMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+check(remote()[b.id.uuidString]?.tags == b.tags && remote().count == 1, "F6: shared entry has no dot after enrichment")
+journal.setVisibility(.private, on: b); await journal.reconcileDots()
+check(remote().isEmpty, "F6: dot survived flipping to private")
+journal.setVisibility(.shared, on: b); await journal.reconcileDots()
+check(remote().count == 1, "F6: dot missing after flipping back to shared")
+print(String(format: "F6 release-equivalent to dot written: %.0f ms (enrichment + publish, fake cloud)", dotMs))
+
+// F4: user edits win and the model never overwrites them.
+journal.setTitle("Mine", on: b); journal.setTags([.highUnpleasant], on: b); await journal.reconcileDots()
+check(b.title == "Mine" && b.titleSource == .user && b.tags == [.highUnpleasant], "F4: edits did not stick")
+check(remote()[b.id.uuidString]?.tags == [.highUnpleasant], "F6: edited tags did not update the dot")
+try await journal.enrich(b)
+check(b.title == "Mine" && b.tags == [.highUnpleasant], "F4: model overwrote a user edit")
+let c = makeEntry(calm, .private)
+journal.setTitle("Hand-written", on: c)
+try await journal.enrich(c)
+check(c.title == "Hand-written" && !c.tags.isEmpty, "F4: partial edit: title kept, tags should still be filled")
+
+// Never lose input: entries saved while the model was unavailable get enriched later.
+let d = makeEntry("Honestly just tired today, nothing feels worth doing.", .private)
+await journal.enrichPending()
+check(!d.title.isEmpty && !d.tags.isEmpty, "enrichPending did not fill a pending entry")
+
+// F8: delete takes the entry, its audio file and its dot.
+let bAudio = b.audioURL.path
+check(FileManager.default.fileExists(atPath: bAudio), "F8 setup: audio missing")
+journal.delete(b); await journal.reconcileDots()
+check(remote().isEmpty && !FileManager.default.fileExists(atPath: bAudio) && entryCount() == 3, "F8: delete left entry, audio or dot behind")
+check(remote().values.allSatisfy { _ in true }, "")
+print("journal flows done: \(entryCount()) entries, \(remote().count) dots")
+
+// 4. Optional full gate: `./validate.sh --eval` scores the shipped tagger on the labeled set.
 if ProcessInfo.processInfo.environment["VOID_EVAL"] != nil {
     print("== eval (clean split)")
     let rows = try String(contentsOfFile: "../eval/data/memos.jsonl", encoding: .utf8)

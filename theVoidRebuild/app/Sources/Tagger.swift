@@ -98,7 +98,7 @@ final class Tagger: @unchecked Sendable {
         }
         struct Raw: Decodable { let title: String; let tags: [Quadrant] }
         let raw = try JSONDecoder().decode(Raw.self, from: Data(json.utf8))
-        return Tagging(title: raw.title, tags: Array(NSOrderedSet(array: raw.tags).array.compactMap { $0 as? Quadrant }.prefix(2)))
+        return Tagging(title: raw.title.trimmingCharacters(in: .whitespacesAndNewlines), tags: Array(NSOrderedSet(array: raw.tags).array.compactMap { $0 as? Quadrant }.prefix(2)))
     }
 }
 

@@ -8,6 +8,14 @@ struct FriendDot: Identifiable {
     let tags: [Quadrant]
 }
 
+/// The whole of what a friend can ever receive: who (implicit), when, and which tags. There is no field for
+/// anything else, so content cannot leak through here.
+struct Dot: Equatable, Sendable {
+    let id: String
+    let createdAt: Date
+    let tags: [Quadrant]
+}
+
 /// Dots: friends-only, tags only. One CloudKit zone-wide share holds the user's dots; friends are
 /// read-only participants. No transcript, title or audio ever leaves the device/private iCloud.
 @MainActor
@@ -25,23 +33,50 @@ final class DotStore {
     var friendDots: [FriendDot] = []
     var status = ""
 
-    // MARK: Publish
+    /// Test edge (Mac harness only): an in-memory stand-in for the CloudKit zone, so flows can see exactly what
+    /// would leave the device. Nil in the app.
+    private(set) var fakeRemote: [String: Dot]?
+    func useFakeCloud() { fakeRemote = [:] }
 
-    /// A dot is derived from a memo at save time: id, owner (implicit), createdAt, tags.
-    func publish(memoID: UUID, tags: [Quadrant], createdAt: Date) async throws {
-        guard Self.enabled else { return }
-        try await ensureZone()
-        let record = CKRecord(recordType: "Dot", recordID: CKRecord.ID(recordName: memoID.uuidString, zoneID: zoneID))
-        record["createdAt"] = createdAt
-        record["tags"] = tags.map(\.rawValue)
-        _ = try await container.privateCloudDatabase.modifyRecords(saving: [record], deleting: [])
+    // What this device believes is published, so a failed publish is retried and a withdrawn dot is removed.
+    private var published: [String: [String]] {
+        get { UserDefaults.standard.dictionary(forKey: "publishedDots") as? [String: [String]] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: "publishedDots") }
     }
 
-    /// Deleting a memo deletes its dot.
-    func unpublish(memoID: UUID) async {
-        guard Self.enabled else { return }
-        let id = CKRecord.ID(recordName: memoID.uuidString, zoneID: zoneID)
-        _ = try? await container.privateCloudDatabase.modifyRecords(saving: [], deleting: [id])
+    // MARK: Publish
+
+    /// Make the cloud match `desired`: publish what's missing or changed, withdraw what's no longer wanted.
+    /// Idempotent and safe to call after anything. Does nothing at all while iCloud is off.
+    func reconcile(desired: [Dot]) async {
+        guard Self.enabled || fakeRemote != nil else { return }
+        var ledger = fakeRemote == nil ? published : fakeRemote!.mapValues { $0.tags.map(\.rawValue) }
+        let wanted = Dictionary(uniqueKeysWithValues: desired.map { ($0.id, $0) })
+        let toPublish = desired.filter { ledger[$0.id] != $0.tags.map(\.rawValue) }
+        let toWithdraw = ledger.keys.filter { wanted[$0] == nil }
+        guard !toPublish.isEmpty || !toWithdraw.isEmpty else { return }
+
+        if fakeRemote != nil {
+            for dot in toPublish { fakeRemote?[dot.id] = dot }
+            for id in toWithdraw { fakeRemote?[id] = nil }
+            return
+        }
+        do {
+            try await ensureZone()
+            let records = toPublish.map { dot -> CKRecord in
+                let record = CKRecord(recordType: "Dot", recordID: CKRecord.ID(recordName: dot.id, zoneID: zoneID))
+                record["createdAt"] = dot.createdAt
+                record["tags"] = dot.tags.map(\.rawValue)
+                return record
+            }
+            let ids = toWithdraw.map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
+            _ = try await container.privateCloudDatabase.modifyRecords(saving: records, deleting: ids)
+            for dot in toPublish { ledger[dot.id] = dot.tags.map(\.rawValue) }
+            for id in toWithdraw { ledger[id] = nil }
+            published = ledger
+        } catch {
+            status = "dots not synced: \(error.localizedDescription)"
+        }
     }
 
     private func ensureZone() async throws {
