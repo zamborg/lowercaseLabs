@@ -4,7 +4,24 @@ Written 2026-11-08 from a read of the code, the phone and the Apple setup. [AGEN
 
 **Goal:** Zubin has The Void on his phone from TestFlight, no cable, and uses it as his journal.
 
-## Where we actually are
+## Now (2026-11-08 night): photo mode and settings
+
+The first TestFlight build is on Zubin's phone (1.0, 2611081842). The slices below are history. What's next, in order:
+
+1. **Parts (D15), before anything visible.** Reshape `Entry` so a message is voice, photo or both. Done when every existing flow (F1–F9 on the Mac and simulator) is green on the new shape and an entry with only a photo part round-trips through `Journal`, enrichment and dots. This is the step that has to land before the production schema (D19).
+2. **The camera (D16), F10–F12.** Highest feel-risk first: the circle as shutter, and touch-and-hold flowing from snap to voice. Then "add photo". Enrichment text from scene labels (D17).
+3. **Settings (D18), F13.** Small. Can run alongside 2 if a second implementer is free; it shares no files with the camera except the timings it shows.
+4. **Phone check, then a TestFlight build** on Zubin's go-ahead, then the production schema deploy (D19), also on his go-ahead.
+
+| Risk | Why | What to do |
+|---|---|---|
+| Camera fights the mic | The mic engine listens on Capture; a capture session can take over the audio session and break voice capture or the touch-to-record budget | Camera session has no audio input and doesn't configure the audio session. F1 runs after a camera visit |
+| Dual camera cost | Running both cameras is heavy on power and heat, and not every camera format supports it | Run the camera only while its page is showing. If both can't run at once, fall back to back then front in quick succession, and say so in the report |
+| Snap on touch vs. hold | The same touch must be a photo-only tap or the start of a recording, decided after the fact | The photo is taken on touch in both cases, so nothing is guessed at touch time. Only the voice part depends on how long you hold |
+| Rigs can't see a camera | Simulator and Mac have no dual camera | Fixture images at the camera edge for flows. Real camera latency and the two-image timing are measured on the cable-connected phone by a launch-argument test, not by Zubin |
+| Photo text is thin | Scene labels say "beach", not how you felt | Photo-only tags will be weaker than voice tags. That's expected, and the ML loop owns improving it (D17). Never block capture on it |
+
+## Where we actually were (2026-11-08 morning)
 
 About 1,050 lines. Capture, live transcript and tagging work on the phone (touch to recording ~5 ms, tagging ~1.45 s Release). The Mac harness runs the real transcriber and tagger. Everything else in VISION is missing or untested:
 

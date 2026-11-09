@@ -22,8 +22,7 @@ These are the building blocks. Features are compositions of them. If a new featu
 
 One thing dropped into the Void. In the UI it's called a **message**.
 
-- **Kind**: what produced it. v1 has one kind, `voice`.
-- **Payload**: the raw content. For `voice`: the audio file and its transcript. The payload is the user's and is never shared.
+- **Parts**: the raw content, one or more parts, each made by a module. v1 has two modules, so an entry is a **voice** part (audio and transcript), a **photo** part (a back-camera and front-camera image taken together), or both. Parts are the user's and are never shared. An entry with no parts doesn't exist; removing an entry's last part deletes it.
 - **Enrichment**: derived metadata, currently a **title** and **tags**. Produced by a model after the entry is saved. Every enriched field remembers whether the model or the user set it. A user edit always wins and is never overwritten by a later model run.
 - **Visibility**: `private` or `shared`. Chosen at capture, changeable any time after.
 - **Created at**: when it was captured.
@@ -35,10 +34,10 @@ Saving never waits on enrichment. An entry exists the instant capture ends, even
 A way to make entries. A module provides exactly three things:
 
 1. A **capture surface**: a page you can reach from the home screen.
-2. A **payload** shape: what gets stored.
-3. **Text for enrichment**: how its payload becomes text the models can read. Voice provides its transcript.
+2. A **part** shape: what gets stored.
+3. **Text for enrichment**: how its part becomes text the models can read. Voice provides its transcript. Photo provides on-device scene labels for both images (D17). When an entry has both, the transcript leads.
 
-Enrichment, the Void list, visibility and sharing don't know or care which module made an entry. That is what makes the next module cheap. A camera module (a BeReal-style "swipe to the camera, snap, post") would be a new capture surface, a photo payload and a caption or vision-derived text, and nothing else would change. We are not building it. The primitives must just not make it hard.
+Enrichment, the Void list, visibility and sharing don't know or care which module made an entry. That is what makes the next module cheap. Photo is the proof: if adding it means changing enrichment, dots or sharing beyond "an entry may have this part", the shape was wrong. Fix the shape, don't special-case photo.
 
 ### Tags
 
@@ -54,7 +53,7 @@ A mutual connection made by invitation, built on iCloud sharing. The friend list
 
 ### Identity
 
-Your iCloud account. There is no sign-up and no sign-in screen. First launch asks for microphone and speech permission, and that's it.
+Your iCloud account. There is no sign-up and no sign-in screen. First launch asks for microphone and speech permission, and that's it. Camera permission is asked the first time you open the camera, not before.
 
 ## V1: what you see
 
@@ -68,6 +67,18 @@ A tab bar with three tabs.
 - The transcript streams in live while you talk.
 - On release, the message is saved immediately. The title and tag dots appear a moment later.
 - You choose **private or shared** for this message. The control is right there and remembers your last choice.
+
+#### The camera (photo mode)
+
+Swipe left from the circle to reach the camera. A small camera glyph on the Capture screen shows it's there. Swipe right to go back.
+
+- The back camera fills the screen, with the front camera inset, both live.
+- **The same circle is the shutter.** One gesture does both modes:
+  - **Tap:** both cameras snap at the moment of touch. That's a photo-only message, saved at once.
+  - **Touch and keep holding:** the photo snaps on touch, then you keep holding to talk about it. Voice records into the **same** message. Slide up to lock, as on Capture.
+- After a snap the two images stay on screen with the circle, the visibility control and an ✕ to discard. Discarding deletes the message; it's the only way a snap is lost, and it's explicit.
+- **Adding a photo to a voice message:** right after you record on Capture, and on any message's card in the Void, "add photo" opens the camera, and the snap joins that message instead of starting a new one.
+- Photos stay in the app. They aren't saved to your photo library, and location and other metadata are stripped.
 
 ### 2. Void (your messages)
 
@@ -87,6 +98,19 @@ A tab bar with three tabs.
 
 There is no "my dots" tab in v1. The Void tab already shows your own history.
 
+### Settings (one small panel)
+
+A gear in the Void tab's header opens a sheet. There's no fourth tab. The rule: **the app is complete without ever opening it.** Every setting has a default that is already right, nothing in it is needed to capture, and it holds things you control, not things you have to manage. Settings stay on this device and don't sync.
+
+v1 holds (D18):
+
+- **Camera:** front and back (default), or back only.
+- **Show timings:** the capture and enrichment timings on screen, for checking budgets on TestFlight builds, which can't take launch arguments.
+- **Re-tag my messages:** runs enrichment again over every title and tag the model set. Never touches ones you edited.
+- **About:** version and build, and whether iCloud and dots are on (and if not, why). Read-only.
+
+A new setting needs a reason Zubin would recognise: he asked to control it, or it's needed to diagnose a build. "Someone might want this" isn't one.
+
 ## Budgets
 
 These are product requirements, not aspirations. Each one is measured by a flow in [AGENTS.md](AGENTS.md).
@@ -97,6 +121,11 @@ These are product requirements, not aspirations. Each one is measured by a flow 
 | Release to message saved | Under 300 ms | iPhone 14 Pro |
 | Release to title and tags shown | Under 2 s | iPhone 14 Pro |
 | App launch to ready to record | Under 1 s | iPhone 14 Pro |
+| Arrive on camera to both cameras live | Under 500 ms | iPhone 14 Pro |
+| Touch to photo captured (both images) | The frame at touch is the one kept; both images within 100 ms of each other | iPhone 14 Pro |
+| Touch to photo message saved | Under 300 ms | iPhone 14 Pro |
+| Photo-only message to title and tags shown | Under 2 s | iPhone 14 Pro |
+| Back from camera to voice recording on touch | Unchanged: within 1 frame | iPhone 14 Pro |
 | Shared message to dot visible to a friend | Next time they open Social (target under 10 s when both are online) | Two iCloud accounts |
 
 Minimum device: iPhone 14 Pro (A16). iOS 26.
@@ -113,7 +142,9 @@ These hold until we decide otherwise, on purpose.
 
 ## Not in v1
 
-- Photos, camera or any second module (designed for, not built).
+- A third module. Photo is the second; designed 2026-11-08, see Capture.
+- More than one photo per message, video, or picking from the photo library.
+- Syncing audio or photos to your other devices (only text and metadata sync).
 - A "my dots" tab, reactions, comments, push notifications for dots.
 - Android, iPad, Mac apps; web; public feeds; cloud LLMs.
 - Accounts beyond iCloud.
@@ -132,6 +163,9 @@ These hold until we decide otherwise, on purpose.
 | Mutual friendship | Accepting an invite shows a prompt to send yours back; a single link can't auto-reciprocate |
 | iCloud on the phone | Working. Signed with the iCloud entitlement; a `-cloudtest` run on the phone published a dot, withdrew it on flip to private, re-published, and removed it on delete, against the real CloudKit development zone (first publish ~2 s incl. zone creation, withdraw ~0.6 s). **Friends seeing each other still needs two accounts** |
 | Audio sync across your devices | Missing. Only text syncs. Not needed for single-device v1 |
+| TestFlight | Build 1.0 (2611081842) uploaded and installed by Zubin. CloudKit production schema **not deployed**, so dots and sync do nothing in TestFlight builds yet |
+| Photo mode | **Designed, not built** (Capture section above, D15–D17, flows F10–F12) |
+| Settings panel | **Designed, not built** (D18, flow F13) |
 
 ## Open questions
 

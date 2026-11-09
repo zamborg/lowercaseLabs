@@ -21,7 +21,7 @@ A faster capture that risks losing a recording loses. A cleverer model that adds
 
 ## What good looks like
 
-**Product.** Dark, quiet and immediate. One obvious action per screen. Opening the app and getting a thought in should feel like dropping something into a void: no setup, no forms, no settings screens, no onboarding beyond the two permissions. Model output is a quiet suggestion the user can overrule in one tap, never something they have to manage. When unsure, do less, more beautifully.
+**Product.** Dark, quiet and immediate. One obvious action per screen. Opening the app and getting a thought in should feel like dropping something into a void: no setup, no forms, no onboarding beyond the permissions. There's one small settings panel (D18), and the app must be complete without anyone opening it. Model output is a quiet suggestion the user can overrule in one tap, never something they have to manage. When unsure, do less, more beautifully.
 
 **Engineering.** It works on the phone, not just in the compiler. Real numbers, measured, beat estimates. Every claim in a report is something you saw. The fewest moving parts that meet the budgets.
 
@@ -52,6 +52,12 @@ A flow is a user-level scenario, phrased the way Zubin asks questions ("when I r
 | F7 | **Friend sees it.** Second account | Dot appears with tags and time only | Dot written to dot visible |
 | F8 | **Delete.** Delete a shared message | Entry, audio and dot all gone | — |
 | F9 | **Invite.** Invite a friend; they accept | Each sees the other in Social | — |
+| F10 | **Snap.** Swipe to the camera, tap the circle | One message with a back and a front image, saved before enrichment; title and tags follow; nothing in the photo library; no location in the files | Arrive to cameras live; touch to captured; touch to saved; to title and tags |
+| F11 | **Snap and talk.** On the camera, touch and keep holding, speak, release (and the locked variant) | **One** message with both parts; transcript leads enrichment | As F1 and F10 |
+| F12 | **Add a photo.** Record on Capture, then "add photo"; also from a card in the Void | The photo joins that message; no new message appears | — |
+| F13 | **Settings.** Change each setting, relaunch | Each persists and does what it says; with settings never opened, F1–F12 behave the same; re-tag never changes a user-edited field | — |
+
+Photo also extends existing flows, and these count as part of photo being done: **F6** (a shared photo message produces a dot, and no image or label ever leaves), **F8** (delete removes both images), **F1** (after visiting the camera, voice capture still starts within a frame; the camera never holds the mic or the audio session), and lifecycle (leaving the camera page or backgrounding the app stops the camera session; nothing camera or GPU runs while inactive).
 
 A new module brings its own flows in the same shape. When behavior changes, change the flow in the same commit. **Never weaken an assertion or a budget to get green.** If a budget is wrong, make the case to Zubin with numbers.
 
@@ -61,9 +67,9 @@ Test against real code, with as little faked as possible. Substitute only at the
 
 - **Mac, command line** (`app/MacHarness`, `app/validate.sh`): the app's own transcriber, tagger, `Journal` and `DotStore` on real Metal, with audio fixtures in place of the mic and an in-memory stand-in for the CloudKit zone. Works today.
 - **The iOS app running on the Mac, under UI tests**: potentially everything real except the mic. The most valuable rig, and unproven. Needs Xcode signed in ([SETUP.md](SETUP.md)).
-- **Simulator** (`app/UITests`): UI and storage only. It can't run SpeechAnalyzer or MLX, so anything verified there has seeded enrichment, and the report says so. Works today.
+- **Simulator** (`app/UITests`): UI and storage only. It can't run SpeechAnalyzer or MLX, so anything verified there has seeded enrichment, and the report says so. It has no camera either, so photo flows there take fixture images through a launch argument at the camera edge (D12). Works today.
 - **Two test iCloud accounts** on CloudKit development: the only honest way to verify sharing.
-- **Zubin's phone**: only for what nothing else can see (A16 latency, memory, heat, the real mic). Rare, deliberate, never the default loop.
+- **Zubin's phone**: only for what nothing else can see (A16 latency, memory, heat, the real mic, the real dual camera). Rare, deliberate, never the default loop. The cable-connected phone can still run launch-argument tests (`-cloudtest`, `-longtest`); use them rather than asking Zubin to tap.
 
 `app/verify.sh` runs the Mac harness and the simulator flows and writes `app/build/verify-report.md`, which always ends with **what this run did not cover**. Run it before reporting anything done.
 
