@@ -1,11 +1,13 @@
 #!/bin/bash
 # Archive Release and upload to App Store Connect, which makes it a TestFlight build.
-#   ./ship.sh --yes     archive + upload. Refuses without --yes: shipping is Zubin's call (AGENTS.md, D10).
+#   ./ship.sh --archive-only   archive with distribution signing, stop before uploading (safe dry run)
+#   ./ship.sh --yes            archive + upload. Refuses without --yes: shipping is Zubin's call (AGENTS.md, D10).
 # Needs SETUP.md step 3 (API key in ~/.appstoreconnect/) and an App Store Connect app record for this bundle id.
 # Secrets are read from the files below and never printed.
 set -euo pipefail
 cd "$(dirname "$0")"
-[ "${1:-}" = "--yes" ] || { echo "Refusing to upload without --yes."; exit 2; }
+MODE="${1:-}"
+[ "$MODE" = "--yes" ] || [ "$MODE" = "--archive-only" ] || { echo "Refusing to upload without --yes (or use --archive-only)."; exit 2; }
 CONFIG="$HOME/.appstoreconnect/config"
 [ -f "$CONFIG" ] || { echo "Missing $CONFIG (SETUP.md step 3)"; exit 1; }
 # shellcheck disable=SC1090
@@ -38,6 +40,7 @@ xcodebuild archive -project TheVoid.xcodeproj -scheme TheVoid -configuration Rel
   CURRENT_PROJECT_VERSION="$BUILD" "${AUTH[@]}" -skipMacroValidation -skipPackagePluginValidation \
   > build/ship/archive.log 2>&1 || { grep -E "error:" build/ship/archive.log | sort -u | head; echo "ARCHIVE FAILED (build/ship/archive.log)"; exit 1; }
 
+[ "$MODE" = "--archive-only" ] && { echo "Archive OK: build/ship/TheVoid.xcarchive (build $BUILD). Not uploaded."; exit 0; }
 echo "Uploading..."
 xcodebuild -exportArchive -archivePath build/ship/TheVoid.xcarchive -exportPath build/ship/export \
   -exportOptionsPlist build/ship/ExportOptions.plist "${AUTH[@]}" \

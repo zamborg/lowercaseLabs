@@ -91,6 +91,7 @@ These happened. Don't repeat them.
 
 - **GPU work in the background kills the app.** Locking the phone while tagging ran crashed MLX with an uncatchable fatal error. → *Anything that touches Metal must check the app is active; the Mac harness can't see this, so every new GPU path needs a lifecycle thought.*
 - **A failed build ran a stale binary.** `validate.sh` kept going after `xcodebuild` failed and reported results from the old build. → *A verification script must stop when its build fails.*
+- **The first upload was rejected for device family.** The target built for iPhone and iPad while declaring portrait only, and App Store Connect refuses that. `--archive-only` can't catch it. → *Check `UIDeviceFamily` in the archive, and expect a first upload to surface things the archive doesn't.*
 
 When something new goes wrong, add it here in one line: what happened, and the rule it teaches.
 
