@@ -53,6 +53,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false   # on-device only; no encryption beyond what the OS provides
         UILaunchScreen: {UIColorName: "", UIImageName: ""}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSCameraUsageDescription: The Void keeps the photos you take with your messages, on this device.
         NSMicrophoneUsageDescription: The Void records your voice notes on this device.
         NSSpeechRecognitionUsageDescription: The Void transcribes your voice notes on this device.
     scheme:
@@ -92,6 +93,7 @@ targets:
       - Sources/Transcriber.swift
       - Sources/Taxonomy.swift
       - Sources/Entry.swift
+      - Sources/Photos.swift
       - Sources/Journal.swift
       - Sources/DotStore.swift
     dependencies:

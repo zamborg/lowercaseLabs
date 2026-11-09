@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import ImageIO
 import UIKit
 
 @MainActor
@@ -14,6 +15,18 @@ final class CaptureModel {
     var lastEntry: Entry?
     var taggingMs: Double?
     var note = ""
+
+    // Photo mode (D15, D16). One camera, owned here so the Capture page and the Void card's "add photo" share it.
+    enum Page { case voice, camera }
+    var page: Page = .voice
+    let camera = Camera()
+    /// Set while the camera is open to add a photo to an existing message instead of starting a new one.
+    var addPhotoTarget: Entry?
+    /// The photo message being made right now: its photo is saved, its voice (if you keep holding) is still coming.
+    private var cameraEntry: Entry?
+    private var snapTask: Task<Void, Never>?
+    var cameraShowing: Bool { page == .camera || addPhotoTarget != nil }
+
     /// Private until the user says otherwise, then whatever they chose last (D5).
     private(set) var visibility: Visibility = Visibility(rawValue: UserDefaults.standard.string(forKey: "lastVisibility") ?? "") ?? .private
 
@@ -55,6 +68,92 @@ final class CaptureModel {
         if ProcessInfo.processInfo.arguments.contains("-cloudtest") { await cloudTest() }
         if let i = ProcessInfo.processInfo.arguments.firstIndex(of: "-longtest"),
            let secs = Double(ProcessInfo.processInfo.arguments.dropFirst(i + 1).first ?? "") { await longTest(seconds: secs) }
+        if ProcessInfo.processInfo.arguments.contains("-cameratest") { await cameraTest() }
+    }
+
+    // MARK: Camera
+
+    /// Touch on the circle while the camera is showing. The mic starts first (nothing slows the press); the photo
+    /// snaps at the same moment and is saved on its own, so the photo exists even if you let go at once.
+    func pressInCamera() {
+        if let target = addPhotoTarget {      // adding to a message: a snap and nothing else
+            snapTask = Task { await snap(attachingTo: target) }
+            return
+        }
+        press()
+        snapTask = Task { await snap(attachingTo: nil) }
+    }
+
+    /// Let go on the camera. Tap: a photo-only message. Held: the voice joins that same message.
+    func releaseInCamera() {
+        if addPhotoTarget != nil { return }
+        if case .recording = phase { release(); return }
+        Task {   // the mic wasn't recording (still warming, or unavailable): the photo stands alone
+            await snapTask?.value; snapTask = nil
+            if let entry = cameraEntry { cameraEntry = nil; lastEntry = entry; await enrich(entry) }
+        }
+    }
+
+    /// The ✕ after a snap: the only way a photo is thrown away, and it is explicit.
+    func discardLast() {
+        if let entry = lastEntry { journal.delete(entry) }
+        lastEntry = nil
+    }
+
+    func openCamera(adding entry: Entry? = nil) {
+        addPhotoTarget = entry
+        if entry == nil { page = .camera }
+    }
+
+    private func snap(attachingTo target: Entry?) async {
+        guard let shot = await camera.snap() else { note = "camera not ready"; return }
+        do {
+            if let target {
+                try journal.attachPhoto(back: shot.back, front: shot.front, to: target)
+                lastEntry = target
+                addPhotoTarget = nil; page = .voice; camera.stop()
+                await enrich(target)
+            } else {
+                cameraEntry = try journal.savePhoto(back: shot.back, front: shot.front, visibility: visibility)
+            }
+        } catch {
+            note = "couldn't save the photo: \(error)"
+        }
+    }
+
+    /// `-cameratest`: on the phone, with the real cameras. Arrive-to-live, snap-to-both-images, save, enrich, and then
+    /// the regression that matters: voice capture still starts within a frame after the camera has run.
+    private func cameraTest() async {
+        func line(_ s: String) { print("CAMERA \(s)"); fflush(stdout) }
+        page = .camera
+        await camera.start()
+        line("state=\(camera.state) front=\(camera.hasFront) arrive_ms=\(Int(camera.arriveMs ?? -1))")
+        guard camera.state == .running else { return }
+        try? await Task.sleep(for: .seconds(1))
+        for i in 1...3 {
+            var t = CFAbsoluteTimeGetCurrent()
+            guard let shot = await camera.snap() else { line("run=\(i) FAILED snap returned nothing"); continue }
+            let snapMs = (CFAbsoluteTimeGetCurrent() - t) * 1000
+            t = CFAbsoluteTimeGetCurrent()
+            guard let entry = try? journal.savePhoto(back: shot.back, front: shot.front, visibility: .private) else { line("run=\(i) FAILED save"); continue }
+            let saveMs = (CFAbsoluteTimeGetCurrent() - t) * 1000
+            t = CFAbsoluteTimeGetCurrent()
+            try? await journal.enrich(entry)
+            line(String(format: "run=%d snap_ms=%.0f both_images=%@ gap_ms=%.0f save_ms=%.0f enrich_ms=%.0f bytes=%d/%d labels=\"%@\" title=\"%@\"",
+                        i, snapMs, "\(shot.front != nil)", camera.snapGapMs ?? -1, saveMs, (CFAbsoluteTimeGetCurrent() - t) * 1000,
+                        shot.back.count, shot.front?.count ?? 0, entry.photoLabels, entry.title))
+            journal.delete(entry)
+        }
+        camera.stop(); page = .voice
+        try? await Task.sleep(for: .seconds(1))
+        press()
+        if case .recording = phase {
+            try? await Task.sleep(for: .seconds(1))
+            phase = .finishing
+            _ = await finishRecording()
+            line(String(format: "voice after camera: press_to_capturing_ms=%.1f", last?.timings.pressToCapturingMs ?? -1))
+        } else { line("voice after camera FAILED: \(phase)") }
+        line("done")
     }
 
     /// `-longtest <seconds>`: one long recording, then tagging of a long transcript. Run on the phone with auto-lock
@@ -103,6 +202,9 @@ final class CaptureModel {
     /// real background stops it, and a recording in flight is saved first, never dropped or torn down mid-write.
     func scenePhaseChanged(_ phase: ScenePhase) {
         print("SCENE \(phase) at \(Date().formatted(date: .omitted, time: .standard)) recording=\(isRecordingNow)"); fflush(stdout)
+        // The camera only runs while its page is showing and the app is active.
+        if phase == .background { camera.stop() }
+        if phase == .active, cameraShowing { Task { await camera.start() } }
         guard recorder.isWarm else { return }
         switch phase {
         case .active:
@@ -162,6 +264,22 @@ final class CaptureModel {
         level = 0
         locked = false
         UIApplication.shared.isIdleTimerDisabled = false
+        if let snap = snapTask { await snap.value; snapTask = nil }   // after stopping the mic, so the photo never delays it
+        if let photoEntry = cameraEntry {
+            // Held on the camera: the voice joins the photo message. A tap leaves a photo-only message.
+            cameraEntry = nil
+            if let capture {
+                if capture.duration >= 0.6 || !capture.transcript.isEmpty {
+                    liveText = capture.transcript
+                    journal.attachVoice(audioFileName: capture.audioURL.lastPathComponent, duration: capture.duration,
+                                        transcript: capture.transcript, to: photoEntry)
+                } else {
+                    try? FileManager.default.removeItem(at: capture.audioURL)
+                }
+            }
+            lastEntry = photoEntry
+            return photoEntry
+        }
         guard let capture else { return nil }
         liveText = capture.transcript
         // A real recording is never thrown away because speech failed; only accidental taps are.
@@ -221,6 +339,7 @@ final class CaptureModel {
 
     /// `-seed` launch argument: sample entries for exercising the UI where mic/speech don't exist.
     func seedIfRequested() {
+        if ProcessInfo.processInfo.arguments.contains("-camerapage") { page = .camera }
         guard ProcessInfo.processInfo.arguments.contains("-seed") else { return }
         // Deterministic: a seeded launch always starts from exactly these entries.
         for old in (try? journal.context.fetch(FetchDescriptor<Entry>())) ?? [] { journal.context.delete(old) }
@@ -248,49 +367,100 @@ final class CaptureModel {
     }
 }
 
+/// Capture: two pages side by side. Voice (the circle records) and the camera (the same circle is the shutter).
+/// Swipe left for the camera and right to come back; the glyph does the same for a tap.
 struct CaptureView: View {
     let model: CaptureModel
-    @State private var pressed = false
-    @State private var ignoreTouch = false
-    @State private var dragUp: CGFloat = 0
-
-    private let lockThreshold: CGFloat = 90
-    private var debug: Bool { ProcessInfo.processInfo.arguments.contains("-debug") }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            VStack(spacing: 18) {
-                Text(model.liveText)
-                    .font(.system(.title3, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(.horizontal)
+            switch model.page {
+            case .voice: VoicePage(model: model)
+            case .camera: CameraPage(model: model, attaching: false)
+            }
+        }
+        // The circle's own gesture wins on the circle; anywhere else, a sideways swipe changes page.
+        .gesture(DragGesture(minimumDistance: 30).onEnded { drag in
+            guard abs(drag.translation.height) < 80 else { return }
+            if drag.translation.width < -60 { model.page = .camera }
+            else if drag.translation.width > 60 { model.page = .voice }
+        })
+        .task { await model.warmUp() }
+    }
+}
 
-                if let entry = model.lastEntry, !entry.title.isEmpty {
+struct VoicePage: View {
+    let model: CaptureModel
+
+    var body: some View {
+        VStack(spacing: 18) {
+            HStack {
+                Spacer()
+                Button { model.page = .camera } label: {
+                    Image(systemName: "camera").font(.title3).foregroundStyle(.white.opacity(0.7))
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityIdentifier("cameraGlyph")
+            }
+            .padding(.horizontal, 8)
+
+            Text(model.liveText)
+                .font(.system(.title3, design: .rounded))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.horizontal)
+
+            LastMessage(model: model, offerPhoto: true)
+            StatusLine(model: model)
+            VisibilityToggle(model: model)
+            CircleControl(model: model, inCamera: false)
+        }
+    }
+}
+
+/// The message just made: title and tag dots, plus (on the voice page) a way to add a photo to it.
+struct LastMessage: View {
+    let model: CaptureModel
+    let offerPhoto: Bool
+
+    var body: some View {
+        if let entry = model.lastEntry {
+            VStack(spacing: 8) {
+                if !entry.title.isEmpty {
                     HStack(spacing: 8) {
                         ForEach(entry.tags, id: \.self) { Circle().fill($0.color).frame(width: 14, height: 14) }
                         Text(entry.title).font(.headline).foregroundStyle(.white)
                     }
                     .transition(.opacity)
                 }
-                status
-                visibilityToggle
-                circle
+                if offerPhoto, !entry.hasPhoto {
+                    Button { model.openCamera(adding: entry) } label: {
+                        Label("add photo", systemImage: "camera.badge.plus").font(.footnote.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                    .accessibilityIdentifier("addPhotoButton")
+                }
             }
-            .animation(.easeOut(duration: 0.2), value: model.lastEntry?.title)
-        }
-        .task {
-            await model.warmUp()
+            .animation(.easeOut(duration: 0.2), value: entry.title)
         }
     }
+}
 
-    private var status: some View {
+struct StatusLine: View {
+    let model: CaptureModel
+
+    var body: some View {
         VStack(spacing: 2) {
-            if debug, let c = model.last {
-                Text(String(format: "press→capturing %.0f ms · release→final %.0f ms%@",
-                            c.timings.pressToCapturingMs, c.timings.releaseToFinalMs,
-                            model.taggingMs.map { String(format: " · tagged %.0f ms", $0) } ?? ""))
+            if Settings.showTimings {
+                if let c = model.last {
+                    Text(String(format: "press→capturing %.0f ms · release→final %.0f ms%@",
+                                c.timings.pressToCapturingMs, c.timings.releaseToFinalMs,
+                                model.taggingMs.map { String(format: " · tagged %.0f ms", $0) } ?? ""))
+                }
+                if let ms = model.camera.arriveMs, model.page == .camera || model.addPhotoTarget != nil {
+                    Text(String(format: "camera live %.0f ms%@", ms, model.camera.snapGapMs.map { String(format: " · front/back gap %.0f ms", $0) } ?? ""))
+                }
             }
             if !model.note.isEmpty { Text(model.note).foregroundStyle(.orange) }
             if case .failed(let message) = model.phase { Text(message).foregroundStyle(.red) }
@@ -300,9 +470,14 @@ struct CaptureView: View {
         .multilineTextAlignment(.center)
         .padding(.horizontal)
     }
+}
 
-    private var visibilityToggle: some View {
+struct VisibilityToggle: View {
+    let model: CaptureModel
+
+    var body: some View {
         let shared = model.visibility == .shared
+        let recording: Bool = { if case .recording = model.phase { true } else { false } }()
         return Button {
             model.setVisibility(shared ? .private : .shared)
         } label: {
@@ -313,17 +488,92 @@ struct CaptureView: View {
                 .background(shared ? Color.white : .white.opacity(0.12), in: Capsule())
         }
         .buttonStyle(.plain)
-        .opacity(isRecording ? 0.4 : 1)
+        .opacity(recording ? 0.4 : 1)
         .accessibilityIdentifier("visibilityToggle")
     }
+}
 
+/// The camera page: both cameras live, and the circle is the shutter. Tap = photo only. Hold = the photo snaps on
+/// touch and your voice joins the same message. `attaching` is the "add photo" case: a snap joins an existing message.
+struct CameraPage: View {
+    let model: CaptureModel
+    let attaching: Bool
+
+    var body: some View {
+        ZStack {
+            CameraPreview(camera: model.camera).ignoresSafeArea()
+            if case .unavailable(let why) = model.camera.state {
+                Text(why).font(.footnote).foregroundStyle(.white.opacity(0.7)).multilineTextAlignment(.center).padding(40)
+            }
+            VStack(spacing: 14) {
+                HStack {
+                    if attaching {
+                        Button("Cancel") { model.addPhotoTarget = nil; model.camera.stop() }
+                            .foregroundStyle(.white).padding(14)
+                            .accessibilityIdentifier("cancelCamera")
+                    }
+                    Spacer()
+                }
+                Spacer()
+                if !attaching { SnappedStrip(model: model) }
+                StatusLine(model: model)
+                if !attaching { VisibilityToggle(model: model) }
+                CircleControl(model: model, inCamera: true)
+            }
+        }
+        .onAppear { Task { await model.camera.start() } }
+        .onDisappear { model.camera.stop() }
+    }
+}
+
+/// After a snap: the two images stay on screen with the message's title, and an ✕ that discards the message.
+struct SnappedStrip: View {
+    let model: CaptureModel
+
+    var body: some View {
+        if let entry = model.lastEntry, entry.hasPhoto {
+            HStack(spacing: 10) {
+                PhotoThumb(url: entry.photoBackURL, width: 54, height: 72).accessibilityIdentifier("thumbBack")
+                if let front = entry.photoFrontURL { PhotoThumb(url: front, width: 54, height: 72).accessibilityIdentifier("thumbFront") }
+                if !entry.title.isEmpty { Text(entry.title).font(.subheadline.weight(.medium)).foregroundStyle(.white) }
+                ForEach(entry.tags, id: \.self) { Circle().fill($0.color).frame(width: 12, height: 12) }
+                Button { model.discardLast() } label: {
+                    Image(systemName: "xmark").font(.footnote.weight(.bold)).foregroundStyle(.white)
+                        .frame(width: 32, height: 32).background(.white.opacity(0.2), in: Circle())
+                }
+                .accessibilityIdentifier("discardPhoto")
+            }
+            .padding(10)
+            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 16))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("snappedStrip")
+        }
+    }
+}
+
+/// The circle: one control for both pages. Press, hold, slide up to lock, tap to stop a locked recording.
+struct CircleControl: View {
+    let model: CaptureModel
+    let inCamera: Bool
+    @State private var pressed = false
+    @State private var ignoreTouch = false
+    @State private var dragUp: CGFloat = 0
+
+    private let lockThreshold: CGFloat = 90
     private var isRecording: Bool { if case .recording = model.phase { true } else { false } }
+    private var isReady: Bool {
+        if inCamera { return model.camera.state == .running }   // a snap needs a live camera; the mic is not required
+        switch model.phase { case .ready, .recording: return true; default: return false }
+    }
 
-    private var circle: some View {
+    private func press() { inCamera ? model.pressInCamera() : model.press() }
+    private func release() { inCamera ? model.releaseInCamera() : model.release() }
+
+    var body: some View {
         let willLock = dragUp > lockThreshold
         return ZStack {
             // Lock affordance: appears above the circle while holding, fills when the slide is far enough.
-            if pressed && !model.locked {
+            if pressed && !model.locked && model.addPhotoTarget == nil {
                 Image(systemName: willLock ? "lock.fill" : "lock.open")
                     .font(.title3)
                     .foregroundStyle(willLock ? .black : .white.opacity(0.7))
@@ -347,12 +597,12 @@ struct CaptureView: View {
                             if !pressed {
                                 if model.locked {           // tap while locked = stop
                                     ignoreTouch = true
-                                    DispatchQueue.main.async { model.release() }
+                                    DispatchQueue.main.async { release() }
                                     return
                                 }
                                 pressed = true
                                 // Let the circle draw this frame; recording setup follows on the next main-queue turn.
-                                DispatchQueue.main.async { model.press() }
+                                DispatchQueue.main.async { press() }
                             }
                             dragUp = max(0, -drag.translation.height)
                             if dragUp > lockThreshold && !model.locked { model.lock() }
@@ -363,17 +613,40 @@ struct CaptureView: View {
                             dragUp = 0
                             pressed = false
                             if wasIgnored || model.locked { return }
-                            DispatchQueue.main.async { model.release() }
+                            DispatchQueue.main.async { release() }
                         }
                 )
         }
         .frame(height: 120)
         .padding(.bottom, 24)
         .animation(.easeOut(duration: 0.15), value: willLock)
-        .accessibilityIdentifier("captureCircle")
+        .accessibilityIdentifier(inCamera ? "shutterCircle" : "captureCircle")
     }
+}
 
-    private var isReady: Bool {
-        switch model.phase { case .ready, .recording: true; default: false }
+/// A photo from the app's own folder, decoded small. Never loads the full file into a list.
+struct PhotoThumb: View {
+    let url: URL
+    var width: CGFloat
+    var height: CGFloat
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image { Image(uiImage: image).resizable().scaledToFill() } else { Color.white.opacity(0.08) }
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .task(id: url) {
+            let side = max(width, height) * 3
+            image = await Task.detached { () -> UIImage? in
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                      let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                          kCGImageSourceCreateThumbnailFromImageAlways: true,
+                          kCGImageSourceThumbnailMaxPixelSize: side,
+                      ] as CFDictionary) else { return nil }
+                return UIImage(cgImage: cg)
+            }.value
+        }
     }
 }

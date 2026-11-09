@@ -1,6 +1,8 @@
 import AVFoundation
 import Foundation
+import ImageIO
 import SwiftData
+import UniformTypeIdentifiers
 
 // Mac harness: runs the app's real LiveTranscription and Tagger. No phone, no mic.
 // Audio fixtures stream through the same append()/finish() path the mic tap uses.
@@ -89,6 +91,7 @@ print("== journal flows")
 let audioDir = FileManager.default.temporaryDirectory.appendingPathComponent("void-audio-\(UUID().uuidString)").path
 setenv("VOID_AUDIO_DIR", audioDir, 1)
 try? FileManager.default.createDirectory(atPath: audioDir, withIntermediateDirectories: true)
+setenv("VOID_PHOTO_DIR", FileManager.default.temporaryDirectory.appendingPathComponent("void-photos-\(UUID().uuidString)").path, 1)
 let store = try ModelContainer(for: Entry.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
 DotStore.shared.useFakeCloud()
 let journal = Journal(context: ModelContext(store), tagger: tagger)
@@ -168,6 +171,91 @@ Tagger.gpuAllowed = true
 await journal.enrichPending()
 check(!e2.title.isEmpty, "background: entry not enriched after returning to the foreground")
 journal.delete(e2); await journal.reconcileDots()
+
+// Photo parts (F10, F11, F12, and photo's extensions of F6 and F8). A synthetic JPEG with location and EXIF stands in
+// for the camera; everything after the shutter is the app's real code.
+print("== photo flows")
+func fixtureJPEG(width: Int, height: Int, gray: Double) -> Data {
+    let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+    ctx.setFillColor(CGColor(red: gray, green: 0.6, blue: 0.9, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 0.2, alpha: 1)); ctx.fillEllipse(in: CGRect(x: width / 2, y: height / 2, width: width / 4, height: width / 4))
+    let out = NSMutableData()
+    let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil)!
+    CGImageDestinationAddImage(dest, ctx.makeImage()!, [
+        kCGImagePropertyOrientation: 6,
+        kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 37.77, kCGImagePropertyGPSLongitude: -122.41],
+        kCGImagePropertyExifDictionary: [kCGImagePropertyExifUserComment: "secret"],
+        kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFMake: "Apple"],
+    ] as CFDictionary)
+    CGImageDestinationFinalize(dest)
+    return out as Data
+}
+func props(_ url: URL) -> [CFString: Any] {
+    CGImageSourceCreateWithURL(url as CFURL, nil).flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [CFString: Any] } ?? [:]
+}
+let rawBack = fixtureJPEG(width: 3000, height: 2000, gray: 0.3), rawFront = fixtureJPEG(width: 1500, height: 2000, gray: 0.7)
+check(props(URL(fileURLWithPath: "/dev/null")).isEmpty, "")   // helper sanity: unreadable gives no properties
+
+// F10: a photo-only message is saved before enrichment, files stripped, then titled and tagged from scene labels.
+t0 = CFAbsoluteTimeGetCurrent()
+let p = try journal.savePhoto(back: rawBack, front: rawFront, visibility: .private)
+let photoSavedMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+check(p.hasPhoto && !p.hasVoice && p.title.isEmpty && entryCount() == 4, "F10: photo entry should exist before enrichment")
+check(photoSavedMs < 300, "F10: photo save took \(Int(photoSavedMs)) ms, budget 300")
+let stored = props(p.photoBackURL)
+// ImageIO always writes structural EXIF (colour space, pixel size); what must be gone is anything about where or what shot it.
+let storedExif = stored[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
+let storedTIFF = stored[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
+check(stored[kCGImagePropertyGPSDictionary] == nil && storedExif[kCGImagePropertyExifUserComment] == nil
+      && storedTIFF[kCGImagePropertyTIFFMake] == nil && storedTIFF[kCGImagePropertyTIFFModel] == nil,
+      "F10: stored photo still carries location or camera metadata: \(stored.keys) exif=\(storedExif.keys) tiff=\(storedTIFF.keys)")
+let w = stored[kCGImagePropertyPixelWidth] as? Int ?? 0, h = stored[kCGImagePropertyPixelHeight] as? Int ?? 0
+check(h > w && max(w, h) <= PhotoFiles.maxPixels, "F10: photo not rotated upright or not downsized (\(w)x\(h))")
+t0 = CFAbsoluteTimeGetCurrent()
+try await journal.enrich(p)
+let photoEnrichMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+check(!p.photoLabels.isEmpty && !p.title.isEmpty && !p.tags.isEmpty && p.titleSource == .model, "F10: photo-only message not titled and tagged from labels")
+check(photoEnrichMs < 2000, "F10: photo enrichment \(Int(photoEnrichMs)) ms, budget 2000")
+print(String(format: "F10 saved in %.1f ms (2 images, metadata stripped, %dx%d); labels \"%@\" -> title \"%@\" tags %@ in %.0f ms",
+             photoSavedMs, w, h, p.photoLabels, p.title, "\(p.tags.map(\.rawValue))", photoEnrichMs))
+
+// F11: voice recorded while holding joins the same message, and the transcript then leads enrichment.
+let before = entryCount()
+journal.attachVoice(audioFileName: "none.caf", duration: 6, transcript: calm, to: p)
+check(entryCount() == before && p.hasVoice && p.hasPhoto && p.enrichmentText == calm, "F11: voice did not join the photo message, or the transcript doesn't lead")
+check(p.titleSource == .none, "F11: stale photo-only enrichment should be reopened when the transcript arrives")
+try await journal.enrich(p)
+check(!p.title.isEmpty && p.titleSource == .model, "F11: message not re-enriched from the transcript")
+
+// F12: a photo added to a voice message adds no message, and a spoken message keeps its title.
+let v = makeEntry(calm, .private)
+try await journal.enrich(v)
+let vTitle = v.title, count12 = entryCount()
+try journal.attachPhoto(back: rawBack, front: nil, to: v)
+check(entryCount() == count12 && v.hasVoice && v.hasPhoto && v.photoFrontURL == nil, "F12: add photo created a message or lost a part")
+check(v.title == vTitle && v.titleSource == .model, "F12: adding a photo changed a spoken message's title")
+
+// Privacy extension of F6: a shared photo message produces a dot with tags and time only, and withdraws with it.
+journal.setVisibility(.shared, on: p); await journal.reconcileDots()
+check(remote().count == 1 && remote()[p.id.uuidString]?.tags == p.tags, "F6/photo: shared photo message has no dot")
+let dotJSON = remote()[p.id.uuidString].map { "\($0)" } ?? ""
+check(!dotJSON.contains("jpg") && !p.photoLabels.split(separator: ",").contains { dotJSON.contains($0.trimmingCharacters(in: .whitespaces)) },
+      "F6/photo: a photo file name or label reached the dot")
+
+// F8 extension: deleting takes both images, the audio and the dot.
+let files = [p.photoBackURL, p.photoFrontURL!, v.photoBackURL]
+check(files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }, "F8/photo setup: photo files missing")
+journal.delete(p); journal.delete(v); await journal.reconcileDots()
+check(files.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) } && remote().isEmpty, "F8/photo: delete left a photo file or a dot behind")
+
+// Settings → re-tag: reopens only model-set fields.
+let r1 = makeEntry(calm, .private); try await journal.enrich(r1)
+let r2 = makeEntry(calm, .private); journal.setTitle("Mine", on: r2); journal.setTags([.highUnpleasant], on: r2)
+await journal.retagModelFields()
+check(r2.title == "Mine" && r2.tags == [.highUnpleasant] && r2.titleSource == .user, "F13: re-tag changed something the user set")
+check(r1.titleSource == .model && !r1.title.isEmpty, "F13: re-tag did not re-run the model on a model-set entry")
+journal.delete(r1); journal.delete(r2)
 print("journal flows done: \(entryCount()) entries, \(remote().count) dots")
 
 // 4. Optional full gate: `./validate.sh --eval` scores the shipped tagger on the labeled set.

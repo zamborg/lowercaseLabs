@@ -45,8 +45,15 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $tab) {
             Tab("Capture", systemImage: "circle.fill", value: 0) { CaptureView(model: app.capture) }
-            Tab("Void", systemImage: "tray.full", value: 1) { VoidView(journal: app.journal) }
+            Tab("Void", systemImage: "tray.full", value: 1) { VoidView(journal: app.journal, capture: app.capture) }
             Tab("Friends", systemImage: "person.2", value: 2) { SocialView() }
+        }
+        // "Add photo" from a message opens the camera over whatever tab you're on; a snap joins that message.
+        .fullScreenCover(isPresented: Binding(
+            get: { app.capture.addPhotoTarget != nil },
+            set: { if !$0 { app.capture.addPhotoTarget = nil } }
+        )) {
+            CameraPage(model: app.capture, attaching: true).background(Color.black.ignoresSafeArea()).preferredColorScheme(.dark)
         }
         .onChange(of: scenePhase) { _, new in
             Tagger.gpuAllowed = new == .active   // no GPU work unless active; see Tagger.gpuAllowed

@@ -5,7 +5,9 @@ import SwiftUI
 /// Tab 2: every message, newest first.
 struct VoidView: View {
     let journal: Journal
+    let capture: CaptureModel
     @Query(sort: \Entry.createdAt, order: .reverse) private var entries: [Entry]
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -21,8 +23,15 @@ struct VoidView: View {
             .overlay { if entries.isEmpty { Text("nothing here yet").foregroundStyle(.secondary) } }
             .navigationTitle("Void")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                        .accessibilityIdentifier("settingsGear")
+                }
+            }
+            .sheet(isPresented: $showSettings) { SettingsView(journal: journal) }
             .navigationDestination(for: UUID.self) { id in
-                if let entry = entries.first(where: { $0.id == id }) { EntryCard(entry: entry, journal: journal) }
+                if let entry = entries.first(where: { $0.id == id }) { EntryCard(entry: entry, journal: journal, capture: capture) }
             }
         }
     }
@@ -32,21 +41,26 @@ struct EntryRow: View {
     let entry: Entry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(entry.title.isEmpty ? (entry.needsEnrichment ? "…" : "untitled") : entry.title)
-                    .font(.headline)
-                Spacer()
-                ForEach(entry.tags, id: \.self) { Circle().fill($0.color).frame(width: 10, height: 10) }
+        HStack(alignment: .top, spacing: 12) {
+            if entry.hasPhoto { PhotoThumb(url: entry.photoBackURL, width: 56, height: 74) }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(entry.title.isEmpty ? (entry.needsEnrichment || entry.hasPhoto && entry.photoLabels.isEmpty ? "…" : "untitled") : entry.title)
+                        .font(.headline)
+                    Spacer()
+                    ForEach(entry.tags, id: \.self) { Circle().fill($0.color).frame(width: 10, height: 10) }
+                }
+                if entry.hasVoice { Text(entry.transcript).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
+                HStack(spacing: 6) {
+                    Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    if entry.hasVoice {
+                        Text("·")
+                        Text(Duration.seconds(entry.duration).formatted(.time(pattern: .minuteSecond)))
+                    }
+                    if entry.isShared { Image(systemName: "person.2.fill") }
+                }
+                .font(.caption2).foregroundStyle(.tertiary)
             }
-            Text(entry.transcript).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-            HStack(spacing: 6) {
-                Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
-                Text("·")
-                Text(Duration.seconds(entry.duration).formatted(.time(pattern: .minuteSecond)))
-                if entry.isShared { Image(systemName: "person.2.fill") }
-            }
-            .font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
@@ -58,6 +72,7 @@ struct EntryRow: View {
 struct EntryCard: View {
     @Bindable var entry: Entry
     let journal: Journal
+    let capture: CaptureModel
     @State private var player = Player()
     @State private var confirmDelete = false
     @State private var title = ""
@@ -73,16 +88,19 @@ struct EntryCard: View {
                     .accessibilityIdentifier("titleField")
 
                 tagPicker
-                playback
+                photos
+                if entry.hasVoice {
+                    playback
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("transcript").font(.caption).foregroundStyle(.secondary)
-                    TextEditor(text: $transcript)
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 160)
-                        .padding(8)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-                        .accessibilityIdentifier("transcriptEditor")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("transcript").font(.caption).foregroundStyle(.secondary)
+                        TextEditor(text: $transcript)
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 160)
+                            .padding(8)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                            .accessibilityIdentifier("transcriptEditor")
+                    }
                 }
 
                 Toggle(isOn: Binding(
@@ -104,7 +122,7 @@ struct EntryCard: View {
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog("Delete this message?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { player.stop(); journal.delete(entry); dismiss() }
-        } message: { Text("The audio and its dot are removed. This can't be undone.") }
+        } message: { Text("Its audio, photos and dot are removed. This can't be undone.") }
         .onAppear { title = entry.title; transcript = entry.transcript }
         .onChange(of: entry.title) { _, new in if new != title { title = new } }   // enrichment landing
         .onDisappear {
@@ -112,6 +130,23 @@ struct EntryCard: View {
             let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
             if t != entry.title { journal.setTitle(t, on: entry) }
             if transcript != entry.transcript { journal.setTranscript(transcript, on: entry) }
+        }
+    }
+
+    /// Both images, plainly (the view is a placeholder for the real UI), or a way to add one.
+    @ViewBuilder private var photos: some View {
+        if entry.hasPhoto {
+            HStack(alignment: .top, spacing: 10) {
+                PhotoThumb(url: entry.photoBackURL, width: 190, height: 250)
+                if let front = entry.photoFrontURL { PhotoThumb(url: front, width: 110, height: 146) }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("entryPhotos")
+        } else {
+            Button { capture.openCamera(adding: entry) } label: {
+                Label("add photo", systemImage: "camera.badge.plus")
+            }
+            .accessibilityIdentifier("addPhotoButton")
         }
     }
 
