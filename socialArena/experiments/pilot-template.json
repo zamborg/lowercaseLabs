@@ -1,0 +1,542 @@
+{
+  "game": "avalon",
+  "policies": {
+    "a": {
+      "kind": "random"
+    },
+    "b": {
+      "kind": "scripted"
+    }
+  },
+  "max_usd": 0,
+  "max_decisions": 1000,
+  "schedule": [
+    {
+      "game_id": "cross00-0",
+      "scenario_id": "cross00",
+      "pair_id": "cross00",
+      "seed": 4200,
+      "config": {
+        "leader": 0
+      },
+      "policies": [
+        "a",
+        "a",
+        "b",
+        "a",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross00-1",
+      "scenario_id": "cross00",
+      "pair_id": "cross00",
+      "seed": 4200,
+      "config": {
+        "leader": 0
+      },
+      "policies": [
+        "b",
+        "b",
+        "a",
+        "b",
+        "a"
+      ]
+    },
+    {
+      "game_id": "cross01-0",
+      "scenario_id": "cross01",
+      "pair_id": "cross01",
+      "seed": 4201,
+      "config": {
+        "leader": 1
+      },
+      "policies": [
+        "a",
+        "a",
+        "b",
+        "a",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross01-1",
+      "scenario_id": "cross01",
+      "pair_id": "cross01",
+      "seed": 4201,
+      "config": {
+        "leader": 1
+      },
+      "policies": [
+        "b",
+        "b",
+        "a",
+        "b",
+        "a"
+      ]
+    },
+    {
+      "game_id": "cross02-0",
+      "scenario_id": "cross02",
+      "pair_id": "cross02",
+      "seed": 4202,
+      "config": {
+        "leader": 2
+      },
+      "policies": [
+        "a",
+        "b",
+        "a",
+        "b",
+        "a"
+      ]
+    },
+    {
+      "game_id": "cross02-1",
+      "scenario_id": "cross02",
+      "pair_id": "cross02",
+      "seed": 4202,
+      "config": {
+        "leader": 2
+      },
+      "policies": [
+        "b",
+        "a",
+        "b",
+        "a",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross03-0",
+      "scenario_id": "cross03",
+      "pair_id": "cross03",
+      "seed": 4203,
+      "config": {
+        "leader": 3
+      },
+      "policies": [
+        "a",
+        "a",
+        "b",
+        "a",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross03-1",
+      "scenario_id": "cross03",
+      "pair_id": "cross03",
+      "seed": 4203,
+      "config": {
+        "leader": 3
+      },
+      "policies": [
+        "b",
+        "b",
+        "a",
+        "b",
+        "a"
+      ]
+    },
+    {
+      "game_id": "cross04-0",
+      "scenario_id": "cross04",
+      "pair_id": "cross04",
+      "seed": 4204,
+      "config": {
+        "leader": 4
+      },
+      "policies": [
+        "a",
+        "a",
+        "a",
+        "b",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross04-1",
+      "scenario_id": "cross04",
+      "pair_id": "cross04",
+      "seed": 4204,
+      "config": {
+        "leader": 4
+      },
+      "policies": [
+        "b",
+        "b",
+        "b",
+        "a",
+        "a"
+      ]
+    },
+    {
+      "game_id": "cross05-0",
+      "scenario_id": "cross05",
+      "pair_id": "cross05",
+      "seed": 4205,
+      "config": {
+        "leader": 0
+      },
+      "policies": [
+        "a",
+        "b",
+        "b",
+        "a",
+        "a"
+      ]
+    },
+    {
+      "game_id": "cross05-1",
+      "scenario_id": "cross05",
+      "pair_id": "cross05",
+      "seed": 4205,
+      "config": {
+        "leader": 0
+      },
+      "policies": [
+        "b",
+        "a",
+        "a",
+        "b",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross06-0",
+      "scenario_id": "cross06",
+      "pair_id": "cross06",
+      "seed": 4206,
+      "config": {
+        "leader": 1
+      },
+      "policies": [
+        "a",
+        "b",
+        "b",
+        "a",
+        "a"
+      ]
+    },
+    {
+      "game_id": "cross06-1",
+      "scenario_id": "cross06",
+      "pair_id": "cross06",
+      "seed": 4206,
+      "config": {
+        "leader": 1
+      },
+      "policies": [
+        "b",
+        "a",
+        "a",
+        "b",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross07-0",
+      "scenario_id": "cross07",
+      "pair_id": "cross07",
+      "seed": 4207,
+      "config": {
+        "leader": 2
+      },
+      "policies": [
+        "a",
+        "b",
+        "a",
+        "b",
+        "a"
+      ]
+    },
+    {
+      "game_id": "cross07-1",
+      "scenario_id": "cross07",
+      "pair_id": "cross07",
+      "seed": 4207,
+      "config": {
+        "leader": 2
+      },
+      "policies": [
+        "b",
+        "a",
+        "b",
+        "a",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross08-0",
+      "scenario_id": "cross08",
+      "pair_id": "cross08",
+      "seed": 4208,
+      "config": {
+        "leader": 3
+      },
+      "policies": [
+        "a",
+        "a",
+        "a",
+        "b",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross08-1",
+      "scenario_id": "cross08",
+      "pair_id": "cross08",
+      "seed": 4208,
+      "config": {
+        "leader": 3
+      },
+      "policies": [
+        "b",
+        "b",
+        "b",
+        "a",
+        "a"
+      ]
+    },
+    {
+      "game_id": "cross09-0",
+      "scenario_id": "cross09",
+      "pair_id": "cross09",
+      "seed": 4209,
+      "config": {
+        "leader": 4
+      },
+      "policies": [
+        "a",
+        "b",
+        "b",
+        "a",
+        "a"
+      ]
+    },
+    {
+      "game_id": "cross09-1",
+      "scenario_id": "cross09",
+      "pair_id": "cross09",
+      "seed": 4209,
+      "config": {
+        "leader": 4
+      },
+      "policies": [
+        "b",
+        "a",
+        "a",
+        "b",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross10-0",
+      "scenario_id": "cross10",
+      "pair_id": "cross10",
+      "seed": 4210,
+      "config": {
+        "leader": 0
+      },
+      "policies": [
+        "a",
+        "b",
+        "b",
+        "a",
+        "a"
+      ]
+    },
+    {
+      "game_id": "cross10-1",
+      "scenario_id": "cross10",
+      "pair_id": "cross10",
+      "seed": 4210,
+      "config": {
+        "leader": 0
+      },
+      "policies": [
+        "b",
+        "a",
+        "a",
+        "b",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross11-0",
+      "scenario_id": "cross11",
+      "pair_id": "cross11",
+      "seed": 4211,
+      "config": {
+        "leader": 1
+      },
+      "policies": [
+        "a",
+        "b",
+        "a",
+        "a",
+        "b"
+      ]
+    },
+    {
+      "game_id": "cross11-1",
+      "scenario_id": "cross11",
+      "pair_id": "cross11",
+      "seed": 4211,
+      "config": {
+        "leader": 1
+      },
+      "policies": [
+        "b",
+        "a",
+        "b",
+        "b",
+        "a"
+      ]
+    },
+    {
+      "game_id": "self-a-0",
+      "scenario_id": "self-a-0",
+      "pair_id": "self-a-0",
+      "seed": 6000,
+      "config": {
+        "leader": 0
+      },
+      "policies": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "self_play": true
+    },
+    {
+      "game_id": "self-a-1",
+      "scenario_id": "self-a-1",
+      "pair_id": "self-a-1",
+      "seed": 6001,
+      "config": {
+        "leader": 1
+      },
+      "policies": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "self_play": true
+    },
+    {
+      "game_id": "self-a-2",
+      "scenario_id": "self-a-2",
+      "pair_id": "self-a-2",
+      "seed": 6002,
+      "config": {
+        "leader": 2
+      },
+      "policies": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "self_play": true
+    },
+    {
+      "game_id": "self-a-3",
+      "scenario_id": "self-a-3",
+      "pair_id": "self-a-3",
+      "seed": 6003,
+      "config": {
+        "leader": 3
+      },
+      "policies": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "self_play": true
+    },
+    {
+      "game_id": "self-b-0",
+      "scenario_id": "self-b-0",
+      "pair_id": "self-b-0",
+      "seed": 6100,
+      "config": {
+        "leader": 0
+      },
+      "policies": [
+        "b",
+        "b",
+        "b",
+        "b",
+        "b"
+      ],
+      "self_play": true
+    },
+    {
+      "game_id": "self-b-1",
+      "scenario_id": "self-b-1",
+      "pair_id": "self-b-1",
+      "seed": 6101,
+      "config": {
+        "leader": 1
+      },
+      "policies": [
+        "b",
+        "b",
+        "b",
+        "b",
+        "b"
+      ],
+      "self_play": true
+    },
+    {
+      "game_id": "self-b-2",
+      "scenario_id": "self-b-2",
+      "pair_id": "self-b-2",
+      "seed": 6102,
+      "config": {
+        "leader": 2
+      },
+      "policies": [
+        "b",
+        "b",
+        "b",
+        "b",
+        "b"
+      ],
+      "self_play": true
+    },
+    {
+      "game_id": "self-b-3",
+      "scenario_id": "self-b-3",
+      "pair_id": "self-b-3",
+      "seed": 6103,
+      "config": {
+        "leader": 3
+      },
+      "policies": [
+        "b",
+        "b",
+        "b",
+        "b",
+        "b"
+      ],
+      "self_play": true
+    }
+  ],
+  "registration": {
+    "endpoint": "good/evil alignment win",
+    "allocation": "12 independent side-swapped cross-policy scenarios plus four self-play scenarios per policy; 32 total games",
+    "stopping": "fixed 32; inspect reliability, cost and side bias before registering expansion",
+    "exclusions": "complete swapped pairs for primary; failures shown separately",
+    "note": "Local template. Freeze actual paid policies and positive approved cap in new config before work-funded pilot."
+  }
+}

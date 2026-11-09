@@ -1,5 +1,7 @@
 # Source notes
 
+Implementation verification: the Responses API can return commentary and a final answer as separate messages. The provider adapter selects the completed `final_answer` instead of concatenating phases; a single unphased message is supported for legacy responses. Commentary is retained only in analyst records, never used as an action. This follows the [official phase documentation](https://developers.openai.com/api/docs/guides/reasoning), checked 2026-11-09, and was verified against an actual Luna response.
+
 Checked 2026-11-08. Recommendations in this folder are our proposed design unless explicitly attributed below.
 
 | Source | Used for / limits |
@@ -17,3 +19,10 @@ Checked 2026-11-08. Recommendations in this folder are our proposed design unles
 The benchmark website did not load through the research tool. The linked upstream repository supplied the methodology. We inspected its rating source directly; its documentation sometimes describes the split fit more prominently than the combined headline fit, so this plan follows the code.
 
 No upstream source, game assets, transcripts, or API credentials are vendored. Before reusing an engine, record its license, pinned revision, supported rules, and missing mechanics. Existing framework/engine selection remains an implementation task, not a completed survey.
+
+
+## Implementation reuse audit (2026-11-08)
+
+A bounded audit inspected [OpenSpiel](https://github.com/google-deepmind/open_spiel) (Apache-2.0) and its [available game list](https://github.com/google-deepmind/open_spiel/blob/master/docs/games.md). The inspected list did not contain Avalon or Dominion. Its C++ dependency and absent required adapters did not improve this small Python vertical slice. No upstream engine/code is reused or vendored, so there is no reused revision to pin. This is a bounded candidate check, not an exhaustive engine survey. Both adapters are original implementations of the documented fixed rules scope, with no game assets.
+
+OpenAI integration follows the official [Responses create reference](https://developers.openai.com/api/reference/resources/responses/methods/create), [structured output guide](https://developers.openai.com/api/docs/guides/structured-outputs), and [Luna model/pricing page](https://developers.openai.com/api/docs/models/gpt-6-luna). Requests explicitly choose standard service, JSON mode and bounded output; engine validation remains authoritative. Price values are supplied explicitly in immutable policy configs with provenance. No key is recorded.

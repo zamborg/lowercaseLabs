@@ -1,0 +1,36 @@
+{
+  "date": "2026-11-09",
+  "tests_passed": 31,
+  "runs": {
+    "avalon-release": {
+      "experiment_id": "4679fb84a3067aa4250708de5429ebfc423c5d9d4f3393377120411f3dd78cec",
+      "games": 100,
+      "complete": 100,
+      "replays_verified": 100,
+      "invalid_actions": 0,
+      "accounted_usd": 0
+    },
+    "dominion-release": {
+      "experiment_id": "ae00024bd7161813dd5259ab20304c61d5ce45526bd10797326af8f6b1d9484f",
+      "games": 4,
+      "complete": 4,
+      "replays_verified": 4,
+      "invalid_actions": 0,
+      "accounted_usd": 0
+    },
+    "luna-release": {
+      "experiment_id": "813478de520d06ed66008a4cacdfdd46ffd43b670ec69acabcf26094707bdfa1",
+      "games": 1,
+      "complete": 0,
+      "replays_verified": 1,
+      "invalid_actions": 0,
+      "accounted_usd": 0.0028545
+    }
+  },
+  "paid_testing": {
+    "known_usage_usd": 0.00726,
+    "uncertain_reserved_usd": 0.0026134,
+    "accounted_total_usd": 0.0098734,
+    "note": "All attempts included, including failed pre-fix adapters and one raw-response diagnostic. Final live run stopped on provider HTTP400 invalid_prompt after 13 legal decisions; no complete live game claimed."
+  }
+}

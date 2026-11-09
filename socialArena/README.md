@@ -1,71 +1,44 @@
-# Social Arena: research spike
+# Social Arena
 
-**Decision proposed:** build a small, reproducible harness for agent games. Start with Avalon; use Dominion as the second adapter to discover which primitives actually generalize.
+A runnable Python harness for reproducible agent games: five-seat Avalon and the two-player Dominion second-edition First Game kingdom. It records what each seat knew, actions, errors, usage, checkpoints and exact deterministic replays. Local policies spend **$0**. This is an experiment tool, with no hosted service, training or arbitrary game import.
 
-**Status:** design only, 2026-11-08. No game engine or paid model runs in this spike. Read this page first (~3 minutes); [ratings](RATINGS.md) answers the Elo question; [execution](EXECUTION.md) is the handoff for implementation. [Sources](SOURCES.md) records what was checked.
+**Verified 2026-11-09:** 31 tests pass; 100/100 local Avalon and 4/4 local Dominion games complete. All 104 completed games replay exactly. A live five-seat Luna smoke executed 13 decisions with zero invalid actions, then stopped on a provider prompt rejection; a complete live-model game is **not** claimed. See [validation and portable evidence](validation/README.md).
 
-## What we want to learn
+Python 3.10+; no runtime dependencies. Run from the repository root:
 
-Measure how agent policies cooperate, persuade, infer hidden information, and make strategic decisions against other policies. A useful result combines **outcome, uncertainty, cost, and a replay explaining what happened**. The rating belongs to a particular model, prompt, memory policy, and compute budget in a particular environment.
-
-Dwarkesh's Clocktower project is the starting reference. His video companion discusses coordinated deception, collective deduction, memory, mixed teams, and stronger individual teammates. We read that companion rather than extracting YouTube captions. [Essay and video](https://www.dwarkesh.com/p/clocktower).
-
-Our first research question: **does a stronger agent improve a team's decisions, and does that depend on its role?** First establish reliable homogeneous-team comparisons; then replace one seat while holding the rest of the experiment fixed.
-
-## The smallest useful platform
-
-```mermaid
-flowchart LR
-    Plan[Versioned experiment] --> Runner[Scheduler and budget ledger]
-    Runner --> Game[Game adapter: authoritative rules]
-    Game --> View[Seat-specific observation]
-    View --> Agent[Agent policy]
-    Agent --> Validate[Validate action]
-    Validate --> Game
-    Game --> Log[Events and checkpoints]
-    Runner --> Log
-    Log --> Report[Replay, metrics, ratings]
+```sh
+PYTHONPATH=socialArena python3 -m unittest discover -s socialArena/tests -v
+PYTHONPATH=socialArena python3 -m social_arena run --config socialArena/experiments/free-avalon.json --out socialArena/.runs/avalon
+PYTHONPATH=socialArena python3 -m social_arena run --config socialArena/experiments/free-dominion.json --out socialArena/.runs/dominion
 ```
 
-| Primitive | Responsibility |
-| --- | --- |
-| Game adapter | Setup, legal decisions, visibility, transitions, terminal outcomes. No model calls. |
-| Agent policy | Act on one seat's permitted information; interchangeable scripted and model-backed agents. |
-| Experiment runner | Assign policies to seats, pair scenarios, schedule calls, enforce spend limits, resume. |
-| Event record | Preserve actions, observations, randomness, failures, usage, and versions for exact playback. |
-| Evaluator | Compute outcomes and game-specific diagnostics; fit ratings separately from gameplay. |
+Open `<output>/report.html` locally. Each game links a decision-by-decision replay with public, seat and visibly labeled analyst-only omniscient views. The report shows actual completions, failures, cost, Brier diagnostics, raw side records, paired ratings and whole-scenario bootstrap intervals. Default bootstrap count is 2,000; `--bootstrap 20` is useful for a quick operational smoke, with correspondingly coarse intervals. Estimates from scripted agents validate the harness; they are not model capability evidence.
 
-Use Python, typed records, JSON experiment files, and append-only JSONL logs initially. Keep the core independent of any provider SDK. Use an existing game engine if a short correctness/license review supports it; do not make a Clocktower fork the universal engine. Its code remains a useful reference for protocols, rating fits, and experiment design. [Upstream implementation](https://github.com/dwarkeshsp/clocktower).
+To resume the exact frozen experiment, omit `--config`:
 
-## Two games, deliberately different
+```sh
+PYTHONPATH=socialArena python3 -m social_arena run --out socialArena/.runs/avalon
+PYTHONPATH=socialArena python3 -m social_arena replay socialArena/.runs/avalon/games/g0000-0
+PYTHONPATH=socialArena python3 -m social_arena view socialArena/.runs/avalon/games/g0000-0 --seat 1
+PYTHONPATH=socialArena python3 -m social_arena report socialArena/.runs/avalon --bootstrap 2000
+```
 
-| | Avalon v1 | Dominion v2 |
-| --- | --- | --- |
-| Purpose | Social inference and team coordination | Strategic planning and resource allocation |
-| Scope | 5 seats: Merlin, 2 loyal servants, Assassin, 1 minion | 2 players; base second edition; one fixed 10-card kingdom |
-| Hidden information | Roles and private quest contributions | Hands and deck order |
-| Decisions | Speech, team proposals, simultaneous votes, quests, final assassination | Card play, buys, discards, reactions, nested card choices |
-| Rating unit | Policy filling a whole alignment | Policy controlling one player |
-| Generalization test | Visibility and simultaneous decisions | Variable action spaces and interrupted turns |
+The manifest freezes policies, seat assignments, setup seeds, code hashes, protocol and accounting limits. Any policy/config/code change requires a fresh output directory; retain the matching checkout for old replays. Request caches survive crashes. Durable decision commits replay from setup, verify each state hash and RNG state, and rebuild checkpoints without applying an action twice. A partial final journal line is discarded. Public/seat exports filter recipient visibility; raw logs, checkpoints, initial setup and request caches are private analyst artifacts and must never be passed to players. Policies receive only their isolated observation, its trimmed public history and legal action specification; they have no tools or shared memory.
 
-Avalon has no mid-game elimination; retain its terminal Merlin-assassination rule. Use public discussion only. Dominion begins with the publisher's “First Game” kingdom, including Militia/Moat to exercise reactions. These are proposed benchmark scopes, with rules sourced in [the source notes](SOURCES.md).
+The default schedule creates independent scenarios with reversed alignment assignments in Avalon and reversed first-player assignments in Dominion. Same-policy self-play is supported. Explicit `schedule` entries permit registered mixed rosters; their immutable alignment composition IDs include role-to-policy assignments. The [32-game pilot template](experiments/pilot-template.json) encodes 12 swapped scenarios and four self-play games per policy. It is local until actual provider policies and an approved positive budget are frozen. One-seat intervention and discussion ablation can use explicit schedules; set `discussion_rounds: 0` in `game_config` for no speech, including before assassination. Analyze different communication protocols as separate pools. Do not tune prompts on held-out reported scenarios.
 
-## First experiments
+Optional OpenAI policies use the Responses API. Keep `OPENAI_API_KEY` in the environment; never put it in experiment JSON. A policy definition can contain:
 
-| Order | Question | Comparison and primary readout |
-| --- | --- | --- |
-| 0 | Can we trust the harness? | Scripted/random agents; legal play, isolation, deterministic replay. No capability claims. |
-| 1 | Which team policy wins? | A-good/B-evil and reversed on matched setups; adjusted rating, side win rates, uncertainty, cost. |
-| 2 | Does one stronger seat help? | Paired baseline/intervention; rotate the replaced role; team win-rate uplift by role. |
-| 3 | Does discussion help deduction? | Fixed discussion budget versus no speech; win rate and private belief accuracy. |
-| Later | Memory, diverse teams, strategy transfer? | Separate registered experiments after the first three work. |
+```json
+{"kind":"openai","model":"gpt-6-luna","reasoning":"none","max_output_tokens":256,
+ "input_usd_per_million":0.1,"output_usd_per_million":0.5,
+ "price_source":"https://developers.openai.com/api/docs/models/gpt-6-luna"}
+```
 
-Belief accuracy is diagnostic, never a substitute for winning. Separate Merlin's informed beliefs from uninformed good seats. Hold out scenarios for evaluation; do not tune prompts on the reported test games.
+Verify prices for the exact model before use; these are explicit configuration values, not an automatic price service. Set top-level `allow_paid: true` and `max_usd` to the approved cap. Standard service tier is explicit. Unknown/nonfinite prices block dispatch. The scheduler reserves a conservative input-byte/token bound plus maximum output before each attempt and reconciles known token usage. Timeouts/server failures retain a full uncertain reservation. Retries and one schema repair are separately charged. A request that may have reached the provider is never silently redispatched after resume. Infrastructure failures and caps produce incomplete games; exhausted illegal actions produce policy failures. `max_decisions` caps each game; `max_total_decisions` caps the experiment. The runner is sequential; the persisted budget ledger also prevents concurrent reservations exceeding its configured cap. Do not run distinct experiments against one shared external account cap and assume their independent ledgers coordinate account-wide spending.
 
-## Review target and boundaries
+`probes: true` enables detached, structured P(evil) probes at vote phases for uninformed good seats. They use a copied permitted observation and separate request/cost entries, do not alter policy history, and exclude mechanically known labels. Merlin has no eligible unknown labels in this fixed role set. Only actual probe results contribute Brier diagnostics. This implementation uses bounded observation-only memory; there is no hidden chain-of-thought capture.
 
-The first release should produce one inspectable Avalon experiment folder with a manifest, complete replays, failure/cost accounting, and a report with uncertainty. A reviewer must be able to inspect exactly what a player knew at any decision.
+[RATINGS.md](RATINGS.md) explains regularized Bradley–Terry and Davidson ratings. Only complete reversed pairs enter primary comparisons, with explicitly marked self-play accepted separately. Mixed-policy team IDs describe the whole roster, not individual Elo. The report flags disconnected pools, few scenario blocks and policy-failure bias; it provides strength-prior sensitivity and attributable failure-as-loss sensitivity. Paid pilot expansion, measured-cost power analysis, one-seat uplift estimation and held-out calibration remain study work; no large paid study is bundled or implied.
 
-Defer a hosted service, human multiplayer, training, arbitrary game import, cross-game rankings, and large tournaments. Paid runs happen later in the work environment; the default local configuration spends **$0**.
-
-The main choices to review are the five-player Avalon scope, whole-team ratings before individual attribution, and whether the first paid study should prioritize team rankings or one-seat uplift. Everything else is an implementation default in the [execution plan](EXECUTION.md).
+[EXECUTION.md](EXECUTION.md) records implementation coverage and limits. [SOURCES.md](SOURCES.md) records rules, upstream methodology and the bounded reuse audit.

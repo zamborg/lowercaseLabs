@@ -1,6 +1,8 @@
 # Execution handoff
 
-**This file specifies future work. No commands, interfaces, or reports below are implemented yet.** Deliver the stages in order; the current spike stops at these documents.
+**Implementation status (2026-11-08):** stages 1–3 and bounded Dominion stage 5 are implemented in `social_arena/`, with the executable commands in README. The contracts below remain the acceptance reference. Stage 4 is supplied as a fixed 32-game local template; no work-funded pilot or expansion is claimed. A separately authorized tiny Luna smoke may validate the provider, without serving as a capability study.
+
+The implementation uses JSON-serializable typed-by-contract records rather than a dataclass hierarchy. Action schemas are constrained `choice`, `subset`, and `speech` specifications. The runner is sequential, while its durable budget ledger supports concurrent reservation safely. Engine code is pinned by source hashes; preserve the matching checkout for replay. Memory is observation-only with oldest-public-message trimming. Reports include static public/seat/omniscient decision replay, detached belief diagnostics, ratings and costs. Registered intervention schedules are accepted; a dedicated uplift estimator, automatic power/sample-size selection, held-out calibration and separate good/evil strength fits remain future study tooling.
 
 ## 1. Freeze the contract and Avalon protocol
 
