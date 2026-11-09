@@ -8,9 +8,9 @@ Written 2026-11-08 from a read of the code, the phone and the Apple setup. [AGEN
 
 The first TestFlight build is on Zubin's phone (1.0, 2611081842). The slices below are history. What's next, in order:
 
-1. **Parts (D15), before anything visible.** Reshape `Entry` so a message is voice, photo or both. Done when every existing flow (F1–F9 on the Mac and simulator) is green on the new shape and an entry with only a photo part round-trips through `Journal`, enrichment and dots. This is the step that has to land before the production schema (D19).
-2. **The camera (D16), F10–F12.** Highest feel-risk first: the circle as shutter, and touch-and-hold flowing from snap to voice. Then "add photo". Enrichment text from scene labels (D17).
-3. **Settings (D18), F13.** Small. Can run alongside 2 if a second implementer is free; it shares no files with the camera except the timings it shows.
+1. ~~**Parts (D15), before anything visible.**~~ Done 2026-11-08. Reshape `Entry` so a message is voice, photo or both. Done when every existing flow (F1–F9 on the Mac and simulator) is green on the new shape and an entry with only a photo part round-trips through `Journal`, enrichment and dots. This is the step that has to land before the production schema (D19).
+2. ~~**The camera (D16), F10–F12.**~~ Built; real-camera timing still to measure with `-cameratest` on the phone. Highest feel-risk first: the circle as shutter, and touch-and-hold flowing from snap to voice. Then "add photo". Enrichment text from scene labels (D17).
+3. ~~**Settings (D18), F13.**~~ Built. Small. Can run alongside 2 if a second implementer is free; it shares no files with the camera except the timings it shows.
 4. **Phone check, then a TestFlight build** on Zubin's go-ahead, then the production schema deploy (D19), also on his go-ahead.
 
 | Risk | Why | What to do |

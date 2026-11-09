@@ -22,7 +22,7 @@ These are the building blocks. Features are compositions of them. If a new featu
 
 One thing dropped into the Void. In the UI it's called a **message**.
 
-- **Parts**: the raw content, one or more parts, each made by a module. v1 has two modules, so an entry is a **voice** part (audio and transcript), a **photo** part (a back-camera and front-camera image taken together), or both. Parts are the user's and are never shared. An entry with no parts doesn't exist; removing an entry's last part deletes it.
+- **Parts**: the raw content, one or more parts, each made by a module. v1 has two modules, so an entry is a **voice** part (audio and transcript), a **photo** part (a back-camera and front-camera image taken together), or both. Parts are the user's and are never shared. An entry always has at least one part; discarding a snap (the ✕) deletes the whole message.
 - **Enrichment**: derived metadata, currently a **title** and **tags**. Produced by a model after the entry is saved. Every enriched field remembers whether the model or the user set it. A user edit always wins and is never overwritten by a later model run.
 - **Visibility**: `private` or `shared`. Chosen at capture, changeable any time after.
 - **Created at**: when it was captured.
@@ -164,8 +164,8 @@ These hold until we decide otherwise, on purpose.
 | iCloud on the phone | Working. Signed with the iCloud entitlement; a `-cloudtest` run on the phone published a dot, withdrew it on flip to private, re-published, and removed it on delete, against the real CloudKit development zone (first publish ~2 s incl. zone creation, withdraw ~0.6 s). **Friends seeing each other still needs two accounts** |
 | Audio sync across your devices | Missing. Only text syncs. Not needed for single-device v1 |
 | TestFlight | Build 1.0 (2611081842) uploaded and installed by Zubin. CloudKit production schema **not deployed**, so dots and sync do nothing in TestFlight builds yet |
-| Photo mode | **Designed, not built** (Capture section above, D15–D17, flows F10–F12) |
-| Settings panel | **Designed, not built** (D18, flow F13) |
+| Photo mode | Built (2026-11-08): `Entry` is voice/photo/both, camera page (swipe or glyph), circle as shutter, add photo from Capture and the Void card, scene-label enrichment, metadata stripped. **Verified**: Mac harness (save ~143 ms with 2 images, strip, labels, voice joins, delete) and simulator flows with fixture images. **Not verified**: the real dual camera and its timing, hold-to-talk in the UI, label quality on real photos |
+| Settings panel | Built: gear in the Void tab. Persistence and back-only verified in the simulator, re-tag (never touches user edits) in the Mac harness |
 
 ## Open questions
 

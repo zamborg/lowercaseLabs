@@ -24,6 +24,8 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>The Void keeps the photos you take with your messages, on this device.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>The Void records your voice notes on this device.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

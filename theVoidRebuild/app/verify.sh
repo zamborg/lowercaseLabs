@@ -34,6 +34,10 @@ grep -E "Test Case.*(passed|failed)|error:|TEST (SUCCEEDED|FAILED)" build/uitest
 - CloudKit: dots run against an in-memory stand-in. Real sharing between two accounts is unverified (needs SETUP steps 1 and 2).
 - Tag accuracy on real messages (4 synthetic samples only, floor 2/4).
 - Playback audio output and the audio session change (needs a device).
+- The real cameras: dual-camera session, arrive-to-live, front/back timing gap, photo quality. The simulator and Mac use fixture images (-fixtureCamera) and a synthetic JPEG. `-cameratest` on the phone measures these.
+- Touch-and-hold on the camera joining voice to the photo message in the UI (no mic in the simulator); only the Journal side (attachVoice, transcript leads) is covered, in the Mac harness.
+- Scene labels and photo-only tags on real photos (the Mac run labels one synthetic image).
+- Voice capture still starting within a frame after a camera visit (the `-cameratest` check, phone only).
 NOT
 } > "$REPORT"
 echo; echo "Report: $REPORT"; [ $FAIL -eq 0 ] && echo "VERIFY PASS" || echo "VERIFY FAIL"
