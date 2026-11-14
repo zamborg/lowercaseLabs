@@ -14,6 +14,9 @@ struct ContentView: View {
             case .agent(let id):
                 if engine.agent(id) != nil { AgentPage(agentID: id, route: $route).id(id) }
                 else { EmptyDetail(route: $route) }
+            case .room(let id):
+                if engine.conversations.contains(where: { $0.id == id }) { RoomView(roomID: id).id(id) }
+                else { EmptyDetail(route: $route) }
             case .models: ModelsView()
             case .tools: ToolsView()
             case nil: EmptyDetail(route: $route)
@@ -41,6 +44,7 @@ struct SidebarView: View {
     @Environment(ParlorEngine.self) private var engine
     @Binding var route: Route?
     @State private var memory: (used: Int64, total: Int64) = (0, SystemMemory.totalBytes)
+    @State private var showNewRoom = false
     private let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -50,6 +54,28 @@ struct SidebarView: View {
             }
             Section("Characters") {
                 ForEach(engine.agents.filter { $0.kind == .character }) { row($0) }
+            }
+            if !engine.conversations.isEmpty {
+                Section("Rooms") {
+                    ForEach(engine.conversations) { c in
+                        HStack(spacing: 9) {
+                            Image(systemName: "person.2.fill").frame(width: 26).foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(c.title).fontWeight(.medium)
+                                Text(c.config.agentIDs.compactMap { engine.agent($0)?.name }.joined(separator: ", "))
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                            if engine.room(for: c.id).isBusy { ProgressView().controlSize(.small) }
+                        }
+                        .tag(Route.room(c.id))
+                        .contextMenu {
+                            Button("Reveal Folder in Finder") { NSWorkspace.shared.activateFileViewerSelecting([engine.home.chatDir(for: c.id)]) }
+                            Divider()
+                            Button("Delete Room", role: .destructive) { engine.deleteRoom(c.id); if route == .room(c.id) { route = nil } }
+                        }
+                    }
+                }
             }
             Section("Library") {
                 Label("Models", systemImage: "cpu").tag(Route.models)
@@ -65,10 +91,13 @@ struct SidebarView: View {
                 Menu {
                     Button("New Assistant") { let a = engine.create(kind: .assistant); route = .agent(a.id) }
                     Button("New Character") { let a = engine.create(kind: .character); route = .agent(a.id) }
+                    Divider()
+                    Button("New Room…") { showNewRoom = true }.disabled(engine.agents.count < 2)
                 } label: { Label("New Agent", systemImage: "plus") }
                 .help("New agent")
             }
         }
+        .sheet(isPresented: $showNewRoom) { NewRoomSheet(route: $route) }
         .onReceive(timer) { _ in
             memory = (SystemMemory.usedBytes(), SystemMemory.totalBytes)
             Task { await engine.refreshLoaded() }

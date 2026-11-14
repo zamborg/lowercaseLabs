@@ -391,3 +391,97 @@ final class SlowRuntime: LanguageModelRuntime, @unchecked Sendable {
     func loadedModel() async -> String? { "slow" }
     func unload() async {}
 }
+
+
+// MARK: - step 3: rooms
+
+/// Replies as whoever the system prompt says it is, mentioning a configurable next speaker.
+func roomLLM(seen: Seen? = nil, mention: [String: String] = [:]) -> ScriptedRuntime {
+    ScriptedRuntime { req in
+        seen?.add(req)
+        let sys = req.messages.first?.text ?? ""
+        let who = sys.contains("You are Mabel") ? "Mabel" : (sys.contains("You are Pip") ? "Pip" : "Babe")
+        let stats = LLMStats(promptTokens: 10, completionTokens: 3, tokensPerSecond: 50)
+        let tail = mention[who].map { " \($0), your turn?" } ?? ""
+        return [.text("\(who) speaking.\(tail)"), .stats(stats)]
+    }
+}
+
+final class RoomTests: XCTestCase {
+    @MainActor private func roomEngine(_ llm: LanguageModelRuntime) async -> ParlorEngine {
+        let e = ParlorEngine(home: tempHome(), runtime: llm)
+        await e.start()
+        for id in ["mabel", "pip", "babe"] where e.agent(id) == nil {
+            e.save(Agent(id: id, name: id.capitalized, persona: "You are \(id.capitalized).", model: "scripted"))
+        }
+        for a in e.agents { var x = a; x.model = "scripted"; e.save(x) }
+        return e
+    }
+
+    @MainActor func testRoundRobinAttributesEveryLineAndFramesTheTranscript() async throws {
+        let seen = Seen()
+        let e = await roomEngine(roomLLM(seen: seen))
+        let id = e.createRoom(title: "Settle it", agents: ["mabel", "pip"], scheduler: SchedulerSpec(kind: "roundRobin", maxTurns: 4))
+        XCTAssertEqual(e.conversations.map(\.id), [id])
+        let room = e.room(for: id)
+        XCTAssertTrue(room.isGroup)
+        await room.sendAndWait("Who is right?")
+        let speakers = room.messages.filter { $0.role != .marker }.map { $0.speaker ?? "?" }
+        XCTAssertEqual(speakers, ["user", "mabel", "pip", "mabel", "pip"])
+        // Pip's first request sees Mabel's line as an attributed user line, not as its own.
+        let pipReq = try XCTUnwrap(seen.all.first { ($0.messages.first?.text ?? "").contains("You are Pip") })
+        XCTAssertTrue(pipReq.messages[0].text.contains("You are Pip, in a conversation with the user and Mabel"))
+        let last = try XCTUnwrap(pipReq.messages.last)
+        XCTAssertEqual(last.role, .user)
+        XCTAssertEqual(last.text, "User: Who is right?\nMabel: Mabel speaking.")
+        await e.shutdown()
+    }
+
+    @MainActor func testMentionSchedulerFollowsNamesAndStops() async throws {
+        let e = await roomEngine(roomLLM(mention: ["Pip": "Babe"]))
+        let id = e.createRoom(title: "Chain", agents: ["mabel", "pip", "babe"], scheduler: SchedulerSpec(kind: "mention", maxTurns: 6))
+        let room = e.room(for: id)
+        await room.sendAndWait("pip, what do you think?")
+        // Pip is named first, Pip names Babe, Babe names nobody: the chain ends.
+        XCTAssertEqual(room.messages.filter { $0.role == .assistant }.compactMap(\.speaker), ["pip", "babe"])
+        XCTAssertEqual(MentionScheduler.firstMention(in: "Mabelle and Pip", ids: ["mabel", "pip"], names: ["mabel": "Mabel", "pip": "Pip"], excluding: nil), "pip", "whole words only")
+        XCTAssertNil(MentionScheduler.firstMention(in: "Pip said so", ids: ["pip"], names: ["pip": "Pip"], excluding: "pip"))
+        await e.shutdown()
+    }
+
+    @MainActor func testAutonomousRunStopsAtItsBudgetAndNeedsNoUserMessage() async throws {
+        let e = await roomEngine(roomLLM())
+        let id = e.createRoom(title: "Free", agents: ["mabel", "pip"], scheduler: SchedulerSpec(kind: "autonomous", stepBudget: 3))
+        let room = e.room(for: id)
+        XCTAssertTrue(room.messages.isEmpty)
+        await room.runAndWait()
+        XCTAssertEqual(room.messages.filter { $0.role == .assistant }.compactMap(\.speaker), ["mabel", "pip", "mabel"])
+        XCTAssertFalse(room.messages.contains { $0.role == .user })
+        // A model that just spoke is asked to carry on.
+        let a = Agent(id: "mabel", name: "Mabel")
+        let msgs = BuiltInHarness.buildRequestMessages(agent: a, transcript: [ChatMessage(role: .assistant, text: "hi", speaker: "mabel")], summary: nil, tools: [], now: Date(), others: [("pip", "Pip")])
+        XCTAssertEqual(msgs.last?.text, "(Carry on the conversation.)")
+        await e.shutdown()
+    }
+
+    @MainActor func testRoomsPersistReloadAndDelete() async throws {
+        let e = await roomEngine(roomLLM())
+        let id = e.createRoom(title: "Keep me", agents: ["mabel", "pip"], scheduler: SchedulerSpec(kind: "roundRobin", maxTurns: 2))
+        e.reloadAgents()                       // must not tidy away a room folder
+        XCTAssertEqual(e.conversations.count, 1)
+        // A relaunch finds it again, with its log.
+        await e.room(for: id).sendAndWait("hello all")
+        await e.shutdown()
+        let again = ParlorEngine(home: e.home, runtime: roomLLM())
+        await again.start()
+        XCTAssertEqual(again.conversations.map(\.id), [id])
+        XCTAssertEqual(again.conversations.first?.title, "Keep me")
+        XCTAssertEqual(again.room(for: id).messages.filter { $0.role == .assistant }.count, 2)
+        // One-to-one chats are not rooms.
+        XCTAssertFalse(again.conversations.contains { $0.id == "mabel" })
+        again.deleteRoom(id)
+        XCTAssertTrue(again.conversations.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: again.home.chatDir(for: id).path))
+        await again.shutdown()
+    }
+}

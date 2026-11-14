@@ -16,15 +16,17 @@ public struct TurnInput: Sendable {
     public var lastPromptTokens: Int
     public var now: Date
     public var priority: LLMPriority
+    /// Agent id to display name for everyone in the conversation, used for group framing.
+    public var names: [String: String]
 
     public init(
         agent: Agent, conversationID: String, participants: [Participant], transcript: [ChatMessage],
         summary: ChatLog.Summary?, tools: [ToolDef], settings: ResolvedSettings,
-        lastPromptTokens: Int = 0, now: Date = Date(), priority: LLMPriority = .user
+        lastPromptTokens: Int = 0, now: Date = Date(), priority: LLMPriority = .user, names: [String: String] = [:]
     ) {
         self.agent = agent; self.conversationID = conversationID; self.participants = participants
         self.transcript = transcript; self.summary = summary; self.tools = tools; self.settings = settings
-        self.lastPromptTokens = lastPromptTokens; self.now = now; self.priority = priority
+        self.lastPromptTokens = lastPromptTokens; self.now = now; self.priority = priority; self.names = names
     }
 }
 
@@ -75,6 +77,13 @@ public struct HubToolExecutor: ToolExecutor {
 
 /// The default harness: compact if needed, stream, run tool calls, feed results back, repeat until the
 /// model answers in plain text. Behaviour is the V1 `SimpleLoop` + `Room.buildHistory` + compaction, moved.
+extension TurnInput {
+    /// The other agents in the conversation (empty in a one-to-one chat).
+    var others: [(id: String, name: String)] {
+        participants.compactMap(\.agent).filter { $0 != agent.id }.map { ($0, names[$0] ?? $0) }
+    }
+}
+
 public struct BuiltInHarness: Harness {
     public init() {}
 
@@ -85,7 +94,7 @@ public struct BuiltInHarness: Harness {
 
         // 1. Compaction first.
         let estimate = Compactor.estimateTokens(
-            Self.buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: summary, tools: [], now: input.now))
+            Self.buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: summary, tools: [], now: input.now, others: input.others))
         if Double(max(input.lastPromptTokens, estimate)) > s.compactAt * Double(s.contextTokens) {
             emit(.status("Compacting"))
             if let (new, folded) = try await Self.compact(input: input, summary: summary, llm: context.llm) {
@@ -96,7 +105,7 @@ public struct BuiltInHarness: Harness {
         }
 
         // 2. The loop.
-        var messages = Self.buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: summary, tools: input.tools, now: input.now)
+        var messages = Self.buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: summary, tools: input.tools, now: input.now, others: input.others)
         let maxSteps = max(1, s.maxSteps)
         for step in 0..<maxSteps {
             try Task.checkCancellation()
@@ -142,7 +151,7 @@ public struct BuiltInHarness: Harness {
     public static func compact(input: TurnInput, summary: ChatLog.Summary?, llm: LanguageModelRuntime) async throws -> (ChatLog.Summary, folded: Int)? {
         let s = input.settings
         guard let new = try await Compactor(keepRecent: s.keepRecent, summaryTokens: s.summaryTokens)
-            .compact(agent: input.agent, messages: input.transcript, existing: summary, llm: llm, priority: input.priority) else { return nil }
+            .compact(agent: input.agent, messages: input.transcript, existing: summary, llm: llm, priority: input.priority, names: input.names) else { return nil }
         let folded = input.transcript.filter { $0.role != .marker }.firstIndex(where: { $0.id == new.through }).map { $0 + 1 } ?? 0
         return (new, folded)
     }
@@ -150,17 +159,22 @@ public struct BuiltInHarness: Harness {
     // MARK: request building
 
     public static func buildRequestMessages(_ input: TurnInput) -> [LLMMessage] {
-        buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: input.summary, tools: input.tools, now: input.now)
+        buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: input.summary, tools: input.tools, now: input.now, others: input.others)
     }
 
     public static func buildRequestMessages(
-        agent: Agent, transcript: [ChatMessage], summary: ChatLog.Summary?, tools: [ToolDef], now: Date
+        agent: Agent, transcript: [ChatMessage], summary: ChatLog.Summary?, tools: [ToolDef], now: Date,
+        others: [(id: String, name: String)] = []
     ) -> [LLMMessage] {
         var system = agent.persona.trimmingCharacters(in: .whitespacesAndNewlines)
         if system.isEmpty { system = "You are \(agent.name)." }
         // Date only: a clock in the system prompt would change every minute and defeat the prompt cache.
         let f = DateFormatter(); f.dateStyle = .full; f.timeStyle = .none
         system += "\n\nToday is \(f.string(from: now))."
+        if !others.isEmpty {
+            let list = others.map(\.name).joined(separator: ", ")
+            system += "\nYou are \(agent.name), in a conversation with the user and \(list). Reply only as \(agent.name): never write other participants' lines and never start your reply with your own name."
+        }
         if !tools.isEmpty {
             system += "\nYou have tools. When a request needs information or an action from a tool, call the tool immediately in this reply. Never say you will look something up or do something without actually calling the tool. Never ask permission to use a tool for a read-only lookup. After the tool result arrives, answer in plain text."
         }
@@ -171,14 +185,38 @@ public struct BuiltInHarness: Harness {
             live = Array(live[(i + 1)...])
         }
         var out: [LLMMessage] = [LLMMessage(role: .system, text: system)]
+        guard !others.isEmpty else {
+            for m in live {
+                switch m.role {
+                case .user: out.append(LLMMessage(role: .user, text: m.text))
+                case .assistant: out.append(LLMMessage(role: .assistant, text: m.text, toolCalls: m.toolCalls ?? []))
+                case .tool: out.append(LLMMessage(role: .tool, text: m.text, toolCallID: m.toolCallID, toolName: m.toolName))
+                case .marker: break
+                }
+            }
+            return out
+        }
+        // Group framing: this agent's own lines stay assistant lines; everyone else's final replies become
+        // attributed user lines, and their tool steps are left out. Neighbouring user lines are merged.
+        let nameOf = Dictionary(others.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+        func addUser(_ text: String) {
+            if let last = out.last, last.role == .user { out[out.count - 1].text += "\n" + text }
+            else { out.append(LLMMessage(role: .user, text: text)) }
+        }
         for m in live {
+            let who = m.speaker ?? (m.role == .user ? "user" : agent.id)
             switch m.role {
-            case .user: out.append(LLMMessage(role: .user, text: m.text))
-            case .assistant: out.append(LLMMessage(role: .assistant, text: m.text, toolCalls: m.toolCalls ?? []))
-            case .tool: out.append(LLMMessage(role: .tool, text: m.text, toolCallID: m.toolCallID, toolName: m.toolName))
+            case .user: addUser("User: \(m.text)")
+            case .assistant:
+                if who == agent.id { out.append(LLMMessage(role: .assistant, text: m.text, toolCalls: m.toolCalls ?? [])) }
+                else if m.toolCalls == nil, !m.text.isEmpty { addUser("\(nameOf[who] ?? who): \(m.text)") }
+            case .tool:
+                if who == agent.id { out.append(LLMMessage(role: .tool, text: m.text, toolCallID: m.toolCallID, toolName: m.toolName)) }
             case .marker: break
             }
         }
+        // A model that just spoke is asked to carry on, so autonomous turns have something to answer.
+        if out.last?.role == .assistant { addUser("(Carry on the conversation.)") }
         return out
     }
 

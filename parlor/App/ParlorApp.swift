@@ -36,6 +36,7 @@ struct ParlorApp: App {
                         case "models": route = .models
                         case "tools": route = .tools
                         case let r where r.hasPrefix("agent:"): route = .agent(String(r.dropFirst(6)))
+                        case let r where r.hasPrefix("room:"): route = .room(String(r.dropFirst(5)))
                         default: if let first = engine.agents.first { route = .agent(first.id) }
                         }
                     }
@@ -60,6 +61,7 @@ struct ParlorApp: App {
 
 enum Route: Hashable {
     case agent(String)
+    case room(String)
     case models
     case tools
 }

@@ -6,6 +6,7 @@ struct MessageRow: View {
     let message: ChatMessage
     let agent: Agent
     let room: Room
+    var showName = false
     let selecting: Bool
     let selected: Bool
     let toggle: () -> Void
@@ -38,9 +39,12 @@ struct MessageRow: View {
             else {
                 HStack(alignment: .top, spacing: 8) {
                     AvatarView(agent: agent, size: 26)
-                    Text(markdown(message.text)).selectable(!selecting)
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
+                    VStack(alignment: .leading, spacing: 2) {
+                        if showName { Text(agent.name).font(.caption.weight(.semibold)).foregroundStyle(Palette.color(agent.color)).padding(.leading, 4) }
+                        Text(markdown(message.text)).selectable(!selecting)
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
+                    }
                     Spacer(minLength: 80)
                 }
             }

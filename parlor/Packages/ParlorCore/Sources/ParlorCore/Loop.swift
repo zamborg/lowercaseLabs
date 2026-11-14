@@ -14,7 +14,7 @@ public struct Compactor: Sendable {
     /// Returns the new summary, or nil when there is nothing old enough to fold.
     public func compact(
         agent: Agent, messages: [ChatMessage], existing: ChatLog.Summary?, llm: LanguageModelRuntime,
-        priority: LLMPriority = .user
+        priority: LLMPriority = .user, names: [String: String] = [:]
     ) async throws -> ChatLog.Summary? {
         let real = messages.filter { $0.role != .marker }
         guard real.count > keepRecent + 1 else { return nil }
@@ -28,8 +28,9 @@ public struct Compactor: Sendable {
             switch m.role {
             case .user: transcript += "User: \(m.text)\n"
             case .assistant:
-                if !m.text.isEmpty { transcript += "\(agent.name): \(m.text)\n" }
-                for c in m.toolCalls ?? [] { transcript += "(\(agent.name) called \(c.qualified))\n" }
+                let who = m.speaker.flatMap { names[$0] } ?? agent.name
+                if !m.text.isEmpty { transcript += "\(who): \(m.text)\n" }
+                for c in m.toolCalls ?? [] { transcript += "(\(who) called \(c.qualified))\n" }
             case .tool: transcript += "(tool \(m.toolName ?? "") returned: \(String(m.text.prefix(300))))\n"
             case .marker: break
             }

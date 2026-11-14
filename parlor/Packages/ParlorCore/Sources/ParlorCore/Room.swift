@@ -1,9 +1,11 @@
 import Foundation
 import Observation
 
-/// One agent's chat room. One room per agent, always.
+/// One conversation: a chat folder with a log, a summary and a scheduler. A V1 chat is the one-to-one case
+/// (one agent, the user); a room has several agents and another scheduler.
 @Observable @MainActor
 public final class Room: Identifiable {
+    /// The chat folder id. For a one-to-one chat this is also the agent's id.
     public nonisolated let agentID: String
     public nonisolated var id: String { agentID }
     public private(set) var messages: [ChatMessage] = []
@@ -14,18 +16,22 @@ public final class Room: Identifiable {
     /// Prompt size reported by the model on the last turn.
     public private(set) var contextUsed: Int = 0
     public private(set) var lastStats: LLMStats?
+    /// Who is writing the reply that is streaming now.
+    public private(set) var speakingID: String?
 
     let log: ChatLog
-    public let config: ConversationConfig
-    private let scheduler: Scheduler = UserDrivenScheduler()
+    public private(set) var config: ConversationConfig
     private var summary: ChatLog.Summary?
     private var task: Task<Void, Never>?
     private var toolSnapshot: Set<String>?
+    private var currentSpeaker: String
+    private var runPriority: LLMPriority = .user
     private unowned let deps: RoomDeps
 
     init(agentID: String, deps: RoomDeps) {
         self.agentID = agentID
         self.deps = deps
+        self.currentSpeaker = agentID
         self.log = ChatLog(dir: deps.home.chatDir(for: agentID))
         self.config = ConversationConfig.load(dir: deps.home.chatDir(for: agentID), agentID: agentID)
         self.messages = log.load()
@@ -33,39 +39,86 @@ public final class Room: Identifiable {
     }
 
     public var summaryText: String? { summary?.text }
+    /// More than one agent, or a scheduler that is not "the user drives".
+    public var isGroup: Bool { config.isRoom }
+    public var participantIDs: [String] { config.agentIDs }
 
     // MARK: sending
 
-    public func send(_ text: String, agent: Agent) {
+    /// The user speaks; the scheduler then decides who answers. `agent` is the one-to-one chat's agent.
+    public func send(_ text: String, agent: Agent? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isBusy else { return }
+        guard !trimmed.isEmpty else { return }
+        start(userText: trimmed, fallback: agent)
+    }
+
+    /// Let the scheduler run without a user message (round robin, mentions, autonomous).
+    public func run() { start(userText: nil, fallback: nil) }
+
+    private func start(userText: String?, fallback: Agent?) {
+        guard !isBusy else { return }
         errorText = nil
         isBusy = true
+        runPriority = userText != nil ? .user : (config.scheduler.kind == "autonomous" ? .background : .room)
         task = Task { [weak self] in
             guard let self else { return }
-            await self.turn(trimmed, agent: agent)
+            await self.conversation(userText: userText, fallback: fallback)
         }
     }
 
-    /// Awaitable variant for the CLI and tests.
-    public func sendAndWait(_ text: String, agent: Agent) async {
+    /// Awaitable variants for the CLI and tests.
+    public func sendAndWait(_ text: String, agent: Agent? = nil) async {
         send(text, agent: agent)
+        await task?.value
+    }
+
+    public func runAndWait() async {
+        run()
         await task?.value
     }
 
     public func stop() { task?.cancel() }
 
-    private func turn(_ text: String, agent: Agent) async {
-        defer { isBusy = false; streaming = ""; activity = nil; task = nil }
+    private func resolve(_ id: String, _ fallback: Agent?) -> Agent? {
+        if let f = fallback, f.id == id { return f }
+        return deps.agentLookup?(id) ?? (agentID == id ? fallback : nil)
+    }
+
+    private func nameMap() -> [String: String] {
+        var m: [String: String] = [:]
+        for id in config.agentIDs { m[id] = deps.agentLookup?(id)?.name ?? id }
+        return m
+    }
+
+    private func conversation(userText: String?, fallback: Agent?) async {
+        defer { isBusy = false; streaming = ""; activity = nil; speakingID = nil; task = nil }
+        if !isGroup, let primary = resolve(config.agentIDs.first ?? agentID, fallback) {
+            // A one-to-one chat notes tool changes before the user's message, as before.
+            noteToolChanges(await deps.hub.tools(for: primary))
+        }
+        if let userText { append(ChatMessage(role: .user, text: userText)) }
+        let names = nameMap()
+        let scheduler = config.scheduler.make()
+        let cap = config.scheduler.hardCap(agentCount: config.agentIDs.count)
+        var turns = 0
+        while turns < cap, !Task.isCancelled {
+            let state = SchedulerState(config: config, log: messages, names: names, turnsThisRun: turns)
+            guard let next = scheduler.next(state), let agent = resolve(next, fallback) else { break }
+            let ok = await turn(agent, names: names)
+            turns += 1
+            if !ok { break }
+        }
+    }
+
+    /// One agent's reply. False when it was cancelled or failed.
+    private func turn(_ agent: Agent, names: [String: String]) async -> Bool {
+        currentSpeaker = agent.id
+        speakingID = agent.id
         let tools = await deps.hub.tools(for: agent)
         await deps.image?.setModel(agent.imageModel)
-        noteToolChanges(tools)
-        append(ChatMessage(role: .user, text: text))
-        guard scheduler.next(config: config, log: messages) == agentID else { return }
-
         do {
             activity = "Thinking"
-            let input = makeInput(agent: agent, tools: tools)
+            let input = makeInput(agent: agent, tools: tools, names: names)
             let context = TurnContext(llm: deps.llm, tools: HubToolExecutor(hub: deps.hub))
             let harness = deps.harness
             try await harness.run(input, context: context) { [weak self] ev in
@@ -74,14 +127,17 @@ public final class Room: Identifiable {
             // Let queued MainActor handlers drain before returning.
             await Task.yield()
             try? await Task.sleep(nanoseconds: 30_000_000)
+            return true
         } catch is CancellationError {
             if !streaming.isEmpty { append(ChatMessage(role: .assistant, text: streaming)) }
+            return false
         } catch {
             errorText = error.localizedDescription
+            return false
         }
     }
 
-    private func makeInput(agent: Agent, tools: [ToolDef]) -> TurnInput {
+    private func makeInput(agent: Agent, tools: [ToolDef], names: [String: String]? = nil) -> TurnInput {
         let meta = deps.library.flatMap { lib in
             lib.installedDirectory(for: agent.model).flatMap { ModelMetadata.load(dir: $0) }
         }
@@ -89,7 +145,7 @@ public final class Room: Identifiable {
             agent: agent, conversationID: id, participants: config.participants, transcript: messages,
             summary: summary, tools: tools,
             settings: ResolvedSettings.resolve(agent: agent, model: meta, machine: deps.settings),
-            lastPromptTokens: contextUsed)
+            lastPromptTokens: contextUsed, priority: runPriority, names: names ?? nameMap())
     }
 
     private func handle(_ ev: TurnEvent) {
@@ -119,7 +175,7 @@ public final class Room: Identifiable {
 
     private func append(_ m: ChatMessage) {
         var m = m
-        if m.speaker == nil, m.role != .marker { m.speaker = m.role == .user ? "user" : agentID }
+        if m.speaker == nil, m.role != .marker { m.speaker = m.role == .user ? "user" : currentSpeaker }
         messages.append(m)
         log.append(m)
     }
@@ -216,6 +272,7 @@ public final class Room: Identifiable {
     /// Reload from disk (external edit).
     func reloadFromDisk() {
         guard !isBusy else { return }
+        config = ConversationConfig.load(dir: deps.home.chatDir(for: agentID), agentID: agentID)
         messages = log.load()
         summary = log.loadSummary()
     }
@@ -231,6 +288,8 @@ public final class RoomDeps {
     public var image: ImageProvider?
     public var library: ModelLibrary?
     public var settings = ParlorSettings()
+    /// Finds an agent by id; set by the engine so a room can address everyone in it.
+    public var agentLookup: (@MainActor (String) -> Agent?)?
     init(home: ParlorHome, hub: ToolHub, llm: LanguageModelRuntime, harness: Harness, library: ModelLibrary? = nil) {
         self.home = home; self.hub = hub; self.llm = llm; self.harness = harness; self.library = library
     }

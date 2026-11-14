@@ -13,6 +13,8 @@ public final class ParlorEngine {
     public private(set) var configuredServers: [String: MCPServerConfig] = [:]
     public private(set) var tools: [ToolDef] = []
     public var selection: String?
+    /// Group rooms (conversations with several agents or another scheduler). One-to-one chats are the agents.
+    public private(set) var conversations: [ConversationInfo] = []
     public private(set) var loadedModel: String?
     public private(set) var imageWorkerState: String = "idle"
     /// Speed, memory and token settings (`settings.json`). Change through `updateSettings`.
@@ -43,6 +45,7 @@ public final class ParlorEngine {
             self.deps = RoomDeps(home: home, hub: hub, llm: QueuedRuntime(inner: m, queue: queue), harness: harness, library: lib)
         }
         self.mcp = MCPManager(hub: hub, home: home)
+        deps.agentLookup = { [weak self] id in self?.agent(id) }
     }
 
     public var runtime: LanguageModelRuntime { deps.llm }
@@ -132,7 +135,8 @@ public final class ParlorEngine {
         if out != agents { agents = out }
         if let s = selection, !agents.contains(where: { $0.id == s }) { selection = agents.first?.id }
         // A chat folder only lingers for a deleted agent when it never got a message: tidy it.
-        let live = Set(agents.map(\.id))
+        reloadConversations()
+        let live = Set(agents.map(\.id)).union(conversations.map(\.id))
         for (id, _) in rooms where !live.contains(id) { rooms[id] = nil }
         if let dirs = try? fm.contentsOfDirectory(atPath: home.chatsDir.path) {
             for d in dirs where !live.contains(d) {
@@ -143,6 +147,42 @@ public final class ParlorEngine {
     }
 
     public func agent(_ id: String) -> Agent? { agents.first { $0.id == id } }
+
+    // MARK: rooms
+
+    /// Rescan `chats/` for folders whose `conversation.json` makes them a room.
+    public func reloadConversations() {
+        let fm = FileManager.default
+        var out: [ConversationInfo] = []
+        for d in (try? fm.contentsOfDirectory(atPath: home.chatsDir.path)) ?? [] {
+            let dir = home.chatDir(for: d)
+            guard fm.fileExists(atPath: dir.appendingPathComponent("conversation.json").path) else { continue }
+            let c = ConversationConfig.load(dir: dir, agentID: d)
+            if c.isRoom { out.append(ConversationInfo(id: d, config: c)) }
+        }
+        out.sort { $0.title.lowercased() < $1.title.lowercased() }
+        if out != conversations { conversations = out }
+    }
+
+    /// Create a room from existing agents. Returns its id (also its chat folder).
+    @discardableResult
+    public func createRoom(title: String, agents ids: [String], scheduler: SchedulerSpec) -> String {
+        let slug = Agent.slug(title.isEmpty ? "room" : title)
+        let suffix = String(UUID().uuidString.prefix(4)).lowercased()
+        let id = "\(slug)-\(suffix)"
+        let config = ConversationConfig(participants: ids.map { .agent($0) } + [.user], scheduler: scheduler, title: title.isEmpty ? "Room" : title)
+        try? home.ensure()
+        try? config.save(dir: home.chatDir(for: id))
+        reloadConversations()
+        return id
+    }
+
+    public func deleteRoom(_ id: String) {
+        guard conversations.contains(where: { $0.id == id }) else { return }
+        rooms[id] = nil
+        try? FileManager.default.removeItem(at: home.chatDir(for: id))
+        reloadConversations()
+    }
 
     private func write(_ a: Agent) {
         try? home.ensure()
@@ -228,9 +268,13 @@ public final class ParlorEngine {
         return r
     }
 
-    public func send(_ text: String, to agentID: String) {
-        guard let a = agent(agentID) else { return }
-        room(for: agentID).send(text, agent: a)
+    /// `id` is an agent (one-to-one chat) or a room.
+    public func send(_ text: String, to id: String) {
+        if conversations.contains(where: { $0.id == id }) {
+            room(for: id).send(text)
+        } else if let a = agent(id) {
+            room(for: id).send(text, agent: a)
+        } else { return }
         Task { await self.refreshLoaded() }
     }
 
@@ -300,6 +344,7 @@ public final class ParlorEngine {
                 let fresh = ParlorSettings.load(self.home.settingsFile)
                 if fresh != self.settings { self.settings = fresh; await self.applySettings() }
             }
+            if chats.contains(where: { $0.hasSuffix("conversation.json") }) { self.reloadConversations() }
             for p in chats {
                 // chats/<id>/log.jsonl edited from outside
                 let comps = p.components(separatedBy: "/chats/")
