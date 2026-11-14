@@ -1,6 +1,6 @@
 {
   "name": "mom-made",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "main": "dist/main.cjs",
@@ -61,8 +61,9 @@
       "target": [
         "dmg"
       ],
-      "identity": null,
-      "hardenedRuntime": false
+      "identity": "-",
+      "hardenedRuntime": false,
+      "notarize": false
     },
     "dmg": {
       "title": "mom-made"
