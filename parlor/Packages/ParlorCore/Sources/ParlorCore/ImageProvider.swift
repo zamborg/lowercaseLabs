@@ -1,26 +1,23 @@
 import Foundation
 
-/// Built-in `image` tool server. Runs a separate worker process so image-model memory is
-/// returned to the OS when idle and a crash cannot take the chat down.
-///
-/// Worker protocol (JSON lines): stdin `{"id","prompt","width","height","seed","steps"}`,
-/// stdout `{"id","ok":true,"path"}` or `{"id","ok":false,"error"}`. Launched as
-/// `parlor-imagegen <model-dir>`.
+/// Built-in `image` tool server. The model runs in a separate worker process (`parlor-imagegen`), which is an
+/// ordinary MCP server over stdio, so image-model memory returns to the OS when idle and a crash cannot take the
+/// chat down. This type is the app's side: it picks the model and sizes from settings, supervises the worker
+/// (start, idle stop, restart on a precision change) and words the result for the model.
 public actor ImageProvider: ToolProvider {
     public nonisolated let id = "image"
     private let home: ParlorHome
     private let library: ModelLibrary
     private var modelRepo: String?
-    private var process: Process?
-    private var stdin: FileHandle?
-    private var reader: Task<Void, Never>?
-    private var pending: [String: CheckedContinuation<WorkerReply, Never>] = [:]
+    private var conn: MCPServerConnection?
     private var idleTask: Task<Void, Never>?
     private var runningModel: String?
     private var cfg = ParlorSettings.Image()
     private var runningKey: String?
-
-    struct WorkerReply: Sendable { var ok: Bool; var path: String?; var error: String? }
+    private var starting = false
+    private var activeCalls = 0
+    public private(set) var lastUsed: Date?
+    public private(set) var lastError: String?
 
     public init(home: ParlorHome, library: ModelLibrary) { self.home = home; self.library = library }
 
@@ -30,12 +27,38 @@ public actor ImageProvider: ToolProvider {
     public func configure(_ new: ParlorSettings.Image) {
         let precisionChanged = new.precision != cfg.precision
         cfg = new
-        if precisionChanged { shutdownNow() } else if process != nil { scheduleIdleShutdown() }
+        if precisionChanged { shutdownNow() } else if conn != nil { scheduleIdleShutdown() }
     }
 
     public func stateDescription() -> String {
         if let m = runningModel { return "loaded · \(m.split(separator: "/").last.map(String.init) ?? m)" }
         return "idle"
+    }
+
+    /// For the services dashboard.
+    public func serviceSnapshot() async -> (state: ServiceState, pid: Int32?, model: String?, lastUsed: Date?) {
+        let pid = await conn?.pid
+        let state: ServiceState
+        if starting { state = .starting }
+        else if conn != nil { state = activeCalls > 0 ? .running : .idle }
+        else if let e = lastError { state = .failed(e) }
+        else { state = .stopped }
+        return (state, pid, runningModel, lastUsed)
+    }
+
+    /// Start the worker without a request, so the model is loaded before the first image.
+    public func start() async throws {
+        guard let (repo, dir) = resolveModel() else { throw ParlorError.message("No image model is downloaded. Download one in Models.") }
+        try await ensureWorker(model: repo, dir: dir)
+        scheduleIdleShutdown()
+    }
+
+    public func stop() { shutdownNow() }
+
+    private func resolveModel() -> (String, URL)? {
+        guard let repo = modelRepo ?? library.installed(kind: .image).first?.repo,
+              let dir = library.installedDirectory(for: repo) else { return nil }
+        return (repo, dir)
     }
 
     public func listTools() async throws -> [ToolDef] {
@@ -69,30 +92,23 @@ public actor ImageProvider: ToolProvider {
             return ToolOutput(text: "Image model \(repo) is not downloaded.", isError: true)
         }
         idleTask?.cancel()
+        activeCalls += 1
+        defer { activeCalls -= 1; lastUsed = Date(); scheduleIdleShutdown() }
+        let out: ToolOutput
         do {
-            try ensureWorker(model: repo, dir: dir)
+            try await ensureWorker(model: repo, dir: dir)
+            guard let conn else { return ToolOutput(text: "Image worker unavailable", isError: true) }
+            var a: [String: JSON] = ["prompt": .string(prompt), "width": .int(w), "height": .int(h), "seed": .int(seed)]
+            if let steps = detailed ? cfg.detailedSteps : cfg.fastSteps { a["steps"] = .int(steps) }
+            out = try await conn.call(tool: "generate", arguments: .object(a))
         } catch {
+            lastError = error.localizedDescription
+            if conn != nil, await conn?.pid == nil { shutdownNow() }
             return ToolOutput(text: "Image worker unavailable: \(error.localizedDescription)", isError: true)
         }
-        let rid = UUID().uuidString
-        let req: [String: Any] = ["id": rid, "prompt": prompt, "width": w, "height": h, "seed": seed, "steps": (detailed ? cfg.detailedSteps : cfg.fastSteps) ?? 0]
-        let reply: WorkerReply = await withCheckedContinuation { cont in
-            pending[rid] = cont
-            if let d = try? JSONSerialization.data(withJSONObject: req) {
-                var line = d; line.append(0x0A)
-                try? stdin?.write(contentsOf: line)
-            } else {
-                pending[rid] = nil
-                cont.resume(returning: WorkerReply(ok: false, path: nil, error: "bad request"))
-            }
+        guard !out.isError, let rel = out.images.first else {
+            return ToolOutput(text: "Image generation failed: \(out.text)", isError: true)
         }
-        scheduleIdleShutdown()
-        guard reply.ok, let abs = reply.path, let data = FileManager.default.contents(atPath: abs) else {
-            return ToolOutput(text: "Image generation failed: \(reply.error ?? "unknown error")", isError: true)
-        }
-        let rel = Media.save(data: data, ext: "png", home: home)
-        try? FileManager.default.removeItem(atPath: abs)
-        guard let rel else { return ToolOutput(text: "Could not save image", isError: true) }
         return ToolOutput(text: "The image was generated and is already displayed to the user inline; do not write a placeholder like [image] or a link in your reply, just comment on it naturally. (\(w)x\(h), seed \(seed), prompt: \(prompt))", images: [rel])
     }
 
@@ -111,51 +127,29 @@ public actor ImageProvider: ToolProvider {
         return candidates.first { fm.isExecutableFile(atPath: $0.path) }
     }
 
-    private func ensureWorker(model: String, dir: URL) throws {
+    private func ensureWorker(model: String, dir: URL) async throws {
         let key = "\(model)|\(cfg.precision)"
-        if let p = process, p.isRunning, runningKey == key { return }
+        if conn != nil, runningKey == key { return }
         shutdownNow()
         guard let exe = Self.workerURL() else { throw ParlorError.message("parlor-imagegen worker not found next to the app") }
-        let proc = Process()
-        proc.executableURL = exe
-        proc.arguments = [dir.path, cfg.precision]
-        let inPipe = Pipe(), outPipe = Pipe()
-        proc.standardInput = inPipe
-        proc.standardOutput = outPipe
-        proc.standardError = FileHandle.nullDevice
-        try proc.run()
-        process = proc
-        stdin = inPipe.fileHandleForWriting
-        runningModel = model
-        runningKey = key
-        let handle = outPipe.fileHandleForReading
-        reader = Task.detached { [weak self] in
-            var buffer = Data()
-            while true {
-                let chunk = handle.availableData
-                if chunk.isEmpty { break }
-                buffer.append(chunk)
-                while let nl = buffer.firstIndex(of: 0x0A) {
-                    let line = buffer[buffer.startIndex..<nl]
-                    buffer.removeSubrange(buffer.startIndex...nl)
-                    guard let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-                          let rid = obj["id"] as? String else { continue }
-                    let reply = WorkerReply(ok: obj["ok"] as? Bool ?? false, path: obj["path"] as? String, error: obj["error"] as? String)
-                    await self?.resolve(rid, reply)
-                }
-            }
-            await self?.workerExited()
+        starting = true
+        defer { starting = false }
+        let c = MCPServerConnection(
+            id: "image", config: MCPServerConfig(command: exe.path, args: [dir.path, cfg.precision]),
+            home: home, hub: nil, logName: "image",
+            onExit: { [weak self] dead, code in Task { await self?.workerExited(dead, code) } })
+        do { try await c.start(timeout: 90) } catch {
+            lastError = error.localizedDescription + ServiceLog.tail(home: home, service: "image", lines: 3).prependingNewline
+            throw error
         }
+        lastError = nil
+        conn = c; runningModel = model; runningKey = key
     }
 
-    private func resolve(_ id: String, _ r: WorkerReply) {
-        pending.removeValue(forKey: id)?.resume(returning: r)
-    }
-
-    private func workerExited() {
-        for (_, c) in pending { c.resume(returning: WorkerReply(ok: false, path: nil, error: "image worker exited")) }
-        pending = [:]
-        process = nil; stdin = nil; runningModel = nil; runningKey = nil
+    private func workerExited(_ dead: MCPServerConnection, _ code: Int32) {
+        guard conn === dead else { return }
+        lastError = "Image worker exited with status \(code). \(ServiceLog.tail(home: home, service: "image", lines: 3))"
+        conn = nil; runningModel = nil; runningKey = nil
     }
 
     private func scheduleIdleShutdown() {
@@ -170,9 +164,11 @@ public actor ImageProvider: ToolProvider {
 
     private func shutdownNow() {
         idleTask?.cancel()
-        if let p = process, p.isRunning { p.terminate() }
-        process = nil; stdin = nil; runningModel = nil; runningKey = nil
+        if let c = conn { Task { await c.stop() } }
+        conn = nil; runningModel = nil; runningKey = nil
     }
 
     public func shutdown() { shutdownNow() }
 }
+
+private extension String { var prependingNewline: String { isEmpty ? "" : "\n" + self } }

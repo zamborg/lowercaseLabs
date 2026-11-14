@@ -30,6 +30,8 @@ public final class ParlorEngine {
     /// Generations waiting behind the one running.
     public private(set) var queueDepth = 0
     public private(set) var image: ImageProvider?
+    /// Everything supervised: the language model, the image worker and each mounted server.
+    public private(set) var services: [ServiceInfo] = []
 
     /// Pass a runtime to substitute the model (tests); nil uses MLX.
     public init(home: ParlorHome = .default, runtime: LanguageModelRuntime? = nil, harness: Harness = BuiltInHarness()) {
@@ -286,7 +288,7 @@ public final class ParlorEngine {
 
     // MARK: tools
 
-    public func restartServer(_ id: String) { Task { await mcp.restart(id) } }
+    public func restartServer(_ id: String) { Task { await mcp.restart(id); await refreshServices() } }
     public func reloadTools() { Task { await mcp.reload(); self.loadConfig() } }
 
     public func saveMCPConfig(_ file: MCPConfigFile) throws {
@@ -311,6 +313,75 @@ public final class ParlorEngine {
         var f = MCPConfigFile.load(home.mcpConfig)
         f.mcpServers[id] = nil
         try? saveMCPConfig(f)
+    }
+
+    // MARK: services
+
+    /// Rebuild the dashboard rows. Called by the System screen on a timer and after every control action.
+    public func refreshServices() async {
+        var out: [ServiceInfo] = []
+        let now = Date()
+        // Language models.
+        var loaded: [String] = []
+        if let mlx { loaded = await mlx.loadedModels() } else if let m = await deps.llm.loadedModel() { loaded = [m] }
+        let bytes = await mlx?.residentBytes()
+        let depth = await queue.depth
+        out.append(ServiceInfo(
+            id: "llm", kind: "language model", title: "Language models",
+            detail: loaded.isEmpty ? "loads on the first message" : loaded.map { $0.split(separator: "/").last.map(String.init) ?? $0 }.joined(separator: ", "),
+            state: loaded.isEmpty ? .stopped : (depth > 0 ? .running : .idle),
+            memoryBytes: bytes.flatMap { $0 > 0 ? UInt64($0) : nil }, lastUsed: nil, queueDepth: depth, lifecycle: "onDemand",
+            restarts: 0, canStart: false, canStop: !loaded.isEmpty, canRestart: false, logURL: nil))
+        // Image worker.
+        if let image {
+            let s = await image.serviceSnapshot()
+            out.append(ServiceInfo(
+                id: "image", kind: "image", title: "Image worker",
+                detail: s.model.map { "loaded · " + ($0.split(separator: "/").last.map(String.init) ?? $0) } ?? "starts when an agent draws",
+                state: s.state, memoryBytes: s.pid.flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: s.lastUsed, queueDepth: nil,
+                lifecycle: "onDemand", restarts: 0, canStart: !s.state.isAlive, canStop: s.state.isAlive, canRestart: false,
+                logURL: ServiceLog.url(home: home, service: "image")))
+        }
+        // Mounted MCP servers.
+        for m in await mcp.snapshot() {
+            var state = m.state
+            if state == .running, let t = m.lastUsed, now.timeIntervalSince(t) > 30 { state = .idle }
+            let cfg = m.config
+            let pid = await mcp.pid(m.id)
+            out.append(ServiceInfo(
+                id: "mcp:\(m.id)", kind: "mcp", title: m.id,
+                detail: cfg.url ?? ([cfg.command ?? ""] + (cfg.args ?? [])).joined(separator: " "),
+                state: state, memoryBytes: pid.flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: m.lastUsed, queueDepth: nil,
+                lifecycle: cfg.isOnDemand ? "onDemand" : "always", restarts: m.restarts,
+                canStart: !state.isAlive && cfg.disabled != true, canStop: state.isAlive, canRestart: cfg.disabled != true,
+                logURL: ServiceLog.url(home: home, service: "mcp:\(m.id)")))
+        }
+        services = out
+    }
+
+    public func startService(_ id: String) {
+        Task {
+            if id == "image" { try? await image?.start() }
+            else if id.hasPrefix("mcp:") { await mcp.start(String(id.dropFirst(4))) }
+            await refreshServices()
+        }
+    }
+
+    public func stopService(_ id: String) {
+        Task {
+            if id == "llm" { await deps.llm.unload() }
+            else if id == "image" { await image?.stop() }
+            else if id.hasPrefix("mcp:") { await mcp.stop(String(id.dropFirst(4))) }
+            await refreshServices(); await refreshLoaded()
+        }
+    }
+
+    public func restartService(_ id: String) {
+        Task {
+            if id == "image" { await image?.stop(); try? await image?.start() }
+            else if id.hasPrefix("mcp:") { await mcp.restart(String(id.dropFirst(4))) }
+            await refreshServices()
+        }
     }
 
     private func syncFromHub() async {

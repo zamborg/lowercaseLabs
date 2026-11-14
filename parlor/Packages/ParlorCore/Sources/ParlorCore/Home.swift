@@ -23,6 +23,9 @@ public struct ParlorHome: Sendable {
         }
         return root.appendingPathComponent("models")
     }
+    public var logsDir: URL { root.appendingPathComponent("logs") }
+    /// Derived data that is safe to delete (cached tool lists of on-demand servers).
+    public var cacheDir: URL { root.appendingPathComponent(".cache") }
     public var mcpConfig: URL { root.appendingPathComponent("mcp.json") }
     public var settingsFile: URL { root.appendingPathComponent("settings.json") }
     /// Present once the starter agents have been created (or an existing home was adopted).
@@ -32,7 +35,7 @@ public struct ParlorHome: Sendable {
 
     public func ensure() throws {
         let fm = FileManager.default
-        for d in [root, agentsDir, chatsDir, mediaDir, modelsDir] {
+        for d in [root, agentsDir, chatsDir, mediaDir, modelsDir, logsDir] {
             try fm.createDirectory(at: d, withIntermediateDirectories: true)
         }
     }

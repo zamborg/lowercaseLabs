@@ -69,6 +69,7 @@ struct ToolsView: View {
                 case .connecting: ProgressView().controlSize(.small)
                 case .ready: Text("\(s.toolCount) \(s.toolCount == 1 ? "tool" : "tools")").foregroundStyle(.secondary).font(.caption)
                 case .failed: Text("failed").foregroundStyle(.red).font(.caption)
+                case .stopped: Text("stopped").foregroundStyle(.secondary).font(.caption)
                 }
                 if s.kind != "built in" {
                     Button("Restart") { engine.restartServer(s.id) }
@@ -87,7 +88,7 @@ struct ToolsView: View {
     }
 
     private func color(_ s: ServerStatus.State) -> Color {
-        switch s { case .ready: .green; case .connecting: .orange; case .failed: .red }
+        switch s { case .ready: .green; case .connecting: .orange; case .failed: .red; case .stopped: .gray }
     }
 }
 

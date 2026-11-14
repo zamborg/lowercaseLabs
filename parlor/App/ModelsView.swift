@@ -21,7 +21,6 @@ struct ModelsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 memoryBar
-                ConsoleSection()
                 installedSection
                 if !engine.library.downloads.isEmpty { downloadsSection }
                 recommendedSection

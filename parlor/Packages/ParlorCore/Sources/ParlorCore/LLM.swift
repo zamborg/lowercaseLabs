@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ToolDef: Sendable, Hashable, Identifiable {
+public struct ToolDef: Sendable, Hashable, Identifiable, Codable {
     public var server: String
     public var name: String
     public var description: String

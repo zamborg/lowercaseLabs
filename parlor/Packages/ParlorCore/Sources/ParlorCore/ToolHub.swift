@@ -17,7 +17,7 @@ public protocol ToolProvider: Sendable {
 }
 
 public struct ServerStatus: Identifiable, Sendable, Equatable {
-    public enum State: Sendable, Equatable { case connecting, ready, failed(String) }
+    public enum State: Sendable, Equatable { case connecting, ready, failed(String), stopped }
     public var id: String
     public var kind: String          // "built in", "stdio", "http"
     public var detail: String

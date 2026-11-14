@@ -35,6 +35,7 @@ struct ParlorApp: App {
                         switch ProcessInfo.processInfo.environment["PARLOR_ROUTE"] ?? "" {
                         case "models": route = .models
                         case "tools": route = .tools
+                        case "system": route = .system
                         case let r where r.hasPrefix("agent:"): route = .agent(String(r.dropFirst(6)))
                         case let r where r.hasPrefix("room:"): route = .room(String(r.dropFirst(5)))
                         default: if let first = engine.agents.first { route = .agent(first.id) }
@@ -64,4 +65,5 @@ enum Route: Hashable {
     case room(String)
     case models
     case tools
+    case system
 }

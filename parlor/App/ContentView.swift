@@ -19,6 +19,7 @@ struct ContentView: View {
                 else { EmptyDetail(route: $route) }
             case .models: ModelsView()
             case .tools: ToolsView()
+            case .system: SystemView()
             case nil: EmptyDetail(route: $route)
             }
         }
@@ -82,6 +83,7 @@ struct SidebarView: View {
                 Label {
                     HStack { Text("Tools"); Spacer(); Text("\(engine.tools.count)").foregroundStyle(.secondary).monospacedDigit() }
                 } icon: { Image(systemName: "wrench.and.screwdriver") }.tag(Route.tools)
+                Label("System", systemImage: "gauge.with.dots.needle.67percent").tag(Route.system)
             }
         }
         .listStyle(.sidebar)

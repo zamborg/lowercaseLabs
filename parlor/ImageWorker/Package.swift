@@ -8,13 +8,16 @@ let package = Package(
     platforms: [.macOS(.v26)],
     dependencies: [
         .package(url: "https://github.com/xocialize/z-image-swift", from: "0.7.1"),
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk", from: "0.12.0"),
     ],
     targets: [
         .executableTarget(
             name: "parlor-imagegen",
             dependencies: [
                 .product(name: "MLXZImage", package: "z-image-swift"),
-            ]
+                .product(name: "MCP", package: "swift-sdk"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
 )

@@ -24,6 +24,8 @@ struct CLIMain {
           spike                          tool-calling reliability gate
           bench [model]                  prompt-cache speed and correctness on a real model
           bench-alt [model]              two agents alternating: one cache slot vs several
+          services                       the services dashboard (state, memory, last used)
+          image <prompt>                 generate through the image MCP worker, showing the service states
           flow                           end-to-end flow check (agent → chat → compaction → relaunch)
         env: PARLOR_HOME, PARLOR_MODELS
         """)
@@ -63,12 +65,35 @@ struct CLIMain {
         case "chat":
             guard args.count >= 2 else { usage(); return 2 }
             return await chat(engine, args[0], args.dropFirst().joined(separator: " "))
+        case "services":
+            await engine.refreshServices(); printServices(engine); return 0
+        case "image": return await imageCheck(engine, args.joined(separator: " "))
         case "spike": return await Spike.run(engine)
         case "flow": return await Flow.run(engine)
         case "bench-alt": return await Bench.alternate(engine, model: args.first ?? "mlx-community/Qwen3-4B-4bit")
         case "bench": return await Bench.run(engine, model: args.first ?? "mlx-community/Qwen3-4B-4bit")
         default: usage(); return 2
         }
+    }
+
+    @MainActor static func printServices(_ engine: ParlorEngine) {
+        for s in engine.services {
+            let mem = s.memoryBytes.map { byte(Int64($0)) } ?? "–"
+            var state = s.state.label
+            if case .failed(let e) = s.state { state += " (\(e.split(separator: "\n").first.map(String.init) ?? ""))" }
+            out("  \(s.id.padding(toLength: 14, withPad: " ", startingAt: 0)) \(state.padding(toLength: 10, withPad: " ", startingAt: 0)) \(mem.padding(toLength: 9, withPad: " ", startingAt: 0)) \(s.detail.prefix(60))")
+        }
+    }
+
+    @MainActor static func imageCheck(_ engine: ParlorEngine, _ prompt: String) async -> Int32 {
+        out("before:"); await engine.refreshServices(); printServices(engine)
+        let t0 = Date()
+        let r = await engine.hub.call(wireName: "image__generate", arguments: .object(["prompt": .string(prompt.isEmpty ? "a red apple on a table" : prompt), "detail": .string("fast")]))
+        out(String(format: "result (%.1fs): error=%@ images=%@ text=%@", Date().timeIntervalSince(t0), "\(r.isError)", r.images.joined(separator: ","), String(r.text.prefix(80))))
+        out("after:"); await engine.refreshServices(); printServices(engine)
+        engine.stopService("image"); try? await Task.sleep(nanoseconds: 1_500_000_000)
+        out("after stop:"); await engine.refreshServices(); printServices(engine)
+        return r.isError ? 1 : 0
     }
 
     static func byte(_ b: Int64) -> String { ByteCountFormatter.string(fromByteCount: b, countStyle: .file) }

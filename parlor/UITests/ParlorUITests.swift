@@ -81,4 +81,29 @@ final class ParlorUITests: XCTestCase {
         let shot = XCUIScreen.main.screenshot()
         let att = XCTAttachment(screenshot: shot); att.lifetime = .keepAlways; add(att)
     }
+
+    func testSystemServices() throws {
+        let script = home.appendingPathComponent("fake.py")
+        let py = """
+        import sys, json
+        def send(o): sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+        for line in sys.stdin:
+            m = json.loads(line); i = m.get("id"); method = m.get("method")
+            if method == "initialize": send({"jsonrpc":"2.0","id":i,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1"}}})
+            elif method == "tools/list": send({"jsonrpc":"2.0","id":i,"result":{"tools":[]}})
+        """
+        try py.write(to: script, atomically: true, encoding: .utf8)
+        let mcp = #"{"mcpServers":{"fake":{"command":"python3","args":["\#(script.path)"]},"broken":{"command":"/no/such/command"}}}"#
+        try mcp.write(to: home.appendingPathComponent("mcp.json"), atomically: true, encoding: .utf8)
+        app.launchEnvironment["PARLOR_ROUTE"] = "system"
+        app.launch()
+        XCTAssertTrue(app.buttons["stop-mcp:fake"].waitForExistence(timeout: 20), "fake server running")
+        XCTAssertTrue(app.buttons["start-mcp:broken"].waitForExistence(timeout: 5), "failed server can be started again")
+        app.buttons["stop-mcp:fake"].click()
+        XCTAssertTrue(app.buttons["start-mcp:fake"].waitForExistence(timeout: 10), "stopped from System")
+        app.buttons["start-mcp:fake"].click()
+        XCTAssertTrue(app.buttons["stop-mcp:fake"].waitForExistence(timeout: 20), "started again")
+        XCTAssertTrue(app.buttons["data-Logs"].exists)
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.lifetime = .keepAlways; add(shot)
+    }
 }
