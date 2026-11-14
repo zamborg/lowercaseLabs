@@ -16,6 +16,8 @@ public final class Room: Identifiable {
     public private(set) var lastStats: LLMStats?
 
     let log: ChatLog
+    public let config: ConversationConfig
+    private let scheduler: Scheduler = UserDrivenScheduler()
     private var summary: ChatLog.Summary?
     private var task: Task<Void, Never>?
     private var toolSnapshot: Set<String>?
@@ -25,6 +27,7 @@ public final class Room: Identifiable {
         self.agentID = agentID
         self.deps = deps
         self.log = ChatLog(dir: deps.home.chatDir(for: agentID))
+        self.config = ConversationConfig.load(dir: deps.home.chatDir(for: agentID), agentID: agentID)
         self.messages = log.load()
         self.summary = log.loadSummary()
     }
@@ -58,15 +61,14 @@ public final class Room: Identifiable {
         await deps.image?.setModel(agent.imageModel)
         noteToolChanges(tools)
         append(ChatMessage(role: .user, text: text))
+        guard scheduler.next(config: config, log: messages) == agentID else { return }
 
         do {
-            try await compactIfNeeded(agent: agent)
-            let history = buildHistory(agent: agent, tools: tools)
             activity = "Thinking"
-            let loop = deps.loop
-            let llm = deps.llm
-            let hub = deps.hub
-            try await loop.run(agent: agent, history: history, tools: tools, llm: llm, hub: hub, settings: deps.settings) { [weak self] ev in
+            let input = makeInput(agent: agent, tools: tools)
+            let context = TurnContext(llm: deps.llm, tools: HubToolExecutor(hub: deps.hub))
+            let harness = deps.harness
+            try await harness.run(input, context: context) { [weak self] ev in
                 Task { @MainActor in self?.handle(ev) }
             }
             // Let queued MainActor handlers drain before returning.
@@ -79,28 +81,53 @@ public final class Room: Identifiable {
         }
     }
 
-    private func handle(_ ev: LoopEvent) {
+    private func makeInput(agent: Agent, tools: [ToolDef]) -> TurnInput {
+        let meta = deps.library.flatMap { lib in
+            lib.installedDirectory(for: agent.model).flatMap { ModelMetadata.load(dir: $0) }
+        }
+        return TurnInput(
+            agent: agent, conversationID: id, participants: config.participants, transcript: messages,
+            summary: summary, tools: tools,
+            settings: ResolvedSettings.resolve(agent: agent, model: meta, machine: deps.settings),
+            lastPromptTokens: contextUsed)
+    }
+
+    private func handle(_ ev: TurnEvent) {
         switch ev {
         case .delta(let t): streaming = t; activity = nil
-        case .assistant(let m):
-            streaming = ""
-            if !m.text.isEmpty || m.toolCalls != nil { append(m) }
-            activity = "Thinking"
+        case .status(let s): if streaming.isEmpty { activity = s }
+        case .message(let m):
+            if m.role == .assistant {
+                streaming = ""
+                if !m.text.isEmpty || m.toolCalls != nil { append(m) }
+                activity = "Thinking"
+            } else {
+                append(m)
+            }
         case .toolStarted(let c): activity = "Running \(c.qualified)"
-        case .tool(let m): append(m)
+        case .summary(let s, let folded): adopt(summary: s, folded: folded)
         case .stats(let s): lastStats = s; contextUsed = s.promptTokens + s.completionTokens
         }
     }
 
+    private func adopt(summary s: ChatLog.Summary, folded: Int) {
+        summary = s
+        log.saveSummary(s)
+        append(.marker("Earlier conversation compacted · \(folded) messages folded into a short summary"))
+        contextUsed = 0
+    }
+
     private func append(_ m: ChatMessage) {
+        var m = m
+        if m.speaker == nil, m.role != .marker { m.speaker = m.role == .user ? "user" : agentID }
         messages.append(m)
         log.append(m)
     }
 
     private func noteToolChanges(_ tools: [ToolDef]) {
         let now = Set(tools.map(\.qualified))
-        defer { toolSnapshot = now }
-        guard let before = toolSnapshot ?? lastKnownTools() else { return }
+        defer { toolSnapshot = now; log.saveToolSnapshot(now) }
+        guard let before = toolSnapshot ?? log.loadToolSnapshot() else { return }
         let added = now.subtracting(before).sorted(), removed = before.subtracting(now).sorted()
         guard !added.isEmpty || !removed.isEmpty else { return }
         var parts: [String] = []
@@ -109,56 +136,15 @@ public final class Room: Identifiable {
         append(.marker("Tools updated: " + parts.joined(separator: "; ")))
     }
 
-    /// After a relaunch, recover the last tool set from the log's own markers is not possible,
-    /// so a fresh process starts from the current set without a marker.
-    private func lastKnownTools() -> Set<String>? { nil }
-
     // MARK: context
-
-    func buildHistory(agent: Agent, tools: [ToolDef]) -> [LLMMessage] {
-        var system = agent.persona.trimmingCharacters(in: .whitespacesAndNewlines)
-        if system.isEmpty { system = "You are \(agent.name)." }
-        // Date only: a clock in the system prompt would change every minute and defeat the prompt cache.
-        let f = DateFormatter(); f.dateStyle = .full; f.timeStyle = .none
-        system += "\n\nToday is \(f.string(from: Date()))."
-        if !tools.isEmpty {
-            system += "\nYou have tools. When a request needs information or an action from a tool, call the tool immediately in this reply. Never say you will look something up or do something without actually calling the tool. Never ask permission to use a tool for a read-only lookup. After the tool result arrives, answer in plain text."
-        }
-        if let s = summary { system += "\n\n## Earlier conversation (summary)\n\(s.text)" }
-
-        var live = messages.filter { $0.role != .marker }
-        if let through = summary?.through, let i = live.lastIndex(where: { $0.id == through }) {
-            live = Array(live[(i + 1)...])
-        }
-        var out: [LLMMessage] = [LLMMessage(role: .system, text: system)]
-        for m in live {
-            switch m.role {
-            case .user: out.append(LLMMessage(role: .user, text: m.text))
-            case .assistant: out.append(LLMMessage(role: .assistant, text: m.text, toolCalls: m.toolCalls ?? []))
-            case .tool: out.append(LLMMessage(role: .tool, text: m.text, toolCallID: m.toolCallID, toolName: m.toolName))
-            case .marker: break
-            }
-        }
-        return out
-    }
-
-    private func compactIfNeeded(agent: Agent) async throws {
-        let history = buildHistory(agent: agent, tools: [])
-        let used = max(contextUsed, Compactor.estimateTokens(history))
-        guard Double(used) > agent.compactAt * Double(agent.contextTokens) else { return }
-        try await compact(agent: agent)
-    }
 
     @discardableResult
     public func compact(agent: Agent) async throws -> Bool {
         activity = "Compacting"
         defer { activity = nil }
-        guard let s = try await Compactor(keepRecent: deps.settings.loop.keepRecent, summaryTokens: deps.settings.loop.summaryTokens).compact(agent: agent, messages: messages, existing: summary, llm: deps.llm) else { return false }
-        let folded = messages.filter { $0.role != .marker }.firstIndex(where: { $0.id == s.through }).map { $0 + 1 } ?? 0
-        summary = s
-        log.saveSummary(s)
-        append(.marker("Earlier conversation compacted · \(folded) messages folded into a short summary"))
-        contextUsed = 0
+        let input = makeInput(agent: agent, tools: [])
+        guard let (new, folded) = try await BuiltInHarness.compact(input: input, summary: summary, llm: deps.llm) else { return false }
+        adopt(summary: new, folded: folded)
         return true
     }
 
@@ -241,10 +227,11 @@ public final class RoomDeps {
     public let home: ParlorHome
     public let hub: ToolHub
     public var llm: LanguageModelRuntime
-    public var loop: AgentLoop
+    public var harness: Harness
     public var image: ImageProvider?
+    public var library: ModelLibrary?
     public var settings = ParlorSettings()
-    init(home: ParlorHome, hub: ToolHub, llm: LanguageModelRuntime, loop: AgentLoop) {
-        self.home = home; self.hub = hub; self.llm = llm; self.loop = loop
+    init(home: ParlorHome, hub: ToolHub, llm: LanguageModelRuntime, harness: Harness, library: ModelLibrary? = nil) {
+        self.home = home; self.hub = hub; self.llm = llm; self.harness = harness; self.library = library
     }
 }

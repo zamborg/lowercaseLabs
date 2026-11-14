@@ -6,7 +6,7 @@ public struct Frontmatter: Sendable {
     public var fields: [(key: String, value: Value)]
     public var body: String
 
-    public enum Value: Sendable, Equatable {
+    public enum Value: Sendable, Hashable {
         case scalar(String)
         case list([String])
     }

@@ -27,17 +27,17 @@ public final class ParlorEngine {
     public private(set) var image: ImageProvider?
 
     /// Pass a runtime to substitute the model (tests); nil uses MLX.
-    public init(home: ParlorHome = .default, runtime: LanguageModelRuntime? = nil, loop: AgentLoop = SimpleLoop()) {
+    public init(home: ParlorHome = .default, runtime: LanguageModelRuntime? = nil, harness: Harness = BuiltInHarness()) {
         self.home = home
         let lib = ModelLibrary(home: home)
         self.library = lib
         if let runtime {
             self.mlx = nil
-            self.deps = RoomDeps(home: home, hub: hub, llm: runtime, loop: loop)
+            self.deps = RoomDeps(home: home, hub: hub, llm: runtime, harness: harness, library: lib)
         } else {
             let m = MLXRuntime(library: lib)
             self.mlx = m
-            self.deps = RoomDeps(home: home, hub: hub, llm: m, loop: loop)
+            self.deps = RoomDeps(home: home, hub: hub, llm: m, harness: harness, library: lib)
         }
         self.mcp = MCPManager(hub: hub, home: home)
     }
@@ -102,10 +102,14 @@ public final class ParlorEngine {
         let guide = home.root.appendingPathComponent("CLAUDE.md")
         if !fm.fileExists(atPath: guide.path) { try? Seeds.folderGuide.write(to: guide, atomically: true, encoding: .utf8) }
         if !fm.fileExists(atPath: home.mcpConfig.path) { try? MCPConfigFile().save(home.mcpConfig) }
+        // Starter agents are created once. An existing home with agents is adopted without seeding, and
+        // deleting every agent later does not bring them back.
+        guard !fm.fileExists(atPath: home.seededMarker.path) else { return }
         let existing = (try? fm.contentsOfDirectory(atPath: home.agentsDir.path))?.filter { $0.hasSuffix(".md") } ?? []
         if existing.isEmpty {
             for a in [Seeds.mabel(), Seeds.pip()] { write(a) }
         }
+        try? "seeded\n".write(to: home.seededMarker, atomically: true, encoding: .utf8)
     }
 
     // MARK: agents

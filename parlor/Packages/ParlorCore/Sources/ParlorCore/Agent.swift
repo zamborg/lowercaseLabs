@@ -20,17 +20,23 @@ public struct Agent: Identifiable, Hashable, Sendable {
     public var thinking: Bool
     /// Palette index for the avatar.
     public var color: Int
+    /// Per-agent overrides of machine settings. nil inherits.
+    public var overrides = AgentOverrides()
+    /// Front-matter keys this version does not understand, kept so a save never drops them.
+    public var extra: [ExtraField] = []
 
     public init(
         id: String, name: String, summary: String = "", persona: String = "",
         kind: Kind = .assistant, model: String = Defaults.languageModel,
         imageModel: String? = nil, tools: [String] = [], contextTokens: Int = 16384,
-        compactAt: Double = 0.7, temperature: Double = 0.6, thinking: Bool = false, color: Int = 0
+        compactAt: Double = 0.7, temperature: Double = 0.6, thinking: Bool = false, color: Int = 0,
+        overrides: AgentOverrides = AgentOverrides(), extra: [ExtraField] = []
     ) {
         self.id = id; self.name = name; self.summary = summary; self.persona = persona
         self.kind = kind; self.model = model; self.imageModel = imageModel; self.tools = tools
         self.contextTokens = contextTokens; self.compactAt = compactAt
         self.temperature = temperature; self.thinking = thinking; self.color = color
+        self.overrides = overrides; self.extra = extra
     }
 
     public var initial: String { String(name.first.map { String($0).uppercased() } ?? "?") }
@@ -57,6 +63,26 @@ public struct Agent: Identifiable, Hashable, Sendable {
     }
 }
 
+/// Overrides an agent may set for settings that otherwise come from the model or the machine.
+public struct AgentOverrides: Hashable, Sendable {
+    public var topP: Double?
+    public var repetitionPenalty: Double?
+    /// nil inherits; 0 means no cap.
+    public var maxReplyTokens: Int?
+    public var maxSteps: Int?
+    public var toolResultChars: Int?
+    public var toolTimeoutSeconds: Int?
+    public var keepRecent: Int?
+    public var summaryTokens: Int?
+    public init() {}
+}
+
+public struct ExtraField: Hashable, Sendable {
+    public var key: String
+    public var value: Frontmatter.Value
+    public init(key: String, value: Frontmatter.Value) { self.key = key; self.value = value }
+}
+
 public enum Defaults {
     public static let languageModel = "mlx-community/Qwen3-4B-4bit"
     public static let characterModel = "mlx-community/Llama-3.2-3B-Instruct-4bit"
@@ -64,8 +90,24 @@ public enum Defaults {
 }
 
 extension Agent {
+    /// Front-matter keys this version reads. Everything else is carried in `extra`.
+    static let knownKeys: Set<String> = [
+        "name", "description", "kind", "model", "image_model", "tools", "context", "compact_at",
+        "temperature", "thinking", "color", "top_p", "repetition_penalty", "max_reply_tokens",
+        "max_steps", "tool_result_chars", "tool_timeout", "keep_recent", "summary_tokens",
+    ]
+
     public init(id: String, file text: String) {
         let fm = Frontmatter.parse(text)
+        var o = AgentOverrides()
+        o.topP = fm.string("top_p").flatMap(Double.init)
+        o.repetitionPenalty = fm.string("repetition_penalty").flatMap(Double.init)
+        if let r = fm.string("max_reply_tokens") { o.maxReplyTokens = r == "none" ? 0 : Int(r) }
+        o.maxSteps = fm.string("max_steps").flatMap(Int.init)
+        o.toolResultChars = fm.string("tool_result_chars").flatMap(Int.init)
+        o.toolTimeoutSeconds = fm.string("tool_timeout").flatMap(Int.init)
+        o.keepRecent = fm.string("keep_recent").flatMap(Int.init)
+        o.summaryTokens = fm.string("summary_tokens").flatMap(Int.init)
         self.init(
             id: id,
             name: fm.string("name") ?? id,
@@ -79,7 +121,9 @@ extension Agent {
             compactAt: fm.string("compact_at").flatMap(Double.init) ?? 0.7,
             temperature: fm.string("temperature").flatMap(Double.init) ?? 0.6,
             thinking: fm.string("thinking") == "true",
-            color: fm.string("color").flatMap(Int.init) ?? 0
+            color: fm.string("color").flatMap(Int.init) ?? 0,
+            overrides: o,
+            extra: fm.fields.filter { !Agent.knownKeys.contains($0.key) }.map { ExtraField(key: $0.key, value: $0.value) }
         )
     }
 
@@ -96,6 +140,15 @@ extension Agent {
         fm["temperature"] = .scalar(String(temperature))
         fm["thinking"] = .scalar(thinking ? "true" : "false")
         fm["color"] = .scalar(String(color))
+        if let v = overrides.topP { fm["top_p"] = .scalar(String(v)) }
+        if let v = overrides.repetitionPenalty { fm["repetition_penalty"] = .scalar(String(v)) }
+        if let v = overrides.maxReplyTokens { fm["max_reply_tokens"] = .scalar(v == 0 ? "none" : String(v)) }
+        if let v = overrides.maxSteps { fm["max_steps"] = .scalar(String(v)) }
+        if let v = overrides.toolResultChars { fm["tool_result_chars"] = .scalar(String(v)) }
+        if let v = overrides.toolTimeoutSeconds { fm["tool_timeout"] = .scalar(String(v)) }
+        if let v = overrides.keepRecent { fm["keep_recent"] = .scalar(String(v)) }
+        if let v = overrides.summaryTokens { fm["summary_tokens"] = .scalar(String(v)) }
+        for f in extra { fm[f.key] = f.value }
         return fm.render()
     }
 }
