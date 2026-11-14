@@ -97,6 +97,17 @@ public final class ParlorEngine {
 
     // MARK: modules
 
+    /// The authoring guide and the Python helper, rewritten when this app version has newer ones.
+    private func seedModuleFiles() {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: home.modulesDir, withIntermediateDirectories: true)
+        for (name, text) in [("CLAUDE.md", Seeds.moduleGuide), ("parlor_module.py", Seeds.moduleHelper)] {
+            let url = home.modulesDir.appendingPathComponent(name)
+            let current = try? String(contentsOf: url, encoding: .utf8)
+            if current == nil || !(current!.contains(Seeds.moduleMarker)) { try? text.write(to: url, atomically: true, encoding: .utf8) }
+        }
+    }
+
     public func reloadModules() {
         let found = Modules.scan(home: home, approvals: settings.moduleApprovals)
         if found != modules { modules = found }
@@ -172,11 +183,7 @@ public final class ParlorEngine {
             Task { @MainActor in await self?.syncFromHub() }
         }
         loadConfig()
-        let guide = home.modulesDir.appendingPathComponent("CLAUDE.md")
-        if !FileManager.default.fileExists(atPath: guide.path) {
-            try? FileManager.default.createDirectory(at: home.modulesDir, withIntermediateDirectories: true)
-            try? Seeds.moduleGuide.write(to: guide, atomically: true, encoding: .utf8)
-        }
+        seedModuleFiles()
         reloadModules()
         await mcp.setModuleProvider { [weak self] in await self?.moduleConfigs() ?? [:] }
         // Servers start in the background: a slow or broken one must not hold up the window.

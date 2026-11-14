@@ -160,11 +160,15 @@ final class ModuleTests: XCTestCase {
         try server.write(to: dir.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
     }
 
-    /// The Python in the guide, verbatim.
-    private var guideServer: String {
-        let g = Seeds.moduleGuide
-        let a = g.range(of: "```python\n")!, b = g.range(of: "\n```", range: a.upperBound..<g.endIndex)!
-        return String(g[a.upperBound..<b.lowerBound])
+    /// The nth Python block in the guide, verbatim.
+    private func guideServer(_ n: Int = 0) -> String {
+        var rest = Substring(Seeds.moduleGuide)
+        var block = ""
+        for _ in 0...n {
+            let a = rest.range(of: "```python\n")!, b = rest.range(of: "\n```", range: a.upperBound..<rest.endIndex)!
+            block = String(rest[a.upperBound..<b.lowerBound]); rest = rest[b.upperBound...]
+        }
+        return block
     }
 
     private func waitFor(_ timeout: TimeInterval = 10, _ cond: () async -> Bool) async -> Bool {
@@ -176,7 +180,7 @@ final class ModuleTests: XCTestCase {
     func testModuleNeedsApprovalThenRunsAndReapprovesOnChange() async throws {
         let e = try await makeEngine()
         let manifest = #"{"version":1,"name":"dice","description":"Roll dice.","command":"python3","args":["server.py"],"needs":{"tier":"none"},"settings":{"type":"object","properties":{"maxDice":{"type":"integer","default":3,"description":"Most dice"}}}}"#
-        try write(e, "dice", manifest: manifest, server: guideServer)
+        try write(e, "dice", manifest: manifest, server: guideServer())
         await e.start()
         XCTAssertTrue(FileManager.default.fileExists(atPath: e.home.modulesDir.appendingPathComponent("CLAUDE.md").path), "guide is seeded")
         let m = try XCTUnwrap(e.modules.first)
@@ -188,14 +192,14 @@ final class ModuleTests: XCTestCase {
         e.approveModule("dice")
         let up = await waitFor { await e.hub.allTools().map(\.qualified).contains("dice.roll") }
         XCTAssertTrue(up, "mounts after approval")
-        let r = await e.hub.call(wireName: "dice__roll", arguments: .object(["notation": .string("2d6+1")]))
+        let r = await e.hub.call(wireName: "dice__roll", arguments: .object(["sides": .int(6), "count": .int(2)]))
         XCTAssertFalse(r.isError, r.text); XCTAssertTrue(r.text.contains("="), r.text)
         // Settings reach the module: maxDice is 3 by default.
-        let big = await e.hub.call(wireName: "dice__roll", arguments: .object(["notation": .string("5d6")]))
+        let big = await e.hub.call(wireName: "dice__roll", arguments: .object(["count": .int(5)]))
         XCTAssertTrue(big.isError, "schema default of 3 was passed in PARLOR_MODULE_SETTINGS")
         e.setModuleValues("dice", ["maxDice": .int(10)])
         let applied = await waitFor {
-            let r = await e.hub.call(wireName: "dice__roll", arguments: .object(["notation": .string("5d6")])); return !r.isError
+            let r = await e.hub.call(wireName: "dice__roll", arguments: .object(["count": .int(5)])); return !r.isError
         }
         XCTAssertTrue(applied, "changed settings restart the module with the new values")
         await e.refreshServices()
@@ -203,7 +207,7 @@ final class ModuleTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: ServiceLog.url(home: e.home, service: "module:dice").path) || true)
 
         // Editing the manifest revokes the approval and stops it.
-        try write(e, "dice", manifest: manifest.replacingOccurrences(of: "Roll dice.", with: "Roll dice. Now sneakier."), server: guideServer)
+        try write(e, "dice", manifest: manifest.replacingOccurrences(of: "Roll dice.", with: "Roll dice. Now sneakier."), server: guideServer())
         e.reloadModules()
         XCTAssertFalse(try XCTUnwrap(e.modules.first).approved, "a changed manifest must be approved again")
         await e.mcp_reloadForTests()
@@ -237,6 +241,46 @@ final class ModuleTests: XCTestCase {
         XCTAssertFalse(r.isError, r.text)
         XCTAssertTrue(r.text.contains("agents.list"), r.text)
         XCTAssertFalse(r.text.contains("agents.update"), "a read-tier module cannot see configure verbs: \(r.text)")
+        await e.shutdown()
+    }
+
+    /// The no-helper example in the guide also works.
+    func testGuideRawProtocolExampleWorks() async throws {
+        let e = try await makeEngine()
+        try write(e, "echo", manifest: #"{"name":"echo","command":"python3","args":["server.py"]}"#, server: guideServer(1))
+        await e.start()
+        e.approveModule("echo")
+        let up = await waitFor { await e.hub.allTools().map(\.qualified).contains("echo.echo") }
+        XCTAssertTrue(up)
+        let r = await e.hub.call(wireName: "echo__echo", arguments: .object(["text": .string("hi")]))
+        XCTAssertEqual(r.text, "hi")
+        await e.shutdown()
+    }
+
+    /// Plain functions: types become the schema, strings from a model are coerced, errors come back as errors.
+    func testHelperDerivesSchemaCoercesAndReportsErrors() async throws {
+        let e = try await makeEngine()
+        let server = """
+        from parlor_module import serve
+        def add(a: int, b: float = 1.5) -> str:
+            \"\"\"Add numbers.\"\"\"
+            return str(a + b)
+        def boom() -> str:
+            raise RuntimeError("nope")
+        serve("calc", [add, boom])
+        """
+        try write(e, "calc", manifest: #"{"name":"calc","command":"python3","args":["server.py"]}"#, server: server)
+        await e.start()
+        e.approveModule("calc")
+        let up = await waitFor { await e.hub.allTools().map(\.qualified).contains("calc.add") }
+        XCTAssertTrue(up)
+        let t = await e.hub.allTools().first { $0.qualified == "calc.add" }!
+        XCTAssertEqual(t.description, "Add numbers.")
+        XCTAssertEqual(t.schema.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue), ["a"], "b has a default so it is optional")
+        let r = await e.hub.call(wireName: "calc__add", arguments: .object(["a": .string("2")]))
+        XCTAssertEqual(r.text, "3.5", "a string \"2\" from a model is coerced to the declared int")
+        let bad = await e.hub.call(wireName: "calc__boom", arguments: .object([:]))
+        XCTAssertTrue(bad.isError); XCTAssertTrue(bad.text.contains("RuntimeError: nope"))
         await e.shutdown()
     }
 

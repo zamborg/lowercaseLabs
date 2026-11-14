@@ -96,6 +96,9 @@ public enum Modules {
         env["PARLOR_MODULE_SETTINGS"] = JSON.object(m.values).pretty.replacingOccurrences(of: "\n", with: "")
         env["PARLOR_MODULE_DIR"] = m.dir.path
         if let parlorURL, let token { env["PARLOR_URL"] = parlorURL; env["PARLOR_TOKEN"] = token }
+        // The helper `parlor_module.py` lives next to the module folders.
+        env["PYTHONPATH"] = m.dir.deletingLastPathComponent().path
+        env["PYTHONUNBUFFERED"] = "1"
         return MCPServerConfig(command: man.command, args: man.args, env: env, cwd: m.dir.path, lifecycle: man.lifecycle)
     }
 }

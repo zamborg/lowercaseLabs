@@ -24,6 +24,7 @@ struct CLIMain {
           spike                          tool-calling reliability gate
           bench [model]                  prompt-cache speed and correctness on a real model
           bench-alt [model]              two agents alternating: one cache slot vs several
+          tool <server.tool> [json]      wait for a mounted tool to appear, then call it
           verbs                          every control the app exposes, with its tier
           call <verb> [json]             run a verb. In-process as you, or against the running app when PARLOR_TOKEN is set
           services                       the services dashboard (state, memory, last used)
@@ -67,6 +68,15 @@ struct CLIMain {
         case "chat":
             guard args.count >= 2 else { usage(); return 2 }
             return await chat(engine, args[0], args.dropFirst().joined(separator: " "))
+        case "tool":
+            guard let q = args.first else { usage(); return 2 }
+            let json = args.count > 1 ? args.dropFirst().joined(separator: " ") : "{}"
+            guard let arg = json.data(using: .utf8).flatMap({ try? JSONDecoder().decode(JSON.self, from: $0) }) else { out("arguments must be JSON"); return 2 }
+            var found = false
+            for _ in 0..<150 { if await engine.hub.allTools().contains(where: { $0.qualified == q }) { found = true; break }; try? await Task.sleep(nanoseconds: 100_000_000) }
+            guard found else { out("tool \(q) never appeared. Mounted: " + (await engine.hub.allTools().map(\.qualified).joined(separator: ", "))); return 1 }
+            let r = await engine.hub.call(wireName: q.replacingOccurrences(of: ".", with: "__"), arguments: arg)
+            out(r.text); return r.isError ? 1 : 0
         case "verbs":
             for v in engine.commands.sorted { out("  \(v.name.padding(toLength: 24, withPad: " ", startingAt: 0)) \(v.tier.rawValue.padding(toLength: 10, withPad: " ", startingAt: 0)) \(v.destructive ? "asks  " : "      ")\(v.summary)") }
             return 0
