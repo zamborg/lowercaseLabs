@@ -22,6 +22,7 @@ struct CLIMain {
           chat <agent-id> <message>      send one message, print the turn
           history <agent-id>             print the chat log
           spike                          tool-calling reliability gate
+          bench [model]                  prompt-cache speed and correctness on a real model
           flow                           end-to-end flow check (agent → chat → compaction → relaunch)
         env: PARLOR_HOME, PARLOR_MODELS
         """)
@@ -63,6 +64,7 @@ struct CLIMain {
             return await chat(engine, args[0], args.dropFirst().joined(separator: " "))
         case "spike": return await Spike.run(engine)
         case "flow": return await Flow.run(engine)
+        case "bench": return await Bench.run(engine, model: args.first ?? "mlx-community/Qwen3-4B-4bit")
         default: usage(); return 2
         }
     }

@@ -21,6 +21,7 @@ struct ModelsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 memoryBar
+                ConsoleSection()
                 installedSection
                 if !engine.library.downloads.isEmpty { downloadsSection }
                 recommendedSection
@@ -41,7 +42,7 @@ struct ModelsView: View {
                 Text("\(memoryString(memory.0)) used of \(memoryString(memory.1))").foregroundStyle(.secondary).monospacedDigit()
             }
             ProgressView(value: Double(memory.0), total: Double(max(memory.1, 1)))
-            Text("Models load when you chat and unload when you switch to an agent that uses a different one. The image model unloads after two idle minutes.")
+            Text("Models load when you chat and unload when you switch to an agent that uses a different one. Idle timeouts for both are under Performance.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in

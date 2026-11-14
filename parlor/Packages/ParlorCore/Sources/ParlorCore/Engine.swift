@@ -15,6 +15,8 @@ public final class ParlorEngine {
     public var selection: String?
     public private(set) var loadedModel: String?
     public private(set) var imageWorkerState: String = "idle"
+    /// Speed, memory and token settings (`settings.json`). Change through `updateSettings`.
+    public private(set) var settings = ParlorSettings()
 
     private var rooms: [String: Room] = [:]
     private let deps: RoomDeps
@@ -42,6 +44,26 @@ public final class ParlorEngine {
 
     public var runtime: LanguageModelRuntime { deps.llm }
 
+    // MARK: settings
+
+    /// Change settings from the console or code; saved to `settings.json` and applied at once.
+    public func updateSettings(_ change: (inout ParlorSettings) -> Void) {
+        var s = settings
+        change(&s)
+        guard s != settings else { return }
+        settings = s
+        s.save(home.settingsFile)
+        Task { await self.applySettings() }
+    }
+
+    public func resetSettings() { updateSettings { $0 = ParlorSettings() } }
+
+    private func applySettings() async {
+        deps.settings = settings
+        await mlx?.setKeepAlive(minutes: settings.llm.keepLoadedMinutes)
+        await image?.configure(settings.image)
+    }
+
     // MARK: lifecycle
 
     public func start() async {
@@ -52,6 +74,9 @@ public final class ParlorEngine {
         let img = ImageProvider(home: home, library: library)
         image = img
         deps.image = img
+        settings = ParlorSettings.load(home.settingsFile)
+        if !FileManager.default.fileExists(atPath: home.settingsFile.path) { settings.save(home.settingsFile) }
+        await applySettings()
         await hub.register(img, status: ServerStatus(id: "image", kind: "built in", detail: "local image model worker", state: .connecting, toolCount: 0, toolNames: []))
         _ = await hub.onChange { [weak self] in
             Task { @MainActor in await self?.syncFromHub() }
@@ -98,6 +123,15 @@ public final class ParlorEngine {
         out.sort { ($0.kind == .assistant ? 0 : 1, $0.name.lowercased()) < ($1.kind == .assistant ? 0 : 1, $1.name.lowercased()) }
         if out != agents { agents = out }
         if let s = selection, !agents.contains(where: { $0.id == s }) { selection = agents.first?.id }
+        // A chat folder only lingers for a deleted agent when it never got a message: tidy it.
+        let live = Set(agents.map(\.id))
+        for (id, _) in rooms where !live.contains(id) { rooms[id] = nil }
+        if let dirs = try? fm.contentsOfDirectory(atPath: home.chatsDir.path) {
+            for d in dirs where !live.contains(d) {
+                let dir = home.chatsDir.appendingPathComponent(d)
+                if (try? fm.contentsOfDirectory(atPath: dir.path))?.isEmpty == true { try? fm.removeItem(at: dir) }
+            }
+        }
     }
 
     public func agent(_ id: String) -> Agent? { agents.first { $0.id == id } }
@@ -140,6 +174,31 @@ public final class ParlorEngine {
         try? FileManager.default.removeItem(at: home.chatDir(for: id))
         rooms[id] = nil
         reloadAgents()
+    }
+
+    /// Makes the file name and chat folder follow the agent's display name (`agents/<slug>.md`).
+    /// Returns the (possibly unchanged) id. Skipped while the agent is mid-reply.
+    @discardableResult
+    public func renameToMatchName(_ id: String) -> String {
+        guard let a = agent(id), rooms[id]?.isBusy != true else { return id }
+        let base = Agent.slug(a.name)
+        guard !base.isEmpty, base != id else { return id }
+        var newID = base; var n = 2
+        while agents.contains(where: { $0.id == newID }) || FileManager.default.fileExists(atPath: home.chatDir(for: newID).path) {
+            newID = base + "-\(n)"; n += 1
+        }
+        let fm = FileManager.default
+        var moved = a; moved.id = newID
+        write(moved)
+        try? fm.removeItem(at: home.agentsDir.appendingPathComponent("\(id).md"))
+        if fm.fileExists(atPath: home.chatDir(for: id).path) {
+            try? fm.moveItem(at: home.chatDir(for: id), to: home.chatDir(for: newID))
+        }
+        rooms[id] = nil
+        let wasSelected = selection == id
+        reloadAgents()
+        if wasSelected { selection = newID }
+        return newID
     }
 
     public func duplicate(_ id: String) {
@@ -219,6 +278,7 @@ public final class ParlorEngine {
         // FSEvents reports resolved paths (/private/var/…), so compare against resolved prefixes too.
         let prefixes = [home.agentsDir.path, Self.realPath(home.agentsDir.path)]
         let relevant = paths.contains { p in prefixes.contains { p.hasPrefix($0) } || p.hasSuffix("/mcp.json") }
+        _ = relevant
         let chats = paths.filter { $0.contains("/chats/") }
         reloadTask?.cancel()
         reloadTask = Task { @MainActor in
@@ -226,6 +286,10 @@ public final class ParlorEngine {
             if relevant {
                 self.reloadAgents()
                 if paths.contains(where: { $0.hasSuffix("/mcp.json") }) { await self.mcp.reload(); self.loadConfig() }
+            }
+            if paths.contains(where: { $0.hasSuffix("/settings.json") }) {
+                let fresh = ParlorSettings.load(self.home.settingsFile)
+                if fresh != self.settings { self.settings = fresh; await self.applySettings() }
             }
             for p in chats {
                 // chats/<id>/log.jsonl edited from outside

@@ -139,15 +139,34 @@ public final class ModelLibrary: @unchecked Sendable {
             .init(name: "pipeline_tag", value: kind == .image ? "text-to-image" : "text-generation"),
             .init(name: "sort", value: "downloads"), .init(name: "direction", value: "-1"),
             .init(name: "limit", value: String(limit)),
-            .init(name: "expand[]", value: "downloads"), .init(name: "expand[]", value: "usedStorage"),
+            .init(name: "expand[]", value: "downloads"),
         ]
         if !term.isEmpty { items.append(.init(name: "search", value: term)) }
         comps.queryItems = items
-        let (data, _) = try await URLSession.shared.data(from: comps.url!)
-        struct Row: Decodable { var id: String; var downloads: Int?; var usedStorage: Int64? }
+        let (data, resp) = try await URLSession.shared.data(from: comps.url!)
+        if let http = resp as? HTTPURLResponse, http.statusCode != 200 {
+            throw ParlorError.message("Hugging Face search failed (HTTP \(http.statusCode)): \(String(decoding: data.prefix(160), as: UTF8.self))")
+        }
+        struct Row: Decodable { var id: String; var downloads: Int? }
         let rows = try JSONDecoder().decode([Row].self, from: data)
-        return rows.map { ModelSearchResult(repo: $0.id, kind: kind, downloads: $0.downloads ?? 0, bytes: $0.usedStorage) }
+        // The search API no longer reports sizes, so sum each repo's file tree (concurrently; a failure just leaves "?").
+        let sizes = await withTaskGroup(of: (String, Int64?).self) { group -> [String: Int64] in
+            for r in rows { group.addTask { (r.id, await Self.repoBytes(r.id)) } }
+            var out: [String: Int64] = [:]
+            for await (id, b) in group { if let b { out[id] = b } }
+            return out
+        }
+        return rows.map { ModelSearchResult(repo: $0.id, kind: kind, downloads: $0.downloads ?? 0, bytes: sizes[$0.id]) }
     }
+
+    static func repoBytes(_ repo: String) async -> Int64? {
+        guard let url = URL(string: "https://huggingface.co/api/models/\(repo)/tree/main?recursive=true"),
+              let (data, resp) = try? await URLSession.shared.data(from: url),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let files = try? JSONDecoder().decode([TreeEntry].self, from: data) else { return nil }
+        return files.filter { $0.type == "file" }.reduce(0) { $0 + ($1.size ?? 0) }
+    }
+    private struct TreeEntry: Decodable { var type: String; var size: Int64? }
 
     // MARK: downloads
 

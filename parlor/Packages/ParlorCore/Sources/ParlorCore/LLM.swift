@@ -36,10 +36,11 @@ public struct LLMRequest: Sendable {
     public var temperature: Double
     public var maxTokens: Int?
     public var thinking: Bool
+    public var tuning: LLMTuning
 
-    public init(messages: [LLMMessage], tools: [ToolDef] = [], temperature: Double = 0.6, maxTokens: Int? = nil, thinking: Bool = false) {
+    public init(messages: [LLMMessage], tools: [ToolDef] = [], temperature: Double = 0.6, maxTokens: Int? = nil, thinking: Bool = false, tuning: LLMTuning = LLMTuning()) {
         self.messages = messages; self.tools = tools; self.temperature = temperature
-        self.maxTokens = maxTokens; self.thinking = thinking
+        self.maxTokens = maxTokens; self.thinking = thinking; self.tuning = tuning
     }
 }
 
@@ -47,8 +48,11 @@ public struct LLMStats: Sendable, Equatable {
     public var promptTokens: Int
     public var completionTokens: Int
     public var tokensPerSecond: Double
-    public init(promptTokens: Int, completionTokens: Int, tokensPerSecond: Double) {
-        self.promptTokens = promptTokens; self.completionTokens = completionTokens; self.tokensPerSecond = tokensPerSecond
+    /// Prompt tokens served from the reused attention cache instead of being processed (included in `promptTokens`).
+    public var cachedTokens: Int
+    public init(promptTokens: Int, completionTokens: Int, tokensPerSecond: Double, cachedTokens: Int = 0) {
+        self.promptTokens = promptTokens; self.completionTokens = completionTokens
+        self.tokensPerSecond = tokensPerSecond; self.cachedTokens = cachedTokens
     }
 }
 

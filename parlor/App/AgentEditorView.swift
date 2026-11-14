@@ -18,6 +18,7 @@ struct AgentEditorView: View {
         }
         .onAppear { if !loaded, let a = engine.agent(agentID) { draft = a; lastSaved = a; loaded = true } }
         .onChange(of: draft) { _, new in scheduleSave(new) }
+        .onDisappear { commitRename() }
         .onChange(of: engine.agent(agentID)) { _, external in
             // File changed on disk by something other than us: take it.
             if let external, external != draft, external != lastSaved { draft = external; lastSaved = external }
@@ -35,6 +36,14 @@ struct AgentEditorView: View {
         }
     }
 
+    /// Flush the pending edit, then let the file name and chat folder follow the display name.
+    private func commitRename() {
+        guard loaded else { return }
+        saveTask?.cancel()
+        if draft != lastSaved { lastSaved = draft; engine.save(draft) }
+        engine.renameToMatchName(agentID)
+    }
+
     // MARK: form
 
     private var form: some View {
@@ -44,6 +53,7 @@ struct AgentEditorView: View {
                     AvatarView(agent: draft, size: 54)
                     VStack(spacing: 8) {
                         TextField("Name", text: $draft.name).accessibilityIdentifier("agent-name")
+                            .onSubmit { commitRename() }
                         TextField("Short description", text: $draft.summary)
                     }
                 }

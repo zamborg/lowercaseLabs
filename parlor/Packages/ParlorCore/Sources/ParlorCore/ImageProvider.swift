@@ -17,13 +17,21 @@ public actor ImageProvider: ToolProvider {
     private var pending: [String: CheckedContinuation<WorkerReply, Never>] = [:]
     private var idleTask: Task<Void, Never>?
     private var runningModel: String?
-    public var idleSeconds: Double = 120
+    private var cfg = ParlorSettings.Image()
+    private var runningKey: String?
 
     struct WorkerReply: Sendable { var ok: Bool; var path: String?; var error: String? }
 
     public init(home: ParlorHome, library: ModelLibrary) { self.home = home; self.library = library }
 
     public func setModel(_ repo: String?) { modelRepo = repo }
+
+    /// Apply settings. A precision change restarts the worker on its next use; the rest takes effect immediately.
+    public func configure(_ new: ParlorSettings.Image) {
+        let precisionChanged = new.precision != cfg.precision
+        cfg = new
+        if precisionChanged { shutdownNow() } else if process != nil { scheduleIdleShutdown() }
+    }
 
     public func stateDescription() -> String {
         if let m = runningModel { return "loaded · \(m.split(separator: "/").last.map(String.init) ?? m)" }
@@ -52,14 +60,7 @@ public actor ImageProvider: ToolProvider {
         let shape = arguments.objectValue?["shape"]?.stringValue ?? "square"
         let detailed = arguments.objectValue?["detail"]?.stringValue == "detailed"
         // Render time scales with pixel count: ~30 s at 512², ~70 s at 768² on an M1 Max.
-        let (w, h): (Int, Int) = switch (shape, detailed) {
-        case ("portrait", false): (448, 640)
-        case ("landscape", false): (640, 448)
-        case ("portrait", true): (640, 896)
-        case ("landscape", true): (896, 640)
-        case (_, true): (768, 768)
-        default: (512, 512)
-        }
+        let (w, h) = cfg.size(shape: shape, detailed: detailed)
         let seed = arguments.objectValue?["seed"]?.intValue ?? Int.random(in: 0..<100_000)
         guard let repo = modelRepo ?? library.installed(kind: .image).first?.repo else {
             return ToolOutput(text: "No image model is downloaded. Ask the user to download one in Models.", isError: true)
@@ -74,7 +75,7 @@ public actor ImageProvider: ToolProvider {
             return ToolOutput(text: "Image worker unavailable: \(error.localizedDescription)", isError: true)
         }
         let rid = UUID().uuidString
-        let req: [String: Any] = ["id": rid, "prompt": prompt, "width": w, "height": h, "seed": seed, "steps": 0]
+        let req: [String: Any] = ["id": rid, "prompt": prompt, "width": w, "height": h, "seed": seed, "steps": (detailed ? cfg.detailedSteps : cfg.fastSteps) ?? 0]
         let reply: WorkerReply = await withCheckedContinuation { cont in
             pending[rid] = cont
             if let d = try? JSONSerialization.data(withJSONObject: req) {
@@ -92,7 +93,7 @@ public actor ImageProvider: ToolProvider {
         let rel = Media.save(data: data, ext: "png", home: home)
         try? FileManager.default.removeItem(atPath: abs)
         guard let rel else { return ToolOutput(text: "Could not save image", isError: true) }
-        return ToolOutput(text: "Image generated (\(w)x\(h), seed \(seed)) and shown to the user. Prompt: \(prompt)", images: [rel])
+        return ToolOutput(text: "The image was generated and is already displayed to the user inline; do not write a placeholder like [image] or a link in your reply, just comment on it naturally. (\(w)x\(h), seed \(seed), prompt: \(prompt))", images: [rel])
     }
 
     // MARK: worker process
@@ -111,12 +112,13 @@ public actor ImageProvider: ToolProvider {
     }
 
     private func ensureWorker(model: String, dir: URL) throws {
-        if let p = process, p.isRunning, runningModel == model { return }
+        let key = "\(model)|\(cfg.precision)"
+        if let p = process, p.isRunning, runningKey == key { return }
         shutdownNow()
         guard let exe = Self.workerURL() else { throw ParlorError.message("parlor-imagegen worker not found next to the app") }
         let proc = Process()
         proc.executableURL = exe
-        proc.arguments = [dir.path]
+        proc.arguments = [dir.path, cfg.precision]
         let inPipe = Pipe(), outPipe = Pipe()
         proc.standardInput = inPipe
         proc.standardOutput = outPipe
@@ -125,6 +127,7 @@ public actor ImageProvider: ToolProvider {
         process = proc
         stdin = inPipe.fileHandleForWriting
         runningModel = model
+        runningKey = key
         let handle = outPipe.fileHandleForReading
         reader = Task.detached { [weak self] in
             var buffer = Data()
@@ -152,12 +155,13 @@ public actor ImageProvider: ToolProvider {
     private func workerExited() {
         for (_, c) in pending { c.resume(returning: WorkerReply(ok: false, path: nil, error: "image worker exited")) }
         pending = [:]
-        process = nil; stdin = nil; runningModel = nil
+        process = nil; stdin = nil; runningModel = nil; runningKey = nil
     }
 
     private func scheduleIdleShutdown() {
         idleTask?.cancel()
-        let secs = idleSeconds
+        let secs = Double(cfg.idleSeconds)
+        guard secs > 0 else { return }
         idleTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(secs * 1_000_000_000))
             if !Task.isCancelled { await self?.shutdown() }
@@ -167,7 +171,7 @@ public actor ImageProvider: ToolProvider {
     private func shutdownNow() {
         idleTask?.cancel()
         if let p = process, p.isRunning { p.terminate() }
-        process = nil; stdin = nil; runningModel = nil
+        process = nil; stdin = nil; runningModel = nil; runningKey = nil
     }
 
     public func shutdown() { shutdownNow() }

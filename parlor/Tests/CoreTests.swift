@@ -197,4 +197,92 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(engine.servers.contains { $0.id == "flaky" })
         await engine.shutdown()
     }
+
+    @MainActor func testRenameMovesFileAndChatAndDeleteTidies() async throws {
+        let home = tempHome()
+        let engine = ParlorEngine(home: home, runtime: scriptedLLM())
+        let a = engine.create(kind: .character, name: "New character")
+        let log = home.chatDir(for: a.id).appendingPathComponent("log.jsonl")
+        try FileManager.default.createDirectory(at: home.chatDir(for: a.id), withIntermediateDirectories: true)
+        try "{}\n".write(to: log, atomically: true, encoding: .utf8)
+        var edited = a; edited.name = "Babe"
+        engine.save(edited)
+        XCTAssertEqual(engine.renameToMatchName(a.id), "babe")
+        XCTAssertNil(engine.agent("new-character"))
+        XCTAssertEqual(engine.agent("babe")?.name, "Babe")
+        XCTAssertEqual(engine.selection, "babe")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: home.chatDir(for: "babe").appendingPathComponent("log.jsonl").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.agentsDir.appendingPathComponent("new-character.md").path))
+        // An emptied chat folder for a removed agent is tidied up on reload.
+        try FileManager.default.createDirectory(at: home.chatDir(for: "ghost"), withIntermediateDirectories: true)
+        engine.reloadAgents()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.chatDir(for: "ghost").path))
+    }
+
+    /// Live network: guards against the Hugging Face search API changing under us again.
+    func testHuggingFaceSearchReturnsSizes() async throws {
+        let lib = ModelLibrary(home: tempHome())
+        let r = try await lib.search("qwen3-4b", kind: .language, limit: 3)
+        XCTAssertFalse(r.isEmpty)
+        XCTAssertTrue(r.contains { ($0.bytes ?? 0) > 100_000_000 })
+    }
+
+    func testSettingsFileTolerantAndRoundTrips() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("settings-\(UUID().uuidString).json")
+        try #"{"llm":{"keepLoadedMinutes":0,"kvBits":4},"image":{"precision":"int4"}}"#.write(to: url, atomically: true, encoding: .utf8)
+        var s = ParlorSettings.load(url)
+        XCTAssertEqual(s.llm.keepLoadedMinutes, 0)
+        XCTAssertEqual(s.llm.kvBits, 4)
+        XCTAssertFalse(s.llm.promptCacheActive)          // KV quantisation turns the prompt cache off
+        XCTAssertEqual(s.llm.maxReplyTokens, 2048)       // untouched keys keep defaults
+        XCTAssertEqual(s.loop.maxSteps, 8)
+        s.image.fastSteps = 6
+        s.save(url)
+        XCTAssertEqual(ParlorSettings.load(url), s)
+        XCTAssertEqual(ParlorSettings.load(URL(fileURLWithPath: "/nonexistent/x.json")), ParlorSettings())
+        let i = ParlorSettings.Image()
+        XCTAssertTrue(i.size(shape: "square", detailed: false) == (512, 512))
+        XCTAssertTrue(i.size(shape: "portrait", detailed: false) == (448, 640))
+        XCTAssertTrue(i.size(shape: "landscape", detailed: true) == (960, 640))
+    }
+
+    @MainActor func testSettingsReachTheLoopAndToolsAreClippedAndTimedOut() async throws {
+        let home = tempHome()
+        var seen: [LLMRequest] = []
+        let llm = ScriptedRuntime { req in
+            seen.append(req)
+            if req.messages.last?.role == .tool { return [.text("done")] }
+            return [.toolCall(ToolCallRecord(id: "1", name: "mock__big", arguments: .object([:])))]
+        }
+        let engine = ParlorEngine(home: home, runtime: llm)
+        await engine.start()
+        await engine.hub.register(SlowTools(), status: ServerStatus(id: "mock", kind: "test", detail: "", state: .connecting, toolCount: 0, toolNames: []))
+        engine.updateSettings { $0.loop.toolResultChars = 400; $0.llm.maxReplyTokens = 77; $0.llm.topP = 0.8 }
+        var a = engine.create(kind: .assistant, name: "Tuner")
+        a.tools = ["*"]; engine.save(a)
+        let room = engine.room(for: a.id)
+        await room.sendAndWait("go", agent: engine.agent(a.id)!)
+        let toolMsg = room.messages.first { $0.role == .tool }!
+        XCTAssertLessThan(toolMsg.text.count, 600)
+        XCTAssertTrue(toolMsg.text.contains("cut to save context"))
+        XCTAssertEqual(seen.first?.maxTokens, 77)
+        XCTAssertEqual(seen.first?.tuning.settings.topP, 0.8)
+        // Summaries must not touch the shared prompt cache.
+        let hubOut = await engine.hub.call(wireName: "mock__slow", arguments: .object([:]), timeout: 0.2)
+        XCTAssertTrue(hubOut.isError); XCTAssertTrue(hubOut.text.contains("timed out"))
+        await engine.shutdown()
+    }
+}
+
+struct SlowTools: ToolProvider {
+    let id = "mock"
+    func listTools() async throws -> [ToolDef] {
+        let schema: JSON = .object(["type": .string("object"), "properties": .object([:])])
+        return [ToolDef(server: "mock", name: "big", description: "Returns a lot of text", schema: schema),
+                ToolDef(server: "mock", name: "slow", description: "Never returns in time", schema: schema)]
+    }
+    func call(tool: String, arguments: JSON) async throws -> ToolOutput {
+        if tool == "slow" { try await Task.sleep(nanoseconds: 5_000_000_000); return ToolOutput(text: "late") }
+        return ToolOutput(text: String(repeating: "x", count: 5000))
+    }
 }

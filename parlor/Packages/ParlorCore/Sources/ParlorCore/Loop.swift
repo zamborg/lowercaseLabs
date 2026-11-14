@@ -12,25 +12,30 @@ public enum LoopEvent: Sendable {
 public protocol AgentLoop: Sendable {
     func run(
         agent: Agent, history: [LLMMessage], tools: [ToolDef],
-        llm: LanguageModelRuntime, hub: ToolHub, emit: @Sendable @escaping (LoopEvent) -> Void
+        llm: LanguageModelRuntime, hub: ToolHub, settings: ParlorSettings,
+        emit: @Sendable @escaping (LoopEvent) -> Void
     ) async throws
 }
 
 /// Stream, run tool calls, feed results back, repeat until the model answers in plain text.
 public struct SimpleLoop: AgentLoop {
-    public var maxSteps: Int
-    public init(maxSteps: Int = 8) { self.maxSteps = maxSteps }
+    public init() {}
 
     public func run(
         agent: Agent, history: [LLMMessage], tools: [ToolDef],
-        llm: LanguageModelRuntime, hub: ToolHub, emit: @Sendable @escaping (LoopEvent) -> Void
+        llm: LanguageModelRuntime, hub: ToolHub, settings: ParlorSettings,
+        emit: @Sendable @escaping (LoopEvent) -> Void
     ) async throws {
         var messages = history
+        let maxSteps = max(1, settings.loop.maxSteps)
         for step in 0..<maxSteps {
             try Task.checkCancellation()
             // On the last step withhold tools so the model has to answer.
             let offered = step == maxSteps - 1 ? [] : tools
-            let req = LLMRequest(messages: messages, tools: offered, temperature: agent.temperature, thinking: agent.thinking)
+            let req = LLMRequest(
+                messages: messages, tools: offered, temperature: agent.temperature,
+                maxTokens: settings.llm.maxReplyTokens, thinking: agent.thinking,
+                tuning: LLMTuning(settings: settings.llm))
             var raw = ""
             var calls: [ToolCallRecord] = []
             for try await ev in llm.generate(model: agent.model, request: req) {
@@ -51,9 +56,11 @@ public struct SimpleLoop: AgentLoop {
                 try Task.checkCancellation()
                 emit(.toolStarted(call))
                 let started = Date()
-                let out: ToolOutput
+                var out: ToolOutput
                 if agent.allows(call.qualified) {
-                    out = await hub.call(wireName: call.name, arguments: call.arguments)
+                    out = await hub.call(wireName: call.name, arguments: call.arguments,
+                                         timeout: TimeInterval(settings.loop.toolTimeoutSeconds))
+                    out.text = Self.clip(out.text, to: settings.loop.toolResultChars)
                 } else {
                     out = ToolOutput(text: "Tool \(call.qualified) is not enabled for this agent.", isError: true)
                 }
@@ -67,10 +74,20 @@ public struct SimpleLoop: AgentLoop {
     }
 }
 
+extension SimpleLoop {
+    /// Cut an oversized tool result, keeping the start and the end, which is where answers and errors live.
+    static func clip(_ text: String, to limit: Int) -> String {
+        guard limit > 200, text.count > limit else { return text }
+        let head = text.prefix(limit * 2 / 3), tail = text.suffix(limit / 3)
+        return "\(head)\n… [\(text.count - limit) characters cut to save context] …\n\(tail)"
+    }
+}
+
 /// Folds older messages into a rolling summary so the context stays small.
 public struct Compactor: Sendable {
     public var keepRecent: Int
-    public init(keepRecent: Int = 6) { self.keepRecent = keepRecent }
+    public var summaryTokens: Int
+    public init(keepRecent: Int = 6, summaryTokens: Int = 500) { self.keepRecent = keepRecent; self.summaryTokens = summaryTokens }
 
     /// Rough token estimate when the model has not reported a real count yet.
     public static func estimateTokens(_ messages: [LLMMessage]) -> Int {
@@ -112,7 +129,8 @@ public struct Compactor: Sendable {
             messages: [
                 LLMMessage(role: .system, text: "You write faithful, compact conversation summaries."),
                 LLMMessage(role: .user, text: prompt),
-            ], temperature: 0.2, maxTokens: 500, thinking: false)
+            ], temperature: 0.2, maxTokens: summaryTokens, thinking: false,
+            tuning: LLMTuning(useCache: false))
         for try await ev in llm.generate(model: agent.model, request: req) {
             if case .text(let t) = ev { out += t }
         }

@@ -66,7 +66,7 @@ public final class Room: Identifiable {
             let loop = deps.loop
             let llm = deps.llm
             let hub = deps.hub
-            try await loop.run(agent: agent, history: history, tools: tools, llm: llm, hub: hub) { [weak self] ev in
+            try await loop.run(agent: agent, history: history, tools: tools, llm: llm, hub: hub, settings: deps.settings) { [weak self] ev in
                 Task { @MainActor in self?.handle(ev) }
             }
             // Let queued MainActor handlers drain before returning.
@@ -118,8 +118,9 @@ public final class Room: Identifiable {
     func buildHistory(agent: Agent, tools: [ToolDef]) -> [LLMMessage] {
         var system = agent.persona.trimmingCharacters(in: .whitespacesAndNewlines)
         if system.isEmpty { system = "You are \(agent.name)." }
-        let f = DateFormatter(); f.dateStyle = .full; f.timeStyle = .short
-        system += "\n\nCurrent date and time: \(f.string(from: Date()))."
+        // Date only: a clock in the system prompt would change every minute and defeat the prompt cache.
+        let f = DateFormatter(); f.dateStyle = .full; f.timeStyle = .none
+        system += "\n\nToday is \(f.string(from: Date()))."
         if !tools.isEmpty {
             system += "\nYou have tools. When a request needs information or an action from a tool, call the tool immediately in this reply. Never say you will look something up or do something without actually calling the tool. Never ask permission to use a tool for a read-only lookup. After the tool result arrives, answer in plain text."
         }
@@ -152,7 +153,7 @@ public final class Room: Identifiable {
     public func compact(agent: Agent) async throws -> Bool {
         activity = "Compacting"
         defer { activity = nil }
-        guard let s = try await Compactor().compact(agent: agent, messages: messages, existing: summary, llm: deps.llm) else { return false }
+        guard let s = try await Compactor(keepRecent: deps.settings.loop.keepRecent, summaryTokens: deps.settings.loop.summaryTokens).compact(agent: agent, messages: messages, existing: summary, llm: deps.llm) else { return false }
         let folded = messages.filter { $0.role != .marker }.firstIndex(where: { $0.id == s.through }).map { $0 + 1 } ?? 0
         summary = s
         log.saveSummary(s)
@@ -242,6 +243,7 @@ public final class RoomDeps {
     public var llm: LanguageModelRuntime
     public var loop: AgentLoop
     public var image: ImageProvider?
+    public var settings = ParlorSettings()
     init(home: ParlorHome, hub: ToolHub, llm: LanguageModelRuntime, loop: AgentLoop) {
         self.home = home; self.hub = hub; self.llm = llm; self.loop = loop
     }

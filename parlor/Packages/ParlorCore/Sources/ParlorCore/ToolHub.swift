@@ -81,12 +81,22 @@ public actor ToolHub {
 
     public func tools(for agent: Agent) -> [ToolDef] { allTools().filter { agent.allows($0.qualified) } }
 
-    public func call(wireName: String, arguments: JSON) async -> ToolOutput {
+    public func call(wireName: String, arguments: JSON, timeout: TimeInterval? = nil) async -> ToolOutput {
         guard let r = wireName.range(of: "__") else { return ToolOutput(text: "Unknown tool \(wireName)", isError: true) }
         let server = String(wireName[..<r.lowerBound]); let tool = String(wireName[r.upperBound...])
         guard let p = providers[server] else { return ToolOutput(text: "Server \(server) is not running", isError: true) }
-        do { return try await p.call(tool: tool, arguments: arguments) }
-        catch { return ToolOutput(text: "Tool failed: \(error.localizedDescription)", isError: true) }
+        do {
+            guard let timeout, timeout > 0 else { return try await p.call(tool: tool, arguments: arguments) }
+            return try await withThrowingTaskGroup(of: ToolOutput.self) { group in
+                group.addTask { try await p.call(tool: tool, arguments: arguments) }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    return ToolOutput(text: "Tool \(server).\(tool) timed out after \(Int(timeout)) s.", isError: true)
+                }
+                defer { group.cancelAll() }
+                return try await group.next()!
+            }
+        } catch { return ToolOutput(text: "Tool failed: \(error.localizedDescription)", isError: true) }
     }
 
     private func bump() {
