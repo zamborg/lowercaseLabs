@@ -263,6 +263,7 @@ actor LazyProvider: ToolProvider {
 /// What the dashboard shows for one mount.
 public struct MCPServiceState: Sendable, Equatable {
     public var id: String
+    public var isModule = false
     public var config: MCPServerConfig
     public var state: ServiceState
     public var pid: Int32?
@@ -289,6 +290,9 @@ public actor MCPManager {
     private let hub: ToolHub
     private let home: ParlorHome
     private var entries: [String: Entry] = [:]
+    /// Approved modules, supplied by the engine; they run under the same supervision as `mcp.json` servers.
+    private var moduleProvider: (@Sendable () async -> [String: MCPServerConfig])?
+    private var moduleNames: Set<String> = []
     /// Backoff before restart n (1-based); a variable so tests can shrink it.
     public var backoff: [TimeInterval] = [1, 5, 30]
     public var crashWindow: TimeInterval = 600
@@ -297,13 +301,19 @@ public actor MCPManager {
 
     public init(hub: ToolHub, home: ParlorHome) { self.hub = hub; self.home = home }
 
+    public func setModuleProvider(_ p: @escaping @Sendable () async -> [String: MCPServerConfig]) { moduleProvider = p }
+    func logName(_ id: String) -> String { moduleNames.contains(id) ? "module:\(id)" : "mcp:\(id)" }
+
     public func setBackoff(_ b: [TimeInterval]) { backoff = b }
     public func setIdleUnit(_ u: TimeInterval) { idleUnit = u }
 
     // MARK: configuration
 
     public func reload() async {
-        let file = MCPConfigFile.load(home.mcpConfig)
+        var file = MCPConfigFile.load(home.mcpConfig)
+        let mods = await moduleProvider?() ?? [:]
+        moduleNames = Set(mods.keys).subtracting(file.mcpServers.keys)
+        for (k, v) in mods where file.mcpServers[k] == nil { file.mcpServers[k] = v }
         // Drop servers that were removed or changed; keep the rest running.
         for (id, e) in entries where file.mcpServers[id] == nil || file.mcpServers[id] != e.config {
             await teardown(id)
@@ -324,7 +334,7 @@ public actor MCPManager {
 
     public func snapshot() -> [MCPServiceState] {
         entries.map { id, e in
-            MCPServiceState(id: id, config: e.config, state: e.config.disabled == true ? .stopped : e.state,
+            MCPServiceState(id: id, isModule: moduleNames.contains(id), config: e.config, state: e.config.disabled == true ? .stopped : e.state,
                             pid: nil, lastUsed: e.lastUsed, restarts: e.restarts)
         }.sorted { $0.id < $1.id }
     }
@@ -349,7 +359,8 @@ public actor MCPManager {
     }
 
     public func restart(_ id: String) async {
-        let file = MCPConfigFile.load(home.mcpConfig)
+        var file = MCPConfigFile.load(home.mcpConfig)
+        for (k, v) in await moduleProvider?() ?? [:] where file.mcpServers[k] == nil { file.mcpServers[k] = v }
         if let cfg = file.mcpServers[id] {
             if entries[id] == nil { entries[id] = Entry(config: cfg) } else { entries[id]?.config = cfg }
         }
@@ -378,7 +389,7 @@ public actor MCPManager {
     }
 
     private func makeConnection(_ id: String) -> MCPServerConnection {
-        MCPServerConnection(id: id, config: entries[id]!.config, home: home, hub: hub,
+        MCPServerConnection(id: id, config: entries[id]!.config, home: home, hub: hub, logName: logName(id),
             onExit: { [weak self] conn, code in Task { await self?.exited(id, conn, code) } },
             onUse: { [weak self] in Task { await self?.touch(id) } })
     }
@@ -411,7 +422,7 @@ public actor MCPManager {
         } catch {
             guard entries[id] != nil else { return nil }
             entries[id]?.starting = nil
-            let tail = ServiceLog.tail(home: home, service: "mcp:\(id)", lines: 4)
+            let tail = ServiceLog.tail(home: home, service: logName(id), lines: 4)
             let base = error.localizedDescription
             let msg = base + (tail.isEmpty || base.contains(tail) ? "" : "\n" + tail)
             entries[id]?.state = .failed(msg)
@@ -491,7 +502,7 @@ public actor MCPManager {
             return
         }
         if n > backoff.count {
-            let tail = ServiceLog.tail(home: home, service: "mcp:\(id)", lines: 4)
+            let tail = ServiceLog.tail(home: home, service: logName(id), lines: 4)
             let msg = "Exited with status \(code) \(n) times in ten minutes; not restarting.\n" + tail
             entries[id]?.state = .failed(msg)
             await hub.setStatus(status(id, state: .failed(msg)))

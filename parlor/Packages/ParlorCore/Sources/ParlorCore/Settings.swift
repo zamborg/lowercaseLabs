@@ -11,13 +11,33 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
     public var memoryBudgetFraction = 0.6
     /// Prompt-cache slots kept per resident model; a request reuses the slot sharing the longest prefix.
     public var cacheSlotsPerModel = 4
+    /// The app-hosted `parlor` MCP server that outside clients (Claude Code) and launched modules talk to.
+    public var parlorServer = ParlorServer()
+    /// Access tokens: names and hashes only; the secret is shown once when it is made.
+    public var tokens: [APIToken] = []
+    /// Module name → manifest hash the user approved.
+    public var moduleApprovals: [String: String] = [:]
 
     public init() {}
+
+    public struct ParlorServer: Codable, Equatable, Sendable {
+        public var enabled = true
+        public var port = 11501
+        public init() {}
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? enabled
+            port = try c.decodeIfPresent(Int.self, forKey: .port) ?? port
+        }
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         memoryBudgetFraction = try c.decodeIfPresent(Double.self, forKey: .memoryBudgetFraction) ?? memoryBudgetFraction
         cacheSlotsPerModel = try c.decodeIfPresent(Int.self, forKey: .cacheSlotsPerModel) ?? cacheSlotsPerModel
+        parlorServer = try c.decodeIfPresent(ParlorServer.self, forKey: .parlorServer) ?? parlorServer
+        tokens = try c.decodeIfPresent([APIToken].self, forKey: .tokens) ?? tokens
+        moduleApprovals = try c.decodeIfPresent([String: String].self, forKey: .moduleApprovals) ?? moduleApprovals
         llm = try c.decodeIfPresent(LLM.self, forKey: .llm) ?? llm
         image = try c.decodeIfPresent(Image.self, forKey: .image) ?? image
         loop = try c.decodeIfPresent(Loop.self, forKey: .loop) ?? loop

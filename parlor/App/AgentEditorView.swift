@@ -92,6 +92,17 @@ struct AgentEditorView: View {
                 }
             }
             Section("Tools this agent may use") { toolsSection }
+            Section("Control of the app") {
+                Picker("Permission tier", selection: Binding(get: { draft.tier }, set: { draft.tier = $0 })) {
+                    Text("None").tag(Tier.none)
+                    Text("Read").tag(Tier.read)
+                    Text("Act").tag(Tier.act)
+                    Text("Configure").tag(Tier.configure)
+                }
+                .pickerStyle(.segmented).accessibilityIdentifier("agent-tier")
+                Text("Lets this agent use the app's own parlor.* tools, if its tools above include them: Read looks at agents, chats and settings; Act talks in rooms and runs services; Configure edits agents and settings. Deleting anything always asks you first.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Memory and behavior") {
                 LabeledContent("Context budget") {
                     HStack {

@@ -24,6 +24,8 @@ struct CLIMain {
           spike                          tool-calling reliability gate
           bench [model]                  prompt-cache speed and correctness on a real model
           bench-alt [model]              two agents alternating: one cache slot vs several
+          verbs                          every control the app exposes, with its tier
+          call <verb> [json]             run a verb. In-process as you, or against the running app when PARLOR_TOKEN is set
           services                       the services dashboard (state, memory, last used)
           image <prompt>                 generate through the image MCP worker, showing the service states
           flow                           end-to-end flow check (agent → chat → compaction → relaunch)
@@ -65,6 +67,17 @@ struct CLIMain {
         case "chat":
             guard args.count >= 2 else { usage(); return 2 }
             return await chat(engine, args[0], args.dropFirst().joined(separator: " "))
+        case "verbs":
+            for v in engine.commands.sorted { out("  \(v.name.padding(toLength: 24, withPad: " ", startingAt: 0)) \(v.tier.rawValue.padding(toLength: 10, withPad: " ", startingAt: 0)) \(v.destructive ? "asks  " : "      ")\(v.summary)") }
+            return 0
+        case "call":
+            guard let verb = args.first else { usage(); return 2 }
+            let json = args.count > 1 ? args.dropFirst().joined(separator: " ") : "{}"
+            guard let data = json.data(using: .utf8), let arg = try? JSONDecoder().decode(JSON.self, from: data) else { out("arguments must be JSON"); return 2 }
+            if let token = ProcessInfo.processInfo.environment["PARLOR_TOKEN"] { return await callOverHTTP(verb, arg, token) }
+            let r = await engine.commands.call(verb, arg, caller: .local)
+            out(r.text)
+            return r.isError ? 1 : 0
         case "services":
             await engine.refreshServices(); printServices(engine); return 0
         case "image": return await imageCheck(engine, args.joined(separator: " "))
@@ -74,6 +87,27 @@ struct CLIMain {
         case "bench": return await Bench.run(engine, model: args.first ?? "mlx-community/Qwen3-4B-4bit")
         default: usage(); return 2
         }
+    }
+
+    /// The thin form: talk to the running app's `parlor` server with a token made in System.
+    static func callOverHTTP(_ verb: String, _ args: JSON, _ token: String) async -> Int32 {
+        let url = URL(string: ProcessInfo.processInfo.environment["PARLOR_URL"] ?? "http://127.0.0.1:11501/mcp")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let body: JSON = .object(["jsonrpc": .string("2.0"), "id": .int(1), "method": .string("tools/call"),
+                                  "params": .object(["name": .string(verb), "arguments": args])])
+        req.httpBody = try? JSONEncoder().encode(body)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req), let http = resp as? HTTPURLResponse else {
+            out("could not reach \(url). Is the app running, and the Parlor server on?"); return 1
+        }
+        if http.statusCode == 401 { out("token refused (401)"); return 1 }
+        guard let j = try? JSONDecoder().decode(JSON.self, from: data), let result = j.objectValue?["result"]?.objectValue else {
+            out(String(data: data, encoding: .utf8) ?? "bad reply"); return 1
+        }
+        let text = result["content"]?.arrayValue?.first?.objectValue?["text"]?.stringValue ?? ""
+        out(text)
+        return result["isError"]?.boolValue == true ? 1 : 0
     }
 
     @MainActor static func printServices(_ engine: ParlorEngine) {

@@ -103,7 +103,67 @@ final class ParlorUITests: XCTestCase {
         XCTAssertTrue(app.buttons["start-mcp:fake"].waitForExistence(timeout: 10), "stopped from System")
         app.buttons["start-mcp:fake"].click()
         XCTAssertTrue(app.buttons["stop-mcp:fake"].waitForExistence(timeout: 20), "started again")
-        XCTAssertTrue(app.buttons["data-Logs"].exists)
+        XCTAssertTrue(app.staticTexts["Your data"].exists)
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.lifetime = .keepAlways; add(shot)
+    }
+
+    /// A token made in System drives the running app over HTTP, and a module needs the user's approval.
+    func testTokenDrivesAppAndModuleApproval() throws {
+        try #"{"parlorServer":{"enabled":true,"port":11877}}"#.write(to: home.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
+        let dir = home.appendingPathComponent("modules/quiet")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try #"{"name":"quiet","description":"Does nothing.","command":"python3","args":["server.py"]}"#.write(to: dir.appendingPathComponent("module.json"), atomically: true, encoding: .utf8)
+        try "import sys, json\nfor l in sys.stdin:\n    m = json.loads(l)\n    if m.get('id') is None: continue\n    r = {'protocolVersion':'2025-03-26','capabilities':{'tools':{}},'serverInfo':{'name':'quiet','version':'1'}} if m['method']=='initialize' else {'tools':[]}\n    print(json.dumps({'jsonrpc':'2.0','id':m['id'],'result':r}), flush=True)\n".write(to: dir.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
+        app.launchEnvironment["PARLOR_ROUTE"] = "system"
+        app.launch()
+
+        // Module: listed, waiting for approval.
+        let approve = app.buttons["approve-quiet"]
+        XCTAssertTrue(approve.waitForExistence(timeout: 15), "unapproved module offers Approve")
+        approve.click()
+        XCTAssertTrue(app.buttons["revoke-quiet"].waitForExistence(timeout: 10), "approved")
+
+        // Token: create in the sheet, read the secret back from the screen.
+        app.buttons["new-token"].click()
+        let name = app.textFields["token-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.click(); name.typeText("ui-test")
+        app.buttons["create-token"].click()
+        let secretText = app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'plt_'")).firstMatch
+        XCTAssertTrue(secretText.waitForExistence(timeout: 5), "secret shown once")
+        let secret = secretText.value as? String ?? ""
+        XCTAssertTrue(secret.hasPrefix("plt_"))
+        app.buttons["Done"].click()
+
+        func rpc(_ method: String, _ params: [String: Any], token: String) throws -> (Int, [String: Any]) {
+            var req = URLRequest(url: URL(string: "http://127.0.0.1:11877/mcp")!)
+            req.httpMethod = "POST"
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            req.httpBody = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": method, "params": params])
+            var result: (Int, [String: Any]) = (0, [:])
+            let done = expectation(description: "rpc")
+            URLSession.shared.dataTask(with: req) { d, r, _ in
+                result = ((r as? HTTPURLResponse)?.statusCode ?? 0, (d.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) ?? [:])
+                done.fulfill()
+            }.resume()
+            wait(for: [done], timeout: 10)
+            return result
+        }
+        XCTAssertEqual(try rpc("tools/list", [:], token: "plt_nope").0, 401)
+        let (s1, r1) = try rpc("tools/call", ["name": "conversations.create", "arguments": ["title": "From outside", "agents": ["mabel", "pip"], "scheduler": "roundRobin", "max_turns": 2]], token: secret)
+        XCTAssertEqual(s1, 200)
+        let text = (((r1["result"] as? [String: Any])?["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+        let id = (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])?["id"] as? String ?? ""
+        XCTAssertFalse(id.isEmpty, text)
+        // The room appears in the app's sidebar, and a message posted over HTTP is answered by both agents.
+        XCTAssertTrue(app.staticTexts["From outside"].firstMatch.waitForExistence(timeout: 10), "room shows up live")
+        _ = try rpc("tools/call", ["name": "conversations.post", "arguments": ["id": id, "text": "hello from outside", "wait": true]], token: secret)
+        app.staticTexts["From outside"].firstMatch.click()
+        if !app.staticTexts["hello from outside"].firstMatch.waitForExistence(timeout: 10) {
+            print("TEXTS:", app.staticTexts.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label }.joined(separator: " | "))
+        }
+        XCTAssertTrue(app.staticTexts["hello from outside"].exists)
+        let replies = app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH '(demo)'"))
+        XCTAssertGreaterThanOrEqual(replies.count, 2)
     }
 }

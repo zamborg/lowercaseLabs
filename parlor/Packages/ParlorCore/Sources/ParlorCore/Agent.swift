@@ -39,6 +39,15 @@ public struct Agent: Identifiable, Hashable, Sendable {
         self.overrides = overrides; self.extra = extra
     }
 
+    /// What this agent may do through `parlor.*` tools. Stored as the `tier` front-matter key.
+    public var tier: Tier {
+        get { Tier(rawValue: extra.first { $0.key == "tier" }.flatMap { f -> String? in if case .scalar(let s) = f.value { return s } else { return nil } } ?? "") ?? .none }
+        set {
+            extra.removeAll { $0.key == "tier" }
+            if newValue != .none { extra.append(ExtraField(key: "tier", value: .scalar(newValue.rawValue))) }
+        }
+    }
+
     public var initial: String { String(name.first.map { String($0).uppercased() } ?? "?") }
 
     public static func slug(_ name: String) -> String {

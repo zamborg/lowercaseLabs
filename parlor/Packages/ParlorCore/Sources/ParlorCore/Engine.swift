@@ -32,6 +32,16 @@ public final class ParlorEngine {
     public private(set) var image: ImageProvider?
     /// Everything supervised: the language model, the image worker and each mounted server.
     public private(set) var services: [ServiceInfo] = []
+    /// The command layer: every control as a named, tiered verb.
+    public private(set) var commands: CommandCenter!
+    /// The `parlor` MCP endpoint on 127.0.0.1.
+    public private(set) var endpoint: ParlorMCPEndpoint!
+    public private(set) var serverError: String?
+    /// Modules found in `modules/`, approved or not.
+    public private(set) var modules: [ModuleInfo] = []
+    private var moduleTokens: [String: String] = [:]
+    /// Asked before an agent's or token's destructive verb runs. nil means nobody can answer, so it is refused.
+    public var confirm: (@MainActor (String) async -> Bool)?
 
     /// Pass a runtime to substitute the model (tests); nil uses MLX.
     public init(home: ParlorHome = .default, runtime: LanguageModelRuntime? = nil, harness: Harness = BuiltInHarness()) {
@@ -48,6 +58,8 @@ public final class ParlorEngine {
         }
         self.mcp = MCPManager(hub: hub, home: home)
         deps.agentLookup = { [weak self] id in self?.agent(id) }
+        self.commands = CommandCenter(engine: self)
+        self.endpoint = ParlorMCPEndpoint(engine: self)
     }
 
     public var runtime: LanguageModelRuntime { deps.llm }
@@ -71,7 +83,73 @@ public final class ParlorEngine {
         await mlx?.setKeepAlive(minutes: settings.llm.keepLoadedMinutes)
         await mlx?.configure(budgetFraction: settings.memoryBudgetFraction, slots: settings.cacheSlotsPerModel)
         await image?.configure(settings.image)
+        await syncServer()
     }
+
+    /// Start, stop or move the `parlor` server to match settings.
+    private func syncServer() async {
+        let want = settings.parlorServer
+        if !want.enabled { endpoint.stop(); serverError = nil; return }
+        if endpoint.isRunning, want.port == 0 || endpoint.port == want.port { return }
+        do { try await endpoint.start(port: want.port); serverError = nil }
+        catch { endpoint.stop(); serverError = error.localizedDescription }
+    }
+
+    // MARK: modules
+
+    public func reloadModules() {
+        let found = Modules.scan(home: home, approvals: settings.moduleApprovals)
+        if found != modules { modules = found }
+    }
+
+    /// Launch configs of approved modules, with a per-process token at the tier the manifest asks for.
+    func moduleConfigs() -> [String: MCPServerConfig] {
+        var out: [String: MCPServerConfig] = [:]
+        for m in modules where m.approved && m.manifest != nil {
+            var token: String?
+            if m.manifest!.tier != .none, endpoint.isRunning {
+                if moduleTokens[m.name] == nil { moduleTokens[m.name] = endpoint.issueEphemeral(name: "module:\(m.name)", tier: m.manifest!.tier) }
+                token = moduleTokens[m.name]
+            }
+            let url = endpoint.isRunning ? "http://127.0.0.1:\(endpoint.port)/mcp" : nil
+            if let c = Modules.config(for: m, parlorURL: url, token: token) { out[m.name] = c }
+        }
+        return out
+    }
+
+    /// The user reviewed the manifest and allows this module to run.
+    public func approveModule(_ name: String) {
+        guard let m = modules.first(where: { $0.name == name }), m.manifest != nil else { return }
+        updateSettings { $0.moduleApprovals[name] = m.hash }
+        reloadModules()
+        Task { await self.mcp.reload(); await self.refreshServices() }
+    }
+
+    public func revokeModule(_ name: String) {
+        updateSettings { $0.moduleApprovals[name] = nil }
+        reloadModules()
+        Task { await self.mcp.reload(); await self.refreshServices() }
+    }
+
+    public func setModuleValues(_ name: String, _ values: [String: JSON]) {
+        guard let m = modules.first(where: { $0.name == name }) else { return }
+        Modules.saveValues(m, values)
+        reloadModules()
+        Task { await self.mcp.reload(); await self.refreshServices() }
+    }
+
+    // MARK: access tokens
+
+    /// Make a token. The secret is returned once; only its hash is stored.
+    public func createToken(name: String, tier: Tier, expires: Date? = nil) -> String? {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty, !settings.tokens.contains(where: { $0.name == n }) else { return nil }
+        let (secret, token) = APIToken.make(name: n, tier: tier, expires: expires)
+        updateSettings { $0.tokens.append(token) }
+        return secret
+    }
+
+    public func revokeToken(_ name: String) { updateSettings { $0.tokens.removeAll { $0.name == name } } }
 
     // MARK: lifecycle
 
@@ -86,11 +164,21 @@ public final class ParlorEngine {
         settings = ParlorSettings.load(home.settingsFile)
         if !FileManager.default.fileExists(atPath: home.settingsFile.path) { settings.save(home.settingsFile) }
         await applySettings()
+        let provider = CommandProvider(center: commands)
+        await hub.setTierRequirements(commands.tiers())
+        await hub.register(provider, status: ServerStatus(id: "parlor", kind: "built in", detail: "controls for the app itself", state: .connecting, toolCount: 0, toolNames: []))
         await hub.register(img, status: ServerStatus(id: "image", kind: "built in", detail: "local image model worker", state: .connecting, toolCount: 0, toolNames: []))
         _ = await hub.onChange { [weak self] in
             Task { @MainActor in await self?.syncFromHub() }
         }
         loadConfig()
+        let guide = home.modulesDir.appendingPathComponent("CLAUDE.md")
+        if !FileManager.default.fileExists(atPath: guide.path) {
+            try? FileManager.default.createDirectory(at: home.modulesDir, withIntermediateDirectories: true)
+            try? Seeds.moduleGuide.write(to: guide, atomically: true, encoding: .utf8)
+        }
+        reloadModules()
+        await mcp.setModuleProvider { [weak self] in await self?.moduleConfigs() ?? [:] }
         // Servers start in the background: a slow or broken one must not hold up the window.
         Task { await self.mcp.reload(); await self.syncFromHub() }
         await syncFromHub()
@@ -101,6 +189,7 @@ public final class ParlorEngine {
 
     public func shutdown() async {
         watcher?.stop()
+        endpoint.stop()
         await mcp.stopAll()
         await image?.shutdown()
         await deps.llm.unload()
@@ -349,39 +438,67 @@ public final class ParlorEngine {
             let cfg = m.config
             let pid = await mcp.pid(m.id)
             out.append(ServiceInfo(
-                id: "mcp:\(m.id)", kind: "mcp", title: m.id,
+                id: (m.isModule ? "module:" : "mcp:") + m.id, kind: m.isModule ? "module" : "mcp", title: m.id,
                 detail: cfg.url ?? ([cfg.command ?? ""] + (cfg.args ?? [])).joined(separator: " "),
                 state: state, memoryBytes: pid.flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: m.lastUsed, queueDepth: nil,
                 lifecycle: cfg.isOnDemand ? "onDemand" : "always", restarts: m.restarts,
                 canStart: !state.isAlive && cfg.disabled != true, canStop: state.isAlive, canRestart: cfg.disabled != true,
-                logURL: ServiceLog.url(home: home, service: "mcp:\(m.id)")))
+                logURL: ServiceLog.url(home: home, service: (m.isModule ? "module:" : "mcp:") + m.id)))
         }
+        let ps = settings.parlorServer
+        let psState: ServiceState = !ps.enabled ? .stopped : (serverError.map { .failed($0) } ?? (endpoint.isRunning ? .running : .starting))
+        out.append(ServiceInfo(
+            id: "parlorServer", kind: "server", title: "Parlor server",
+            detail: ps.enabled ? "http://127.0.0.1:\(ps.port)/mcp · \(settings.tokens.count) token\(settings.tokens.count == 1 ? "" : "s")" : "off",
+            state: psState, memoryBytes: nil, lastUsed: nil, queueDepth: nil, lifecycle: "always", restarts: 0,
+            canStart: !ps.enabled, canStop: ps.enabled, canRestart: ps.enabled, logURL: nil))
         services = out
     }
 
-    public func startService(_ id: String) {
-        Task {
-            if id == "image" { try? await image?.start() }
-            else if id.hasPrefix("mcp:") { await mcp.start(String(id.dropFirst(4))) }
-            await refreshServices()
+    public enum ServiceAction { case start, stop, restart }
+
+    public func controlService(_ id: String, _ action: ServiceAction) async throws {
+        if id == "parlorServer" {
+            switch action {
+            case .start: updateSettings { $0.parlorServer.enabled = true }
+            case .stop: updateSettings { $0.parlorServer.enabled = false }
+            case .restart: endpoint.stop()
+            }
+            await syncServer(); await refreshServices(); return
         }
+        let isMCP = id.hasPrefix("mcp:") || id.hasPrefix("module:")
+        let name = id.split(separator: ":", maxSplits: 1).last.map(String.init) ?? id
+        guard id == "llm" || id == "image" || isMCP else { throw CommandError("No service \"\(id)\". Use services.list.") }
+        if isMCP, !(await mcp.snapshot().contains { $0.id == name }) { throw CommandError("No service \"\(id)\". Use services.list.") }
+        switch action {
+        case .start:
+            if id == "image" { try await image?.start() } else if isMCP { await mcp.start(name) }
+        case .stop:
+            if id == "llm" { await unloadModels() } else if id == "image" { await image?.stop() } else { await mcp.stop(name) }
+        case .restart:
+            if id == "image" { await image?.stop(); try await image?.start() } else if isMCP { await mcp.restart(name) }
+        }
+        await refreshServices(); await refreshLoaded()
     }
 
-    public func stopService(_ id: String) {
-        Task {
-            if id == "llm" { await deps.llm.unload() }
-            else if id == "image" { await image?.stop() }
-            else if id.hasPrefix("mcp:") { await mcp.stop(String(id.dropFirst(4))) }
-            await refreshServices(); await refreshLoaded()
-        }
+    public func startService(_ id: String) { Task { try? await controlService(id, .start) } }
+    public func stopService(_ id: String) { Task { try? await controlService(id, .stop) } }
+    public func restartService(_ id: String) { Task { try? await controlService(id, .restart) } }
+
+    // MARK: language model control
+
+    public func loadedModels() async -> [String] {
+        if let mlx { return await mlx.loadedModels() }
+        return (await deps.llm.loadedModel()).map { [$0] } ?? []
     }
 
-    public func restartService(_ id: String) {
-        Task {
-            if id == "image" { await image?.stop(); try? await image?.start() }
-            else if id.hasPrefix("mcp:") { await mcp.restart(String(id.dropFirst(4))) }
-            await refreshServices()
-        }
+    public func unloadModels() async { await deps.llm.unload(); await refreshLoaded() }
+
+    /// Warm a model by asking it for one token.
+    public func loadModel(_ repo: String) async throws {
+        let req = LLMRequest(messages: [LLMMessage(role: .user, text: "Hi")], temperature: 0, maxTokens: 1, priority: .background)
+        for try await _ in deps.llm.generate(model: repo, request: req) {}
+        await refreshLoaded()
     }
 
     private func syncFromHub() async {
@@ -411,6 +528,7 @@ public final class ParlorEngine {
                 self.reloadAgents()
                 if paths.contains(where: { $0.hasSuffix("/mcp.json") }) { await self.mcp.reload(); self.loadConfig() }
             }
+            if paths.contains(where: { $0.contains("/modules/") }) { self.reloadModules(); await self.mcp.reload() }
             if paths.contains(where: { $0.hasSuffix("/settings.json") }) {
                 let fresh = ParlorSettings.load(self.home.settingsFile)
                 if fresh != self.settings { self.settings = fresh; await self.applySettings() }

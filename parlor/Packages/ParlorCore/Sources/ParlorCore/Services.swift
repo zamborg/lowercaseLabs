@@ -70,10 +70,10 @@ public enum ServiceLog {
     }
 
     /// The last `lines` lines of a service's log.
-    public static func tail(home: ParlorHome, service id: String, lines: Int = 8) -> String {
+    public static func tail(home: ParlorHome, service id: String, lines: Int = 8, banners: Bool = false) -> String {
         guard let text = try? String(contentsOf: url(home: home, service: id), encoding: .utf8) else { return "" }
         return text.split(separator: "\n", omittingEmptySubsequences: true)
-            .filter { !$0.hasPrefix("---") }.suffix(lines).joined(separator: "\n")
+            .filter { banners || !$0.hasPrefix("---") }.suffix(lines).joined(separator: "\n")
     }
 }
 

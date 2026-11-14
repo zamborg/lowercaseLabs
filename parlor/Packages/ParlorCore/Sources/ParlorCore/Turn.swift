@@ -68,8 +68,12 @@ public struct HubToolExecutor: ToolExecutor {
         guard agent.allows(call.qualified) else {
             return ToolOutput(text: "Tool \(call.qualified) is not enabled for this agent.", isError: true)
         }
+        let need = await hub.requiredTier(call.qualified)
+        guard need <= agent.tier else {
+            return ToolOutput(text: "Tool \(call.qualified) needs tier \(need.rawValue); this agent has tier \(agent.tier.rawValue).", isError: true)
+        }
         var out = await hub.call(wireName: call.name, arguments: call.arguments,
-                                 timeout: TimeInterval(settings.toolTimeoutSeconds))
+                                 timeout: TimeInterval(settings.toolTimeoutSeconds), caller: .agent(agent))
         out.text = BuiltInHarness.clip(out.text, to: settings.toolResultChars)
         return out
     }

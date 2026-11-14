@@ -23,6 +23,7 @@ public struct ParlorHome: Sendable {
         }
         return root.appendingPathComponent("models")
     }
+    public var modulesDir: URL { root.appendingPathComponent("modules") }
     public var logsDir: URL { root.appendingPathComponent("logs") }
     /// Derived data that is safe to delete (cached tool lists of on-demand servers).
     public var cacheDir: URL { root.appendingPathComponent(".cache") }

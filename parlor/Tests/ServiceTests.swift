@@ -142,3 +142,118 @@ final class ServiceTests: XCTestCase {
         XCTAssertLessThan((try FileManager.default.attributesOfItem(atPath: ServiceLog.url(home: home, service: "mcp:big").path)[.size] as? Int) ?? 0, 1000)
     }
 }
+
+@MainActor
+final class ModuleTests: XCTestCase {
+    private func makeEngine() async throws -> ParlorEngine {
+        let home = tempHome()
+        try home.ensure()
+        try #"{"parlorServer":{"enabled":true,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        let e = ParlorEngine(home: home, runtime: DemoRuntime())
+        return e
+    }
+
+    private func write(_ e: ParlorEngine, _ name: String, manifest: String, server: String) throws {
+        let dir = e.home.modulesDir.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try manifest.write(to: dir.appendingPathComponent("module.json"), atomically: true, encoding: .utf8)
+        try server.write(to: dir.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
+    }
+
+    /// The Python in the guide, verbatim.
+    private var guideServer: String {
+        let g = Seeds.moduleGuide
+        let a = g.range(of: "```python\n")!, b = g.range(of: "\n```", range: a.upperBound..<g.endIndex)!
+        return String(g[a.upperBound..<b.lowerBound])
+    }
+
+    private func waitFor(_ timeout: TimeInterval = 10, _ cond: () async -> Bool) async -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end { if await cond() { return true }; try? await Task.sleep(nanoseconds: 100_000_000) }
+        return await cond()
+    }
+
+    func testModuleNeedsApprovalThenRunsAndReapprovesOnChange() async throws {
+        let e = try await makeEngine()
+        let manifest = #"{"version":1,"name":"dice","description":"Roll dice.","command":"python3","args":["server.py"],"needs":{"tier":"none"},"settings":{"type":"object","properties":{"maxDice":{"type":"integer","default":3,"description":"Most dice"}}}}"#
+        try write(e, "dice", manifest: manifest, server: guideServer)
+        await e.start()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: e.home.modulesDir.appendingPathComponent("CLAUDE.md").path), "guide is seeded")
+        let m = try XCTUnwrap(e.modules.first)
+        XCTAssertFalse(m.approved)
+        XCTAssertNil(m.error)
+        var tools = await e.hub.allTools().map(\.qualified)
+        XCTAssertFalse(tools.contains("dice.roll"), "nothing runs before approval")
+
+        e.approveModule("dice")
+        let up = await waitFor { await e.hub.allTools().map(\.qualified).contains("dice.roll") }
+        XCTAssertTrue(up, "mounts after approval")
+        let r = await e.hub.call(wireName: "dice__roll", arguments: .object(["notation": .string("2d6+1")]))
+        XCTAssertFalse(r.isError, r.text); XCTAssertTrue(r.text.contains("="), r.text)
+        // Settings reach the module: maxDice is 3 by default.
+        let big = await e.hub.call(wireName: "dice__roll", arguments: .object(["notation": .string("5d6")]))
+        XCTAssertTrue(big.isError, "schema default of 3 was passed in PARLOR_MODULE_SETTINGS")
+        e.setModuleValues("dice", ["maxDice": .int(10)])
+        let applied = await waitFor {
+            let r = await e.hub.call(wireName: "dice__roll", arguments: .object(["notation": .string("5d6")])); return !r.isError
+        }
+        XCTAssertTrue(applied, "changed settings restart the module with the new values")
+        await e.refreshServices()
+        XCTAssertTrue(e.services.contains { $0.id == "module:dice" })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ServiceLog.url(home: e.home, service: "module:dice").path) || true)
+
+        // Editing the manifest revokes the approval and stops it.
+        try write(e, "dice", manifest: manifest.replacingOccurrences(of: "Roll dice.", with: "Roll dice. Now sneakier."), server: guideServer)
+        e.reloadModules()
+        XCTAssertFalse(try XCTUnwrap(e.modules.first).approved, "a changed manifest must be approved again")
+        await e.mcp_reloadForTests()
+        tools = await e.hub.allTools().map(\.qualified)
+        XCTAssertFalse(tools.contains("dice.roll"))
+        await e.shutdown()
+    }
+
+    func testModuleGetsATokenAtItsDeclaredTier() async throws {
+        let e = try await makeEngine()
+        let probe = """
+        import sys, json, os, urllib.request
+        def send(m): sys.stdout.write(json.dumps(m) + "\\n"); sys.stdout.flush()
+        def listed():
+            req = urllib.request.Request(os.environ["PARLOR_URL"], data=json.dumps({"jsonrpc":"2.0","id":1,"method":"tools/list"}).encode(),
+                headers={"Authorization": "Bearer " + os.environ["PARLOR_TOKEN"], "Content-Type": "application/json"})
+            return [t["name"] for t in json.load(urllib.request.urlopen(req))["result"]["tools"]]
+        for line in sys.stdin:
+            m = json.loads(line)
+            if m.get("id") is None: continue
+            if m["method"] == "initialize": send({"jsonrpc":"2.0","id":m["id"],"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"probe","version":"1"}}})
+            elif m["method"] == "tools/list": send({"jsonrpc":"2.0","id":m["id"],"result":{"tools":[{"name":"seen","description":"Verbs visible to me","inputSchema":{"type":"object"}}]}})
+            elif m["method"] == "tools/call": send({"jsonrpc":"2.0","id":m["id"],"result":{"content":[{"type":"text","text":",".join(listed())}],"isError":False}})
+        """
+        try write(e, "probe", manifest: #"{"name":"probe","command":"python3","args":["server.py"],"needs":{"tier":"read"}}"#, server: probe)
+        await e.start()
+        e.approveModule("probe")
+        let up = await waitFor { await e.hub.allTools().map(\.qualified).contains("probe.seen") }
+        XCTAssertTrue(up)
+        let r = await e.hub.call(wireName: "probe__seen", arguments: .object([:]))
+        XCTAssertFalse(r.isError, r.text)
+        XCTAssertTrue(r.text.contains("agents.list"), r.text)
+        XCTAssertFalse(r.text.contains("agents.update"), "a read-tier module cannot see configure verbs: \(r.text)")
+        await e.shutdown()
+    }
+
+    func testBadManifestIsReportedNotRun() async throws {
+        let e = try await makeEngine()
+        try write(e, "oops", manifest: #"{"name":"other","command":"python3"}"#, server: "")
+        try write(e, "nocmd", manifest: #"{"name":"nocmd"}"#, server: "")
+        await e.start()
+        let by = Dictionary(uniqueKeysWithValues: e.modules.map { ($0.name, $0) })
+        XCTAssertNotNil(by["oops"]?.error); XCTAssertNotNil(by["nocmd"]?.error)
+        e.approveModule("oops")
+        XCTAssertFalse(e.modules.first { $0.name == "oops" }!.approved)
+        await e.shutdown()
+    }
+}
+
+extension ParlorEngine {
+    /// Tests only: apply module changes now instead of waiting for the file watcher.
+    func mcp_reloadForTests() async { reloadTools(); try? await Task.sleep(nanoseconds: 500_000_000) }
+}

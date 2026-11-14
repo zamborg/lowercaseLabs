@@ -14,6 +14,14 @@ public protocol ToolProvider: Sendable {
     var id: String { get }
     func listTools() async throws -> [ToolDef]
     func call(tool: String, arguments: JSON) async throws -> ToolOutput
+    /// Who is asking. Providers that gate by tier override this; the rest ignore the caller.
+    func call(tool: String, arguments: JSON, caller: Caller) async throws -> ToolOutput
+}
+
+public extension ToolProvider {
+    func call(tool: String, arguments: JSON, caller: Caller) async throws -> ToolOutput {
+        try await call(tool: tool, arguments: arguments)
+    }
 }
 
 public struct ServerStatus: Identifiable, Sendable, Equatable {
@@ -33,6 +41,8 @@ public actor ToolHub {
     private var cached: [String: [ToolDef]] = [:]
     private var listeners: [UUID: @Sendable () -> Void] = [:]
     public private(set) var version = 0
+    /// Tier a tool needs, by qualified name. Tools not listed need none.
+    private var tierRequired: [String: Tier] = [:]
 
     public init() {}
 
@@ -79,16 +89,23 @@ public actor ToolHub {
     public func allStatuses() -> [ServerStatus] { statuses.values.sorted { $0.id < $1.id } }
     public func providerIDs() -> [String] { Array(providers.keys) }
 
-    public func tools(for agent: Agent) -> [ToolDef] { allTools().filter { agent.allows($0.qualified) } }
+    public func setTierRequirements(_ t: [String: Tier]) { tierRequired = t }
+    public func requiredTier(_ qualified: String) -> Tier { tierRequired[qualified] ?? .none }
 
-    public func call(wireName: String, arguments: JSON, timeout: TimeInterval? = nil) async -> ToolOutput {
+    /// Tools the agent may use: its patterns match and its tier is high enough.
+    public func tools(for agent: Agent) -> [ToolDef] {
+        let tier = agent.tier
+        return allTools().filter { agent.allows($0.qualified) && requiredTier($0.qualified) <= tier }
+    }
+
+    public func call(wireName: String, arguments: JSON, timeout: TimeInterval? = nil, caller: Caller = .local) async -> ToolOutput {
         guard let r = wireName.range(of: "__") else { return ToolOutput(text: "Unknown tool \(wireName)", isError: true) }
         let server = String(wireName[..<r.lowerBound]); let tool = String(wireName[r.upperBound...])
         guard let p = providers[server] else { return ToolOutput(text: "Server \(server) is not running", isError: true) }
         do {
-            guard let timeout, timeout > 0 else { return try await p.call(tool: tool, arguments: arguments) }
+            guard let timeout, timeout > 0 else { return try await p.call(tool: tool, arguments: arguments, caller: caller) }
             return try await withThrowingTaskGroup(of: ToolOutput.self) { group in
-                group.addTask { try await p.call(tool: tool, arguments: arguments) }
+                group.addTask { try await p.call(tool: tool, arguments: arguments, caller: caller) }
                 group.addTask {
                     try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                     return ToolOutput(text: "Tool \(server).\(tool) timed out after \(Int(timeout)) s.", isError: true)

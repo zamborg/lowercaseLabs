@@ -9,6 +9,8 @@ struct SystemView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 servicesSection
+                modulesSection
+                accessSection
                 dataSection
                 ConsoleSection()
             }
@@ -78,6 +80,121 @@ struct SystemView: View {
         }
     }
 
+    // MARK: modules
+
+    @State private var editing: String?
+
+    private var modulesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Modules").font(.headline)
+            Text("Small tools in your parlor folder's modules/ directory, written by you or a model (see modules/CLAUDE.md). A module runs only after you approve it, and again if its manifest changes.")
+                .font(.caption).foregroundStyle(.secondary)
+            if engine.modules.isEmpty { Text("None yet.").font(.caption).foregroundStyle(.secondary) }
+            ForEach(engine.modules) { m in moduleCard(m) }
+        }
+    }
+
+    private func moduleCard(_ m: ModuleInfo) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: m.approved ? "checkmark.shield" : "exclamationmark.shield").foregroundStyle(m.approved ? Color.green : .orange)
+                Text(m.name).font(.headline)
+                Text(m.approved ? "approved" : (m.error == nil ? "needs approval" : "invalid")).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if m.manifest != nil, !m.fields.isEmpty, m.approved {
+                    Button("Settings") { editing = editing == m.name ? nil : m.name }.controlSize(.small)
+                }
+                if m.approved { Button("Revoke") { engine.revokeModule(m.name) }.controlSize(.small).accessibilityIdentifier("revoke-\(m.name)") }
+                else if m.manifest != nil { Button("Approve") { engine.approveModule(m.name) }.controlSize(.small).buttonStyle(.borderedProminent).accessibilityIdentifier("approve-\(m.name)") }
+                Button { NSWorkspace.shared.activateFileViewerSelecting([m.dir]) } label: { Image(systemName: "folder") }.buttonStyle(.borderless).help("Show in Finder")
+            }
+            if let e = m.error { Text(e).font(.caption).foregroundStyle(.red) }
+            if let man = m.manifest {
+                if let d = man.description { Text(d).font(.callout) }
+                Text("Runs: \(([man.command] + (man.args ?? [])).joined(separator: " "))").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                HStack(spacing: 10) {
+                    Label(man.needs?.network == true ? "Network" : "No network", systemImage: "network").font(.caption).foregroundStyle(.secondary)
+                    Label("Files: " + (man.needs?.files ?? "none"), systemImage: "doc").font(.caption).foregroundStyle(.secondary)
+                    Label("App control: " + man.tier.rawValue, systemImage: "key").font(.caption).foregroundStyle(man.tier == .none ? Color.secondary : .orange)
+                }
+                Text("Modules are not sandboxed yet: these are what the module says it needs. Read its code before approving.").font(.caption2).foregroundStyle(.secondary)
+            }
+            if editing == m.name { ModuleSettingsForm(module: m) }
+        }
+        .padding(12).background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("module-\(m.name)")
+    }
+
+    // MARK: access
+
+    @State private var showNewToken = false
+    @State private var newSecret: String?
+    @State private var newName = ""
+    @State private var newTier: Tier = .act
+
+    private var accessSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Access").font(.headline)
+            Text("The Parlor server lets Claude Code or a script on this Mac drive the app: read and change agents, talk in rooms, start services. It only listens on 127.0.0.1 and needs a token. A token's tier limits what it may do; deleting anything always asks you first.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Toggle("Parlor server", isOn: Binding(get: { engine.settings.parlorServer.enabled }, set: { v in engine.updateSettings { $0.parlorServer.enabled = v } }))
+                    .accessibilityIdentifier("server-toggle")
+                Text("http://127.0.0.1:\(engine.settings.parlorServer.port)/mcp").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                Spacer()
+                Button("New Token…") { newName = ""; newTier = .act; newSecret = nil; showNewToken = true }.controlSize(.small).accessibilityIdentifier("new-token")
+            }
+            ForEach(engine.settings.tokens) { t in
+                HStack {
+                    Image(systemName: "key.fill").foregroundStyle(.secondary)
+                    Text(t.name).fontWeight(.medium)
+                    Text(t.tier.rawValue).font(.caption).padding(.horizontal, 7).padding(.vertical, 1).background(.quaternary, in: Capsule())
+                    Text("created \(t.created.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Revoke", role: .destructive) { engine.revokeToken(t.name) }.controlSize(.small)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .sheet(isPresented: $showNewToken) { tokenSheet }
+    }
+
+    private var tokenSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(newSecret == nil ? "New token" : "Copy your token now").font(.title3.bold())
+            if let secret = newSecret {
+                Text("It is shown once. Parlor keeps only a hash of it.").font(.caption).foregroundStyle(.secondary)
+                Text(secret).font(.system(.callout, design: .monospaced)).textSelection(.enabled).padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                Text("Add it to Claude Code:").font(.caption).foregroundStyle(.secondary)
+                let cmd = "claude mcp add --transport http parlor http://127.0.0.1:\(engine.settings.parlorServer.port)/mcp --header \"Authorization: Bearer \(secret)\""
+                Text(cmd).font(.system(.caption, design: .monospaced)).textSelection(.enabled).padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                HStack {
+                    Button("Copy Token") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(secret, forType: .string) }
+                    Button("Copy Command") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(cmd, forType: .string) }
+                    Spacer()
+                    Button("Done") { showNewToken = false }.keyboardShortcut(.defaultAction)
+                }
+            } else {
+                TextField("Name (e.g. claude-code)", text: $newName).textFieldStyle(.roundedBorder).accessibilityIdentifier("token-name")
+                Picker("Tier", selection: $newTier) {
+                    Text("Read: look only").tag(Tier.read)
+                    Text("Act: talk in rooms, start services").tag(Tier.act)
+                    Text("Configure: edit agents and settings").tag(Tier.configure)
+                }
+                .accessibilityIdentifier("token-tier")
+                HStack {
+                    Button("Cancel") { showNewToken = false }
+                    Spacer()
+                    Button("Create") { newSecret = engine.createToken(name: newName, tier: newTier) }
+                        .keyboardShortcut(.defaultAction).disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .accessibilityIdentifier("create-token")
+                }
+            }
+        }
+        .padding(20).frame(width: 520)
+    }
+
     // MARK: your data
 
     private var dataSection: some View {
@@ -115,5 +232,35 @@ struct SystemView: View {
         try? fm.createDirectory(at: url.hasDirectoryPath || !url.lastPathComponent.contains(".") ? url : url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if fm.fileExists(atPath: url.path) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         else { NSWorkspace.shared.open(url.deletingLastPathComponent()) }
+    }
+}
+
+
+/// A form for a module's JSON-Schema settings.
+struct ModuleSettingsForm: View {
+    @Environment(ParlorEngine.self) private var engine
+    let module: ModuleInfo
+    @State private var values: [String: JSON] = [:]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(module.fields) { f in
+                HStack {
+                    Text(f.title).frame(width: 220, alignment: .leading)
+                    switch f.type {
+                    case "boolean":
+                        Toggle("", isOn: Binding(get: { values[f.key]?.boolValue ?? false }, set: { values[f.key] = .bool($0) })).labelsHidden()
+                    case "integer":
+                        TextField("", value: Binding(get: { values[f.key]?.intValue ?? 0 }, set: { values[f.key] = .int($0) }), format: .number).frame(width: 90)
+                    case "number":
+                        TextField("", value: Binding(get: { values[f.key]?.doubleValue ?? 0 }, set: { values[f.key] = .double($0) }), format: .number).frame(width: 90)
+                    default:
+                        TextField("", text: Binding(get: { values[f.key]?.stringValue ?? "" }, set: { values[f.key] = .string($0) })).textFieldStyle(.roundedBorder)
+                    }
+                }
+            }
+            Button("Save and Restart") { engine.setModuleValues(module.name, values) }.controlSize(.small)
+        }
+        .onAppear { values = module.values }
     }
 }

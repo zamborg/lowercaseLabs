@@ -16,6 +16,15 @@ struct ParlorApp: App {
                 .environment(engine)
                 .frame(minWidth: 940, minHeight: 600)
                 .task {
+                    engine.confirm = { question in
+                        let a = NSAlert()
+                        a.messageText = "Allow this?"
+                        a.informativeText = question
+                        a.alertStyle = .warning
+                        a.addButton(withTitle: "Cancel")
+                        a.addButton(withTitle: "Allow")
+                        return a.runModal() == .alertSecondButtonReturn
+                    }
                     await engine.start()
                     #if DEBUG
                     // Debug hooks so screenshots and checks can drive the app without UI scripting.
