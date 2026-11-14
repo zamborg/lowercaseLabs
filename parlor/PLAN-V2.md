@@ -305,7 +305,10 @@ assumes the recommended answers to the open decisions.
    - an unmodified OpenAI-style script harness runs as an agent, its tool calls are enforced by tiers, and its
      output looks identical in chat.
 7. **Settings scopes UI, agent templates, tighten-up and verification debt**, interleaved with earlier steps
-   where they touch the same code.
+   where they touch the same code. **Done:** limits with Override/Inherit in the editor; templates and
+   `agents.templates`; sidebar groups from `group`; missing-model badge; per-agent memory (`memory/<id>.md`,
+   `memory.*` verbs); git-backed history with System → History and `home.history` / `home.restore`; Tools folded
+   into System; conversation triggers; `DebugHooks`; `tool-cost`.
 
 ## Feedback ledger (push, with disposition)
 
@@ -349,11 +352,15 @@ Resolved by the design: the single-slot cache (step 2), `Room`-bound compaction 
 
 Covered: 11 core tests, the click-driven UI flow, real-model prompt-cache correctness (`bench`).
 
-Still open from V1: light mode, a Release build running a real image generation, the Models and Tools screens
-under UI test, multi-hour idle unload.
+Closed in step 7: light mode (System checked), a Release build running a real image generation (Release
+`parlor-cli image`, 42.8 s, Z-Image-Turbo bf16, worker unloads on stop), System (with Tools and History) and the
+agent editor (memory, limits) under UI test, tool-schema cost measured (`parlor-cli tool-cost`: an agent with tier
+none and all tools adds about 330 tokens per request; at read tier about 1.5k, because the `parlor.*` verbs it may
+use are listed).
 
-New for V2: each spec's conformance test, and a soak test with two chats, a room and the image service under one
-memory budget.
+Still open: multi-hour idle unload, the soak test (two chats, a room and the image service under one memory budget)
+and the room cache-hit measurement on a real model. Each needs an hours-long or multi-model run; none has a code
+gap behind it.
 
 ## Open decisions for Zubin
 

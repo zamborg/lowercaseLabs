@@ -38,7 +38,7 @@ final class CommandTests: XCTestCase {
         var checked = 0
         for line in spec.components(separatedBy: "\n") where line.hasPrefix("| `") {
             let cols = line.split(separator: "|", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
-            guard cols.count >= 4, !cols[3].contains("step 7") else { continue }
+            guard cols.count >= 4 else { continue }
             let names = cols[1].components(separatedBy: "`").enumerated().filter { $0.offset % 2 == 1 }.map(\.element).filter { $0.contains(".") }
             for n in names {
                 let v = try XCTUnwrap(e.commands.verbs[n], "SPEC lists \(n) but no such verb exists")
@@ -72,10 +72,10 @@ final class CommandTests: XCTestCase {
         // The command layer enforces it too, for any caller.
         let direct = await e.commands.call("agents.update", .object(["id": .string("pip"), "name": .string("X")]), caller: .agent(a))
         XCTAssertTrue(direct.isError)
-        // Default tier is none: no parlor tools at all.
+        // Default tier is none: nothing but the agent's own memory.
         var plain = a; plain.tier = .none
         let none = await e.hub.tools(for: plain).filter { $0.server == "parlor" }
-        XCTAssertTrue(none.isEmpty)
+        XCTAssertEqual(Set(none.map(\.name)), ["memory.read", "memory.append", "memory.replace"])
         await e.shutdown()
     }
 

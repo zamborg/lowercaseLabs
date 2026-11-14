@@ -34,6 +34,9 @@ final class HarnessTests: XCTestCase {
                 n = read()
                 if n is None or (n.get("type") == "turn.cancel" and n.get("turn") == t): break
             continue
+        if "memory" in last:
+            send({"type": "message", "turn": t, "role": "assistant", "text": "memory=" + m["memory"]})
+            send({"type": "turn.done", "turn": t}); continue
         if "env" in last:
             keys = ["OPENAI_BASE_URL", "OPENAI_API_KEY", "PARLOR_MCP_URL", "PARLOR_TOKEN", "PARLOR_AGENT"]
             info = {k: os.environ.get(k, "") for k in keys}

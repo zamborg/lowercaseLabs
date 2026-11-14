@@ -114,6 +114,42 @@ final class ParlorUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.lifetime = .keepAlways; add(shot)
     }
 
+    /// Scrolls the editor form (by wheeling over a heading that is on screen) until `element` can be clicked.
+    private func scrollIntoView(_ element: XCUIElement) {
+        guard let form = app.scrollViews.allElementsBoundByIndex.max(by: { $0.frame.height < $1.frame.height }) else { return }
+        for _ in 0..<14 where !element.isHittable { form.scroll(byDeltaX: 0, deltaY: -250) }
+    }
+
+    /// Step 7 screens: Tools and History live in System; the editor has memory and per-agent limits.
+    func testStep7Screens() throws {
+        app.launchEnvironment["PARLOR_ROUTE"] = "tools"          // an alias of system
+        app.launch()
+        XCTAssertTrue(app.staticTexts["History"].waitForExistence(timeout: 15), "History section in System")
+        XCTAssertTrue(app.buttons["add-server"].exists, "Tools panel moved into System")
+        app.terminate()
+
+        app.launchEnvironment["PARLOR_ROUTE"] = "agent:mabel"
+        app.launchEnvironment["PARLOR_MODE"] = "edit"
+        app.launch()
+        let memory = app.textViews["agent-memory"]
+        XCTAssertTrue(memory.waitForExistence(timeout: 15), "memory editor")
+        scrollIntoView(memory)
+        memory.click()
+        memory.typeText("Likes oolong.")
+        let file = home.appendingPathComponent("memory/mabel.md")
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline, !FileManager.default.fileExists(atPath: file.path) { Thread.sleep(forTimeInterval: 0.3) }
+        XCTAssertEqual((try? String(contentsOf: file, encoding: .utf8))?.contains("Likes oolong."), true, "memory is saved to memory/<id>.md")
+        let override = app.buttons["override-top_p"]
+        XCTAssertTrue(override.waitForExistence(timeout: 5))
+        scrollIntoView(override)
+        override.click()
+        XCTAssertTrue(app.buttons["inherit-top_p"].waitForExistence(timeout: 5), "override shows Inherit")
+        app.buttons["inherit-top_p"].click()
+        XCTAssertTrue(app.buttons["override-top_p"].waitForExistence(timeout: 5))
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.lifetime = .keepAlways; add(shot)
+    }
+
     /// A token made in System drives the running app over HTTP, and a module needs the user's approval.
     func testTokenDrivesAppAndModuleApproval() throws {
         try #"{"parlorServer":{"enabled":true,"port":11877}}"#.write(to: home.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)

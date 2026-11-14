@@ -64,7 +64,7 @@ public final class CommandCenter {
     init(engine: ParlorEngine) {
         self.engine = engine
         registerAgents(); registerConversations(); registerModels(); registerServices()
-        registerSettings(); registerTools()
+        registerSettings(); registerTools(); registerMemory()
     }
 
     public var sorted: [Verb] { verbs.values.sorted { $0.name < $1.name } }
@@ -96,6 +96,9 @@ public final class CommandCenter {
             let ok = await ask("\(caller.name) wants to run \(v.qualified)\n\n" + arguments.text)
             guard ok else { return ToolOutput(text: "The user declined \(v.qualified).", isError: true) }
         }
+        let previous = engine.actor
+        engine.actor = caller.kind == .ui ? "ui" : (caller.kind == .local ? "local" : caller.name)
+        defer { engine.actor = previous }
         do {
             let r = try await v.run(Args(arguments), caller)
             return ToolOutput(text: r.pretty)
@@ -118,8 +121,9 @@ public final class CommandCenter {
             "id": .string(a.id), "name": .string(a.name), "description": .string(a.summary), "kind": .string(a.kind.rawValue),
             "model": .string(a.model), "tools": .strings(a.tools), "tier": .string(a.tier.rawValue),
             "context": .int(a.contextTokens), "compact_at": r(a.compactAt), "temperature": r(a.temperature),
-            "thinking": .bool(a.thinking), "color": .int(a.color),
+            "thinking": .bool(a.thinking), "color": .int(a.color), "group": .string(a.group),
         ]
+        if let h = a.harness { o["harness"] = .string(h) }
         if let m = a.imageModel { o["image_model"] = .string(m) }
         let ov = a.overrides
         if let v = ov.topP { o["top_p"] = r(v) }

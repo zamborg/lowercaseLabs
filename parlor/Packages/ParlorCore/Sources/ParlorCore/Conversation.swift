@@ -26,6 +26,8 @@ public struct ConversationConfig: Codable, Hashable, Sendable {
     public var title: String?
     public var participants: [Participant]
     public var scheduler: SchedulerSpec
+    /// Clock and file triggers that start the scheduler with no user message.
+    public var triggers: [ConversationTrigger] = []
 
     public var agentIDs: [String] { participants.compactMap(\.agent) }
 
@@ -43,6 +45,7 @@ public struct ConversationConfig: Codable, Hashable, Sendable {
         title = try c.decodeIfPresent(String.self, forKey: .title)
         participants = try c.decodeIfPresent([Participant].self, forKey: .participants) ?? []
         scheduler = try c.decodeIfPresent(SchedulerSpec.self, forKey: .scheduler) ?? .userDriven
+        triggers = try c.decodeIfPresent([ConversationTrigger].self, forKey: .triggers) ?? []
     }
 
     /// Reads `conversation.json` in a chat folder; falls back to the one-to-one default for `agentID`.

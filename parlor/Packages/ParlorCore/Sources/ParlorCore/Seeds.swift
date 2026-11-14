@@ -12,11 +12,17 @@ enum Seeds {
     - `chats/<id>/summary.md` rolling summary written by compaction.
     - `media/YYYY-MM/` generated images, referenced from chat logs by relative path.
     - `models/<org>/<name>/` downloaded MLX weights (managed by the Models screen).
-    - `chats/<id>/conversation.json` optional; makes the folder a room (several agents, a scheduler).
+    - `chats/<id>/conversation.json` optional; makes the folder a room (several agents, a scheduler). Its `triggers` list
+      (`{"every":"1d","at":"08:00"}` or `{"onFile":"workspaces/x/inbox/*"}`) starts a run with no user message.
+    - `memory/<id>.md` what an agent remembers across chats (max 6000 characters). It is added to its system prompt; the agent
+      edits it with `memory.append` / `memory.replace`.
     - `mcp.json` mounted MCP servers, same format as Claude Desktop. Optional per server: `"lifecycle": "onDemand"`
       and `"idleMinutes": 10` start it on first use and stop it when idle.
     - `modules/<name>/` small tools you or a model write; see `modules/CLAUDE.md`. They run only after you approve them in System.
     - `harnesses/` a sample external harness and its guide; see `harnesses/CLAUDE.md`. `workspaces/<agent>/` is a harness's working folder.
+    - Everything under agents/, memory/, mcp.json, settings.json, modules/*/module.json and chats/*/conversation.json is
+      versioned in `.git` here (System → History restores it). Models, media, logs, workspaces and chat logs are not.
+    - Agent front matter `group: <name>` picks the sidebar section (default Assistants or Characters).
     - `settings.json` machine settings, access tokens (hashes only), module approvals, `providers` and `runtimeAPI`.
     - `logs/` one log per service (`mcp-<name>.log`, `image.log`, `module-<name>.log`), rotated at 1 MB.
 

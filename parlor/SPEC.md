@@ -31,7 +31,7 @@ and a missing key inherits.
   settings.json             machine settings, providers, services                          V1, extended
   mcp.json                  mounted MCP servers                                            V1, extended
   agents/<id>.md            one agent                                                      V1, extended
-  memory/<id>.md            the agent's durable memory, shared across its conversations    reserved (step 7)
+  memory/<id>.md            the agent's durable memory, shared across its conversations    step 7
   chats/<id>/log.jsonl      one conversation's log                                         V1, extended
   chats/<id>/summary.md     the built-in harness's rolling summary                         V1
   chats/<id>/conversation.json  participants and scheduler                                 step 1 (read), 3 (write)
@@ -42,14 +42,14 @@ and a missing key inherits.
   workspaces/<agent>/       cwd for an external harness                                    step 6
   logs/<service>.log        rotating service logs (1 MB × 3)                               step 4
   .parlor-seeded            marker: starter agents were created once                       step 1
-  .git/                     automatic history of hand-editable state                       reserved (step 7)
+  .git/                     automatic history of hand-editable state                       step 7
 ```
 
 **Writers.** The app is the only writer of `log.jsonl` and `summary.md`. Everything else may be edited by hand
 or by an external tool. The app writes atomically (temp file and rename), except for the append to
 `log.jsonl`, and reloads on an FSEvents change.
 
-**History (reserved, step 7).** The app keeps `~/parlor/.git`. It commits after each app write to `agents/`,
+**History (step 7).** The app keeps `~/parlor/.git`. It commits after each app write to `agents/`,
 `memory/`, `settings.json`, `mcp.json`, `modules/*/module.json` and `conversation.json`, with the actor (UI,
 agent id, token name) as the author. `models/`, `media/`, `logs/`, `workspaces/` and `chats/*/log.jsonl` are
 git-ignored. This is the undo for edits made by configure-tier agents. Restoring is `parlor.home.restore`.
@@ -133,8 +133,12 @@ harness. An external harness keeps its own state in its workspace.
   - `roundRobin`: agents take turns, up to `maxTurns`; a user message restarts the count.
   - `mention`: the agent named in the last message speaks; otherwise the first agent speaks.
   - `autonomous`: the first agent continues without a user message, for at most `stepBudget` turns, then stops.
-- `triggers` (reserved, step 7) is a list of `{ "every": "1d", "at": "08:00" }` or `{ "onFile": "<glob>" }`.
-  Each trigger starts a run of the scheduler with no user message.
+- `triggers` is a list of `{ "every": "30m" | "2h" | "1d", "at": "08:00" }` (clock; `at` is local time of day, and
+  `every` then counts whole days, default `1d`) or `{ "onFile": "<glob relative to the parlor folder>" }`. Each
+  trigger starts a run of the scheduler with no user message, so it suits `autonomous` rooms or rooms with history.
+  Clock triggers count from when the app first sees them; a time that passes while the app is closed is not made up
+  (last runs live in `chats/<id>/triggers.json`). A file trigger waits 30 s between runs and ignores the room's own
+  folder, `logs/` and `.git/`, so an agent writing files cannot start itself in a loop.
 - Folder ids for new conversations are `<slug>-<4 hex>`, so they never collide with an agent id.
 
 ### 1.5 Tool set snapshot: `chats/<id>/tools.json` (step 1)
@@ -142,7 +146,7 @@ harness. An external harness keeps its own state in its workspace.
 `{"version":1,"tools":["image.generate","…"]}` is the qualified names offered on the last turn. It replaces V1's
 in-memory snapshot, so "Tools updated" markers survive a relaunch.
 
-### 1.6 Memory: `memory/<id>.md` (reserved, step 7)
+### 1.6 Memory: `memory/<id>.md` (step 7)
 
 Markdown with no front matter, owned by the agent and shared across all its conversations. The built-in harness
 puts it in the system prompt under "What you remember". Agents change it through `parlor.memory.read`,
@@ -373,7 +377,8 @@ MCP over streamable HTTP at `127.0.0.1:<parlorServer.port>/mcp`, bearer token. F
 | Verb | Tier | UI action today |
 |------|------|-----------------|
 | `agents.list`, `agents.read` | read | sidebar, editor |
-| `agents.create` | configure | New assistant / New character |
+| `agents.templates` | read | New Agent menu |
+| `agents.create` | configure | New Agent menu (any template); `harness` set by an agent or token asks the user first |
 | `agents.update` | configure | editor save, rename |
 | `agents.duplicate` | configure | Duplicate |
 | `agents.delete` | destructive | Delete agent |
@@ -398,8 +403,9 @@ MCP over streamable HTTP at `127.0.0.1:<parlorServer.port>/mcp`, bearer token. F
 | `tools.mount`, `tools.unmount`, `tools.enable` | configure | add, delete, enable or disable a server |
 | `home.paths` | read | Your data |
 | `home.reveal` | read | Reveal in Finder (UI only; does nothing over the wire) |
-| `memory.read`, `memory.append`, `memory.replace` | none (own) / configure (other) | (step 7) |
-| `home.restore` | destructive | (step 7) |
+| `memory.read`, `memory.append`, `memory.replace` | none | Memory in the agent editor (an agent's own; another agent's needs configure) |
+| `home.history` | read | System → History |
+| `home.restore` | destructive | System → History |
 
 Rules:
 - **Gate for step 5:** every UI action in the right-hand column calls the engine verb, and nothing else.

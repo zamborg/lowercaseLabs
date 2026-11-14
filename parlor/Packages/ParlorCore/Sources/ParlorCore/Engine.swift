@@ -24,6 +24,7 @@ public final class ParlorEngine {
     private let deps: RoomDeps
     private var mcp: MCPManager!
     private var watcher: FolderWatcher?
+    @ObservationIgnored lazy var triggers = TriggerScheduler(engine: self)
     private var reloadTask: Task<Void, Never>?
     private let mlx: MLXRuntime?
     /// Sends `provider/model` names to their provider and everything else to MLX.
@@ -35,6 +36,11 @@ public final class ParlorEngine {
     /// Runs agents that have a `harness:` command.
     public let externalHarness: ExternalHarness
     private var harnessTokens: [String: String] = [:]
+    /// Git history of the hand-editable state (`~/parlor/.git`).
+    public let history: HomeHistory
+    /// Who the next write is credited to in history. The command gate sets it for the length of a verb.
+    var actor = "ui"
+    public var memory: MemoryStore { MemoryStore(home: home) }
     private let queue = LLMQueue()
     /// Generations waiting behind the one running.
     public private(set) var queueDepth = 0
@@ -55,6 +61,7 @@ public final class ParlorEngine {
     /// Pass a runtime to substitute the model (tests); nil uses MLX.
     public init(home: ParlorHome = .default, runtime: LanguageModelRuntime? = nil, harness: Harness = BuiltInHarness()) {
         self.home = home
+        self.history = HomeHistory(root: home.root)
         let lib = ModelLibrary(home: home)
         self.library = lib
         let base: LanguageModelRuntime
@@ -85,6 +92,7 @@ public final class ParlorEngine {
         guard s != settings else { return }
         settings = s
         s.save(home.settingsFile)
+        noteChange("Changed settings")
         Task { await self.applySettings() }
     }
 
@@ -275,6 +283,7 @@ public final class ParlorEngine {
     public func start() async {
         try? home.ensure()
         seedIfEmpty()
+        history.setup()
         reloadAgents()
         if selection == nil { selection = agents.first?.id }
         let img = ImageProvider(home: home, library: library)
@@ -301,10 +310,13 @@ public final class ParlorEngine {
         watcher = FolderWatcher(path: home.root) { [weak self] paths in
             Task { @MainActor in self?.filesChanged(paths) }
         }
+        triggers.start()
     }
 
     public func shutdown() async {
         watcher?.stop()
+        triggers.stop()
+        history.flush()
         endpoint.stop()
         runtimeAPI.stop()
         externalHarness.stopAll()
@@ -324,7 +336,7 @@ public final class ParlorEngine {
         guard !fm.fileExists(atPath: home.seededMarker.path) else { return }
         let existing = (try? fm.contentsOfDirectory(atPath: home.agentsDir.path))?.filter { $0.hasSuffix(".md") } ?? []
         if existing.isEmpty {
-            for a in [Seeds.mabel(), Seeds.pip()] { write(a) }
+            for var a in [Seeds.mabel(), Seeds.pip()] { a.model = availableModel(a.model); write(a) }
         }
         try? "seeded\n".write(to: home.seededMarker, atomically: true, encoding: .utf8)
     }
@@ -383,6 +395,7 @@ public final class ParlorEngine {
         let config = ConversationConfig(participants: ids.map { .agent($0) } + [.user], scheduler: scheduler, title: title.isEmpty ? "Room" : title)
         try? home.ensure()
         try? config.save(dir: home.chatDir(for: id))
+        noteChange("Created room \(id)")
         reloadConversations()
         return id
     }
@@ -399,9 +412,14 @@ public final class ParlorEngine {
         let url = home.agentsDir.appendingPathComponent("\(a.id).md")
         let text = a.fileText()
         if (try? String(contentsOf: url, encoding: .utf8)) != text {
+            history.willChange(actor: actor)
             try? text.write(to: url, atomically: true, encoding: .utf8)
+            noteChange("Edited agent \(a.id)")
         }
     }
+
+    /// Ask history to record the change, credited to whoever is acting.
+    public func noteChange(_ what: String) { history.record(actor: actor, what) }
 
     public func save(_ a: Agent) {
         write(a)
@@ -410,27 +428,46 @@ public final class ParlorEngine {
 
     @discardableResult
     public func create(kind: Agent.Kind, name: String? = nil) -> Agent {
-        let base = name ?? (kind == .assistant ? "New assistant" : "New character")
+        create(template: AgentTemplates.template(kind == .assistant ? "assistant" : "character")!, name: name)
+    }
+
+    /// A new agent from a template, with a free id. Starter models fall back to one that is installed.
+    @discardableResult
+    public func create(template t: AgentTemplate, name: String? = nil) -> Agent {
+        let base = name ?? "New " + t.title.lowercased()
         var id = Agent.slug(base)
         var n = 2
         while agents.contains(where: { $0.id == id }) { id = Agent.slug(base) + "-\(n)"; n += 1 }
-        let a = Agent(
-            id: id, name: base, summary: "", persona: kind == .assistant
-                ? "You are \(base), a helpful personal assistant. Be concise and direct."
-                : "You are \(base). Describe who this character is and how they speak.",
-            kind: kind, model: kind == .assistant ? Defaults.languageModel : Defaults.characterModel,
-            imageModel: Defaults.imageModel, tools: kind == .assistant ? ["*"] : ["image.generate"],
-            contextTokens: kind == .assistant ? 16384 : 8192, temperature: kind == .assistant ? 0.5 : 0.9,
-            color: agents.count % 6)
+        var a = Agent(
+            id: id, name: base, summary: "", persona: t.persona(base), kind: t.kind, model: availableModel(t.languageModel),
+            imageModel: t.withImage ? Defaults.imageModel : nil, tools: t.tools, contextTokens: t.contextTokens,
+            temperature: t.temperature, thinking: t.thinking, color: agents.count % 6)
+        if let g = t.group { a.group = g }
+        if t.scripted { a.harness = "python3 '\(home.harnessesDir.appendingPathComponent("openai_loop.py").path)'" }
         save(a)
         selection = a.id
         return a
+    }
+
+    /// `preferred` if it is installed (or nothing can be checked), else the first installed language model, else `preferred`.
+    func availableModel(_ preferred: String) -> String {
+        guard mlx != nil, library.installedDirectory(for: preferred) == nil else { return preferred }
+        return library.installed(kind: .language).map(\.repo).sorted().first ?? preferred
+    }
+
+    /// Why an agent's model cannot answer right now, if so.
+    public func modelProblem(for a: Agent) -> String? {
+        if let (p, _) = router.route(a.model) { return p.config.enabled ? nil : "Provider \(p.config.id) is off." }
+        guard mlx != nil else { return nil }
+        let repo = a.model.hasPrefix("mlx/") ? String(a.model.dropFirst(4)) : a.model
+        return library.installedDirectory(for: repo) == nil ? "\(repo.split(separator: "/").last.map(String.init) ?? repo) is not downloaded." : nil
     }
 
     public func delete(_ id: String) {
         try? FileManager.default.removeItem(at: home.agentsDir.appendingPathComponent("\(id).md"))
         try? FileManager.default.removeItem(at: home.chatDir(for: id))
         rooms[id] = nil
+        noteChange("Deleted agent \(id)")
         reloadAgents()
     }
 
@@ -501,6 +538,7 @@ public final class ParlorEngine {
 
     public func saveMCPConfig(_ file: MCPConfigFile) throws {
         try file.save(home.mcpConfig)
+        noteChange("Changed mounted servers")
         configuredServers = file.mcpServers
         reloadTools()
     }
@@ -685,11 +723,17 @@ public final class ParlorEngine {
     }
 
     private func filesChanged(_ paths: [String]) {
+        triggers.filesChanged(paths)
         // FSEvents reports resolved paths (/private/var/…), so compare against resolved prefixes too.
         let prefixes = [home.agentsDir.path, Self.realPath(home.agentsDir.path)]
         let relevant = paths.contains { p in prefixes.contains { p.hasPrefix($0) } || p.hasSuffix("/mcp.json") }
         _ = relevant
         let chats = paths.filter { $0.contains("/chats/") }
+        let tracked = paths.contains { p in
+            !p.contains("/.git/") && (p.contains("/agents/") || p.contains("/memory/") || p.hasSuffix("/settings.json") || p.hasSuffix("/mcp.json")
+                                      || p.hasSuffix("/module.json") || p.hasSuffix("/conversation.json"))
+        }
+        if tracked { history.record(actor: "outside edit", "Edited outside the app") }
         reloadTask?.cancel()
         reloadTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 200_000_000)

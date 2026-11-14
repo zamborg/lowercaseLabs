@@ -4,9 +4,7 @@ import ParlorCore
 @main
 struct ParlorApp: App {
     @State private var engine: ParlorEngine = {
-        // PARLOR_DEMO=1 swaps in a scripted model so UI tests run with no weights.
-        let demo = ProcessInfo.processInfo.environment["PARLOR_DEMO"] == "1"
-        return ParlorEngine(runtime: demo ? DemoRuntime() : nil)
+        ParlorEngine(runtime: DebugHooks.demo ? DemoRuntime() : nil)
     }()
     @State private var route: Route? = nil
 
@@ -26,30 +24,8 @@ struct ParlorApp: App {
                         return a.runModal() == .alertSecondButtonReturn
                     }
                     await engine.start()
-                    #if DEBUG
-                    // Debug hooks so screenshots and checks can drive the app without UI scripting.
-                    let env = ProcessInfo.processInfo.environment
-                    if let dl = env["PARLOR_AUTODOWNLOAD"] {
-                        for item in dl.split(separator: ",") {
-                            let parts = item.split(separator: "@")
-                            engine.library.download(String(parts[0]), kind: parts.count > 1 && parts[1] == "image" ? .image : .language)
-                        }
-                    }
-                    if let msg = env["PARLOR_AUTOSEND"], let id = env["PARLOR_AUTOSEND_AGENT"] ?? engine.agents.first?.id {
-                        engine.send(msg, to: id)
-                    }
-                    #endif
-                    if route == nil {
-                        // PARLOR_ROUTE=agent:<id>|models|tools opens a screen directly (used for screenshots).
-                        switch ProcessInfo.processInfo.environment["PARLOR_ROUTE"] ?? "" {
-                        case "models": route = .models
-                        case "tools": route = .tools
-                        case "system": route = .system
-                        case let r where r.hasPrefix("agent:"): route = .agent(String(r.dropFirst(6)))
-                        case let r where r.hasPrefix("room:"): route = .room(String(r.dropFirst(5)))
-                        default: if let first = engine.agents.first { route = .agent(first.id) }
-                        }
-                    }
+                    DebugHooks.applyStartupActions(engine)
+                    if route == nil { route = DebugHooks.route ?? engine.agents.first.map { .agent($0.id) } }
                 }
         }
         .defaultSize(width: 1180, height: 760)
@@ -73,6 +49,5 @@ enum Route: Hashable {
     case agent(String)
     case room(String)
     case models
-    case tools
     case system
 }

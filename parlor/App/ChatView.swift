@@ -6,7 +6,7 @@ struct AgentPage: View {
     @Environment(ParlorEngine.self) private var engine
     let agentID: String
     @Binding var route: Route?
-    @State private var mode: Mode = ProcessInfo.processInfo.environment["PARLOR_MODE"] == "edit" ? .edit : .chat
+    @State private var mode: Mode = DebugHooks.editMode ? .edit : .chat
 
     enum Mode: String, CaseIterable, Identifiable { case chat = "Chat", edit = "Agent"; var id: String { rawValue } }
 

@@ -25,6 +25,7 @@ struct CLIMain {
           bench [model]                  prompt-cache speed and correctness on a real model
           bench-alt [model]              two agents alternating: one cache slot vs several
           tool <server.tool> [json]      wait for a mounted tool to appear, then call it
+          tool-cost                      prompt tokens the tool definitions cost, per server and per agent
           verbs                          every control the app exposes, with its tier
           call <verb> [json]             run a verb. In-process as you, or against the running app when PARLOR_TOKEN is set
           services                       the services dashboard (state, memory, last used)
@@ -77,6 +78,25 @@ struct CLIMain {
             guard found else { out("tool \(q) never appeared. Mounted: " + (await engine.hub.allTools().map(\.qualified).joined(separator: ", "))); return 1 }
             let r = await engine.hub.call(wireName: q.replacingOccurrences(of: ".", with: "__"), arguments: arg)
             out(r.text); return r.isError ? 1 : 0
+        case "tool-cost":
+            // Wait for on-demand servers to mount, then size what each agent sends with every request.
+            var last = -1
+            for _ in 0..<20 { try? await Task.sleep(nanoseconds: 500_000_000); if engine.tools.count == last, last > 0 { break }; last = engine.tools.count }
+            func cost(_ t: ToolDef) -> Int {
+                let j = JSON.object(["type": .string("function"), "function": .object(["name": .string(t.wireName), "description": .string(t.description), "parameters": t.schema])])
+                return j.text.count
+            }
+            func tokens(_ chars: Int) -> Int { (chars + 3) / 4 }   // a rough 4 characters per token
+            out("per server (≈ tokens at 4 characters each)")
+            for (server, list) in Dictionary(grouping: engine.tools, by: \.server).sorted(by: { $0.key < $1.key }) {
+                out("  \(server.padding(toLength: 18, withPad: " ", startingAt: 0)) \(String(list.count).padding(toLength: 4, withPad: " ", startingAt: 0)) tools  ≈ \(tokens(list.map(cost).reduce(0, +))) tokens")
+            }
+            out("per agent (what its allowed tools add to every request)")
+            for a in engine.agents {
+                let allowed = await engine.hub.tools(for: a)   // the same filter a turn uses: tools allowed and within the tier
+                out("  \(a.id.padding(toLength: 18, withPad: " ", startingAt: 0)) \(String(allowed.count).padding(toLength: 4, withPad: " ", startingAt: 0)) tools  ≈ \(tokens(allowed.map(cost).reduce(0, +))) tokens")
+            }
+            return 0
         case "verbs":
             for v in engine.commands.sorted { out("  \(v.name.padding(toLength: 24, withPad: " ", startingAt: 0)) \(v.tier.rawValue.padding(toLength: 10, withPad: " ", startingAt: 0)) \(v.destructive ? "asks  " : "      ")\(v.summary)") }
             return 0

@@ -145,7 +145,8 @@ public final class Room: Identifiable {
             agent: agent, conversationID: id, participants: config.participants, transcript: messages,
             summary: summary, tools: tools,
             settings: ResolvedSettings.resolve(agent: agent, model: meta, machine: deps.settings),
-            lastPromptTokens: contextUsed, priority: runPriority, names: names ?? nameMap())
+            lastPromptTokens: contextUsed, priority: runPriority, names: names ?? nameMap(),
+            memory: MemoryStore(home: deps.home).read(agent.id))
     }
 
     private func handle(_ ev: TurnEvent) {

@@ -8,7 +8,7 @@ extension CommandCenter {
     private static let agentKeys: Set<String> = [
         "name", "description", "kind", "model", "image_model", "tools", "tier", "context", "compact_at", "temperature",
         "thinking", "color", "persona", "top_p", "repetition_penalty", "max_reply_tokens", "max_steps",
-        "tool_result_chars", "tool_timeout", "keep_recent", "summary_tokens",
+        "tool_result_chars", "tool_timeout", "keep_recent", "summary_tokens", "group", "harness", "template",
     ]
 
     private func apply(_ a: inout Agent, _ args: Args, caller: Caller) throws {
@@ -30,6 +30,8 @@ extension CommandCenter {
             guard let k = Agent.Kind(rawValue: v) else { throw CommandError("\"kind\" is assistant or character.") }
             a.kind = k
         }
+        if let v = args.optString("group") { a.group = v }
+        if let v = args.optString("harness") { a.harness = v.trimmingCharacters(in: .whitespaces).isEmpty ? nil : v }
         if let v = args.optString("model") { a.model = v }
         if let v = args.optString("image_model") { a.imageModel = v.isEmpty ? nil : v }
         if let v = args.strings("tools") { a.tools = v }
@@ -53,6 +55,13 @@ extension CommandCenter {
         if let v = try whole("summary_tokens", 64...8192) { a.overrides.summaryTokens = v }
     }
 
+    /// A harness is a command the app will run. An agent or token setting one needs the user's yes.
+    private func confirmHarness(_ args: Args, _ caller: Caller) async throws {
+        guard let h = args.optString("harness"), !h.trimmingCharacters(in: .whitespaces).isEmpty, caller.mustConfirmDestructive else { return }
+        guard let ask = engine.confirm else { throw CommandError("Setting a harness runs a program on this Mac, so it needs the user. Nobody is available to confirm it.") }
+        guard await ask("\(caller.name) wants an agent to run this program for its turns:\n\n\(h)") else { throw CommandError("The user declined the harness.") }
+    }
+
     private func agent(_ id: String) throws -> Agent {
         guard let a = engine.agent(id) else { throw CommandError("No agent \"\(id)\".") }
         return a
@@ -70,6 +79,7 @@ extension CommandCenter {
             ("max_reply_tokens", "integer", "Override; 0 for no cap"), ("max_steps", "integer", "Override"),
             ("tool_result_chars", "integer", "Override"), ("tool_timeout", "integer", "Override, seconds"),
             ("keep_recent", "integer", "Override"), ("summary_tokens", "integer", "Override"),
+            ("group", "string", "Sidebar section"), ("harness", "string", "Command that runs this agent's turns instead of the built-in loop (asks the user first when set by an agent or token)"),
         ]
         add("agents.list", .read, "List agents (id, name, kind, model, tools, tier).") { _, _ in
             .array(self.engine.agents.map { self.agentJSON($0) })
@@ -77,10 +87,18 @@ extension CommandCenter {
         add("agents.read", .read, "One agent in full, including its persona.", props: [("id", "string", "Agent id")], required: ["id"]) { a, _ in
             self.agentJSON(try self.agent(try a.string("id")), full: true)
         }
-        add("agents.create", .configure, "Create an agent. Pass any of the fields to set them.", props: fields) { a, c in
+        add("agents.templates", .read, "Starting points for agents.create: id, title, what it sets up.") { _, _ in
+            .array(AgentTemplates.all.map { .object(["id": .string($0.id), "title": .string($0.title), "description": .string($0.blurb), "tools": .strings($0.tools)]) })
+        }
+        add("agents.create", .configure, "Create an agent from a template (see agents.templates), then set any of the fields.", props: [("template", "string", "Template id; default assistant")] + fields) { a, c in
+            try await self.confirmHarness(a, c)
             let name = a.optString("name") ?? "New assistant"
             let kind = Agent.Kind(rawValue: a.optString("kind") ?? "assistant") ?? .assistant
-            var made = self.engine.create(kind: kind, name: name)
+            var made: Agent
+            if let tid = a.optString("template") {
+                guard let t = AgentTemplates.template(tid) else { throw CommandError("No template \"\(tid)\". Use agents.templates.") }
+                made = self.engine.create(template: t, name: name)
+            } else { made = self.engine.create(kind: kind, name: name) }
             try self.apply(&made, a, caller: c)
             self.engine.save(made)
             let id = self.engine.renameToMatchName(made.id)
@@ -88,6 +106,7 @@ extension CommandCenter {
         }
         add("agents.update", .configure, "Change fields of an agent. Unknown or out-of-range values are refused.",
             props: [("id", "string", "Agent id")] + fields, required: ["id"]) { a, c in
+            try await self.confirmHarness(a, c)
             var cur = try self.agent(try a.string("id"))
             try self.apply(&cur, a, caller: c)
             self.engine.save(cur)

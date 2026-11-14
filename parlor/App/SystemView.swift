@@ -9,9 +9,11 @@ struct SystemView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 servicesSection
+                ToolsSection()
                 providersSection
                 modulesSection
                 accessSection
+                HistorySection()
                 dataSection
                 ConsoleSection()
             }
@@ -304,4 +306,65 @@ struct ModuleSettingsForm: View {
         }
         .onAppear { values = module.values }
     }
+}
+
+
+/// Every change to agents, memory, settings and mounts, as git history under the parlor folder. Restore puts files back.
+struct HistorySection: View {
+    @Environment(ParlorEngine.self) private var engine
+    @State private var entries: [HomeHistory.Entry] = []
+    @State private var restoring: HomeHistory.Entry?
+    @State private var message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("History").font(.headline)
+                Spacer()
+                Button("Refresh") { reload() }.controlSize(.small)
+            }
+            Text("Agents, memory, settings and mounts are tracked as you and your agents change them. Restoring a step puts every tracked file back as it was then, and is recorded as a new step, so it can be undone.")
+                .font(.caption).foregroundStyle(.secondary)
+            if !engine.history.isEnabled {
+                Text("History needs git, which is not installed.").font(.caption).foregroundStyle(.orange)
+            } else if entries.isEmpty {
+                Text("No changes yet.").font(.caption).foregroundStyle(.secondary)
+            }
+            if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
+            VStack(spacing: 0) {
+                ForEach(Array(entries.enumerated()), id: \.element.hash) { i, e in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(e.subject).lineLimit(1)
+                            Text("\(e.author) · \(e.date.formatted(.relative(presentation: .named))) · \(e.files.prefix(3).joined(separator: ", "))\(e.files.count > 3 ? " +\(e.files.count - 3)" : "")")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        if i > 0 { Button("Restore…") { restoring = e }.controlSize(.small).accessibilityIdentifier("restore-\(i)") }
+                        else { Text("current").font(.caption).foregroundStyle(.secondary) }
+                    }
+                    .padding(.vertical, 6).padding(.horizontal, 10)
+                    if i < entries.count - 1 { Divider() }
+                }
+            }
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("history-section")
+        .onAppear { reload() }
+        .task { while !Task.isCancelled { try? await Task.sleep(nanoseconds: 4_000_000_000); reload() } }
+        .confirmationDialog("Restore everything to \"\(restoring?.subject ?? "")\"?", isPresented: Binding(get: { restoring != nil }, set: { if !$0 { restoring = nil } })) {
+            Button("Restore", role: .destructive) {
+                guard let e = restoring else { return }
+                restoring = nil
+                Task {
+                    let r = await engine.commands.call("home.restore", .object(["commit": .string(e.hash)]), caller: .ui)
+                    message = r.isError ? r.text : "Restored. The previous state is still in the history."
+                    reload()
+                }
+            }
+        } message: { Text("Agents, memory, settings and mounts go back to how they were then. Chats are not touched.") }
+    }
+
+    private func reload() { entries = engine.history.log(limit: 40) }
 }

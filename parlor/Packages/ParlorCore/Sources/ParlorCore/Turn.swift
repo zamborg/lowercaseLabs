@@ -18,15 +18,17 @@ public struct TurnInput: Sendable {
     public var priority: LLMPriority
     /// Agent id to display name for everyone in the conversation, used for group framing.
     public var names: [String: String]
+    /// The agent's `memory/<id>.md`, for the system prompt.
+    public var memory: String
 
     public init(
         agent: Agent, conversationID: String, participants: [Participant], transcript: [ChatMessage],
         summary: ChatLog.Summary?, tools: [ToolDef], settings: ResolvedSettings,
-        lastPromptTokens: Int = 0, now: Date = Date(), priority: LLMPriority = .user, names: [String: String] = [:]
+        lastPromptTokens: Int = 0, now: Date = Date(), priority: LLMPriority = .user, names: [String: String] = [:], memory: String = ""
     ) {
         self.agent = agent; self.conversationID = conversationID; self.participants = participants
         self.transcript = transcript; self.summary = summary; self.tools = tools; self.settings = settings
-        self.lastPromptTokens = lastPromptTokens; self.now = now; self.priority = priority; self.names = names
+        self.lastPromptTokens = lastPromptTokens; self.now = now; self.priority = priority; self.names = names; self.memory = memory
     }
 }
 
@@ -98,7 +100,7 @@ public struct BuiltInHarness: Harness {
 
         // 1. Compaction first.
         let estimate = Compactor.estimateTokens(
-            Self.buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: summary, tools: [], now: input.now, others: input.others))
+            Self.buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: summary, tools: [], now: input.now, others: input.others, memory: input.memory))
         if Double(max(input.lastPromptTokens, estimate)) > s.compactAt * Double(s.contextTokens) {
             emit(.status("Compacting"))
             if let (new, folded) = try await Self.compact(input: input, summary: summary, llm: context.llm) {
@@ -109,7 +111,7 @@ public struct BuiltInHarness: Harness {
         }
 
         // 2. The loop.
-        var messages = Self.buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: summary, tools: input.tools, now: input.now, others: input.others)
+        var messages = Self.buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: summary, tools: input.tools, now: input.now, others: input.others, memory: input.memory)
         let maxSteps = max(1, s.maxSteps)
         for step in 0..<maxSteps {
             try Task.checkCancellation()
@@ -163,12 +165,12 @@ public struct BuiltInHarness: Harness {
     // MARK: request building
 
     public static func buildRequestMessages(_ input: TurnInput) -> [LLMMessage] {
-        buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: input.summary, tools: input.tools, now: input.now, others: input.others)
+        buildRequestMessages(agent: input.agent, transcript: input.transcript, summary: input.summary, tools: input.tools, now: input.now, others: input.others, memory: input.memory)
     }
 
     public static func buildRequestMessages(
         agent: Agent, transcript: [ChatMessage], summary: ChatLog.Summary?, tools: [ToolDef], now: Date,
-        others: [(id: String, name: String)] = []
+        others: [(id: String, name: String)] = [], memory: String = ""
     ) -> [LLMMessage] {
         var system = agent.persona.trimmingCharacters(in: .whitespacesAndNewlines)
         if system.isEmpty { system = "You are \(agent.name)." }
@@ -182,6 +184,11 @@ public struct BuiltInHarness: Harness {
         if !tools.isEmpty {
             system += "\nYou have tools. When a request needs information or an action from a tool, call the tool immediately in this reply. Never say you will look something up or do something without actually calling the tool. Never ask permission to use a tool for a read-only lookup. After the tool result arrives, answer in plain text."
         }
+        if tools.contains(where: { $0.wireName == "parlor__memory.append" }) {
+            system += "\nYou can keep notes across conversations with parlor.memory.append: save lasting facts about the user and your work, not chatter."
+        }
+        let mem = memory.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !mem.isEmpty { system += "\n\n## What you remember\n\(mem)" }
         if let s = summary { system += "\n\n## Earlier conversation (summary)\n\(s.text)" }
 
         var live = transcript.filter { $0.role != .marker }

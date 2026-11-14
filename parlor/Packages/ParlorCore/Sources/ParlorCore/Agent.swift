@@ -57,6 +57,17 @@ public struct Agent: Identifiable, Hashable, Sendable {
         }
     }
 
+    /// The sidebar section. Defaults from `kind`; the `group` front-matter key overrides it.
+    public var defaultGroup: String { kind == .assistant ? "Assistants" : "Characters" }
+    public var group: String {
+        get { extra.first { $0.key == "group" }.flatMap { f -> String? in if case .scalar(let s) = f.value, !s.trimmingCharacters(in: .whitespaces).isEmpty { return s } else { return nil } } ?? defaultGroup }
+        set {
+            extra.removeAll { $0.key == "group" }
+            let v = newValue.trimmingCharacters(in: .whitespaces)
+            if !v.isEmpty, v != defaultGroup { extra.append(ExtraField(key: "group", value: .scalar(v))) }
+        }
+    }
+
     public var initial: String { String(name.first.map { String($0).uppercased() } ?? "?") }
 
     public static func slug(_ name: String) -> String {

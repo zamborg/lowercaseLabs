@@ -1,29 +1,30 @@
 import SwiftUI
 import ParlorCore
 
-struct ToolsView: View {
+/// MCP servers and the tools they give agents. A panel inside System.
+struct ToolsSection: View {
     @Environment(ParlorEngine.self) private var engine
     @State private var showJSON = false
     @State private var showAdd = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Servers mounted here give every agent new tools. A fresh chat turn picks up the current list; open chats get a note when it changes.")
-                    .foregroundStyle(.secondary)
-                ForEach(engine.servers.filter { engine.configuredServers[$0.id] != nil || $0.kind == "built in" }) { s in serverCard(s) }
-                ForEach(disabledIDs, id: \.self) { disabledCard($0) }
-                if engine.servers.isEmpty && engine.configuredServers.isEmpty { ProgressView() }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Tools").font(.headline)
+                Text("\(engine.tools.count)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Spacer()
+                Button("Edit mcp.json") { showJSON = true }.controlSize(.small)
+                Button { showAdd = true } label: { Label("Add Server", systemImage: "plus") }.controlSize(.small)
+                    .accessibilityIdentifier("add-server")
             }
-            .padding(24).frame(maxWidth: 820, alignment: .leading)
+            Text("Servers mounted here give every agent new tools. A fresh chat turn picks up the current list; open chats get a note when it changes.")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(engine.servers.filter { engine.configuredServers[$0.id] != nil || $0.kind == "built in" }) { s in serverCard(s) }
+            ForEach(disabledIDs, id: \.self) { disabledCard($0) }
+            if engine.servers.isEmpty && engine.configuredServers.isEmpty { ProgressView().controlSize(.small) }
         }
-        .navigationTitle("Tools")
-        .toolbar {
-            ToolbarItemGroup {
-                Button("Edit mcp.json") { showJSON = true }
-                Button { showAdd = true } label: { Label("Add Server", systemImage: "plus") }
-            }
-        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tools-section")
         .confirmationDialog("Remove \(pendingDelete ?? "")?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
             Button("Remove Server", role: .destructive) { if let id = pendingDelete { engine.deleteServer(id) }; pendingDelete = nil }
         } message: { Text("It is removed from mcp.json and stops running. Agents that listed its tools simply lose them.") }
@@ -83,7 +84,7 @@ struct ToolsView: View {
                 Text(s.toolNames.joined(separator: "  ·  ")).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
             }
         }
-        .padding(14).background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .padding(12).background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
         .accessibilityIdentifier("server-\(s.id)")
     }
 

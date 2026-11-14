@@ -294,6 +294,6 @@ public final class ExternalHarness: Harness, @unchecked Sendable {
             }),
             "transcript": .array(transcript),
             "tools": .array(input.tools.map { .object(["name": .string($0.wireName), "description": .string($0.description), "schema": $0.schema]) }),
-            "settings": .object(settings), "memory": .string("")])
+            "settings": .object(settings), "memory": .string(input.memory)])
     }
 }

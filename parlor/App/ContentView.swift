@@ -18,7 +18,6 @@ struct ContentView: View {
                 if engine.conversations.contains(where: { $0.id == id }) { RoomView(roomID: id).id(id) }
                 else { EmptyDetail(route: $route) }
             case .models: ModelsView()
-            case .tools: ToolsView()
             case .system: SystemView()
             case nil: EmptyDetail(route: $route)
             }
@@ -50,11 +49,8 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $route) {
-            Section("Assistants") {
-                ForEach(engine.agents.filter { $0.kind == .assistant }) { row($0) }
-            }
-            Section("Characters") {
-                ForEach(engine.agents.filter { $0.kind == .character }) { row($0) }
+            ForEach(groups, id: \.name) { g in
+                Section(g.name) { ForEach(g.agents) { row($0) } }
             }
             if !engine.conversations.isEmpty {
                 Section("Rooms") {
@@ -80,9 +76,6 @@ struct SidebarView: View {
             }
             Section("Library") {
                 Label("Models", systemImage: "cpu").tag(Route.models)
-                Label {
-                    HStack { Text("Tools"); Spacer(); Text("\(engine.tools.count)").foregroundStyle(.secondary).monospacedDigit() }
-                } icon: { Image(systemName: "wrench.and.screwdriver") }.tag(Route.tools)
                 Label("System", systemImage: "gauge.with.dots.needle.67percent").tag(Route.system)
             }
         }
@@ -91,8 +84,10 @@ struct SidebarView: View {
         .toolbar {
             ToolbarItem {
                 Menu {
-                    Button("New Assistant") { let a = engine.create(kind: .assistant); route = .agent(a.id) }
-                    Button("New Character") { let a = engine.create(kind: .character); route = .agent(a.id) }
+                    ForEach(AgentTemplates.all) { t in
+                        Button("New \(t.title)") { let a = engine.create(template: t); route = .agent(a.id) }
+                            .help(t.blurb)
+                    }
                     Divider()
                     Button("New Room…") { showNewRoom = true }.disabled(engine.agents.count < 2)
                 } label: { Label("New Agent", systemImage: "plus") }
@@ -107,6 +102,14 @@ struct SidebarView: View {
         .onAppear { memory = (SystemMemory.usedBytes(), SystemMemory.totalBytes) }
     }
 
+    /// Assistants and Characters first, then any other group by name.
+    private var groups: [(name: String, agents: [Agent])] {
+        let by = Dictionary(grouping: engine.agents, by: \.group)
+        let first = ["Assistants", "Characters"]
+        let names = first + by.keys.filter { !first.contains($0) }.sorted()
+        return names.compactMap { n in by[n].map { (n, $0) } }
+    }
+
     private func row(_ a: Agent) -> some View {
         HStack(spacing: 9) {
             AvatarView(agent: a, size: 26)
@@ -115,6 +118,9 @@ struct SidebarView: View {
                 if !a.summary.isEmpty { Text(a.summary).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             }
             Spacer(minLength: 0)
+            if let problem = engine.modelProblem(for: a) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help(problem)
+            }
             if engine.room(for: a.id).isBusy { ProgressView().controlSize(.small) }
         }
         .tag(Route.agent(a.id))
