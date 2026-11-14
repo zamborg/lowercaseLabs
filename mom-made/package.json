@@ -1,0 +1,36 @@
+{
+  "name": "mom-made",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "spike": "npm run build && electron . --spike",
+    "pretest": "npm run build",
+    "format": "prettier --write src tests scripts template",
+    "spike:codex": "tsx scripts/codex-spike.ts"
+  },
+  "dependencies": {
+    "@cloudflare/vite-plugin": "1.69.1",
+    "electron": "45.3.2",
+    "hono": "4.13.18",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "vite": "8.3.8",
+    "wrangler": "4.162.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "esbuild": "0.28.2",
+    "prettier": "3.10.1",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}
