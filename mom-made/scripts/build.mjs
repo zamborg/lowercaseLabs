@@ -6,6 +6,8 @@ await build({
     main: "src/desktop/main.ts",
     preload: "src/desktop/preload.ts",
     watchdog: "src/core/watchdog.ts",
+    mcp: "src/core/mcp.ts",
+    wrangler: "src/core/wrangler.ts",
   },
   outdir: "dist",
   bundle: true,
@@ -13,6 +15,14 @@ await build({
   format: "cjs",
   outExtension: { ".js": ".cjs" },
   packages: "external",
+});
+await build({
+  entryPoints: { "pi-mcp": "src/core/agents/pi-mcp.ts" },
+  outdir: "dist",
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  outExtension: { ".js": ".mjs" },
 });
 await build({
   entryPoints: ["src/ui/index.tsx"],

@@ -73,16 +73,36 @@ export async function createProject(
           run_worker_first: ["/api/*"],
         },
         d1_databases: [
-          { binding: "DB", database_name: "mm-" + id, database_id: id },
+          {
+            binding: "DB",
+            database_name: "mm-" + id,
+            database_id: id,
+            migrations_dir: "migrations",
+          },
         ],
       },
       null,
       2,
     ),
   );
-  await writeFile(
-    join(path, "AGENTS.md"),
-    `# ${name}\nThis is a mom-made app. Edit this app directory only. React frontend in src/, Hono Worker in worker/. The desktop owns the local dev server; do not start or stop servers. Use D1 binding DB for durable data. Do not deploy cloud resources. Keep secrets out of frontend code. No subagents.\n`,
-  );
+  await writeFile(join(path, "AGENTS.md"), agentInstructions(name));
   return app;
+}
+
+export function agentInstructions(name: string) {
+  return `# ${name}
+
+This is a small web app made inside mom-made, for someone who is not a programmer. Make it work, make it look cared-for, and keep your replies short, warm and in plain language (no jargon, no file paths unless asked).
+
+## Rules
+- Edit only this app directory. React frontend in src/, Hono Worker API in worker/ (same-origin /api/*).
+- mom-made runs the dev server and reloads on save. Never start or stop servers. Never deploy; the Publish button does that.
+- Durable data goes in the D1 binding DB. Change the schema only by ADDING a new numbered file in migrations/ (0002_*.sql, ...). Never edit an applied migration and never create tables inside request handlers.
+- Never put secrets in frontend code or commit them. If an API key is needed, say so and ask the person to supply it.
+- Keep dependencies to what is already installed unless truly necessary.
+- No subagents.
+
+## Look at your work
+You have a "mom-made" tool set. After a change, inspect the running page with app_page_text and app_console. Use app_screenshot when your assistant supports images. Use app_logs if the page is blank or erroring.
+`;
 }

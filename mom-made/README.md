@@ -13,11 +13,11 @@ npm ci
 npm start
 ```
 
-Create an app, then describe what you want in the chat. Cmd-Enter sends. Model and reasoning choices come from your installed Codex. Use Sign in if needed; the app uses Codex's own authentication. `MOM_MADE_CODEX=/absolute/path/to/codex` overrides binary discovery.
+Use **Chat** to ask questions or plan. Choose **New App** when you're ready to build. When an app is open, drag the divider to resize its chat pane. Replies support Markdown. Enter sends, and Shift-Enter adds a line.
 
-App servers use Electron's bundled Node rather than a global Node executable. The developer launcher still requires npm. This is a source checkout, not yet a signed standalone distribution.
+App servers use Electron's bundled Node. The source checkout requires Node and npm to install dependencies and build the app. The Apple Silicon preview DMG includes the app runtime. Install and sign in to a supported assistant separately, then select it in **Settings → Assistants**.
 
-Closing the window stops local servers and agent work. The menu bar item reopens the workspace. Quit exits everything. On reopen, open tabs and local databases return; interrupted agent turns do not restart automatically. Closing a tab preserves the app in the library on the empty studio screen.
+Closing the window stops local servers and agent work. The menu bar item reopens the workspace. Quit exits everything. On reopen, open tabs and local databases return; interrupted agent turns do not restart automatically. Open **Apps** in the Studio toolbar to find or reopen any project, including closed tabs.
 
 The default data directory is `~/Library/Application Support/mom-made`. Set `MOM_MADE_DATA` to use a separate test workspace. Each app has its own source folder and `.wrangler/state`; Files reveals it in Finder.
 
@@ -32,15 +32,40 @@ npm run spike:codex
 
 `spike` opens a temporary Electron window and exercises real local Worker/D1 and browser operations. `spike:codex` makes small real model requests using your Codex login, including a declined approval and interruption. Both write results under ignored `.spike/`. Tests verify persistence, filesystem identity, IPC validation, stale navigation handling, transport reconnect, and process-tree cleanup after SIGKILL.
 
-## Current boundary
+## What v1 does
 
-This is the milestones 0–1 local vertical slice. Full markup feedback, mounted MCP tools, Skills management, secure secret entry, publishing, Claude Code, and Pi remain subsequent milestones. Capture currently freezes a saved screenshot; it does not yet send visual feedback to Codex.
+Choose **New App** and describe it in plain words, watch it appear, use it, then circle what you want changed ("Show me what to change") and the marked-up picture goes to the agent. The agent can look at the running app through a private MCP tool set (screenshot, page text, console, logs, click, type). **Publish** deploys a snapshot to Cloudflare workers.dev with your own Wrangler login: it creates the D1 database once, applies migrations, deploys, and checks the live URL. Local D1 schema changes are checked-in migrations, applied before each start.
 
-The coordinator currently runs in Electron main, with app runtimes isolated behind watchdog processes. Moving orchestration to a utility process remains a later hardening step. The UI presents one workspace transcript; Codex threads are stored per app. Cross-app conversation summaries are not implemented.
+Every assistant gets the bundled [web design skill](skills/web-design/SKILL.md) for new and existing projects. It covers layout, phone-friendly design, accessible controls, and checking the running preview.
 
-Generated apps currently share this checkout's pinned dependency cache through a `node_modules` symlink. Their package manifests contain exact dependency versions; to use an app independently, remove that symlink and install dependencies in its folder. Managed per-project dependencies and a packaged toolchain installer remain release work.
+## Settings
 
-This is a trusted local development tool: agents and generated tooling can execute local code. A working directory is not an OS sandbox. Cloud credentials from the parent environment are excluded from managed runtime and Codex environments.
+Open **Settings** in the Studio toolbar or press Cmd-comma.
+
+- **Assistants** shows installation and connection status. Choose the active assistant and save a default model and reasoning level for each one. Chat options can override the defaults until the active assistant or its saved preference changes.
+- **Cloudflare** checks the connection and opens Cloudflare's own sign-in flow. Publishing uses the existing Wrangler connection.
+- **Admin** lists local apps and their recent deployment history. Open an app in Studio, find its source files, or open its live site.
+
+Each assistant implements the same interface in `src/core/agents/`.
+
+- **Codex** via `codex app-server` (verified live; supports approvals, compact).
+- **Claude Code** via the official CLI's `stream-json` mode and its own sign-in. mom-made does not display Claude Code approval prompts. Tested with a fake CLI.
+- **Pi + OpenRouter** via Pi's RPC mode. Electron `safeStorage` encrypts the saved key. The desktop checks the key with OpenRouter and supplies it to Pi for model requests. Tested with a fake RPC process and the real Pi model catalog. [Pi installation](https://pi.dev/docs/latest/quickstart) · [OpenRouter key check](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key)
+- **Pi + Local model** connects Pi to a running OpenAI-compatible model server on this Mac. It keeps its own sessions and can read page text and use the preview tools. Visual markup requires an assistant with image support.
+
+Use `MOM_MADE_CODEX`, `MOM_MADE_CLAUDE`, or `MOM_MADE_PI` to point to a specific binary. To add another assistant, implement `Agent` in `src/core/agents/types.ts` and register it in `src/desktop/main.ts`.
+
+### Flint on Apple Silicon
+
+Recursive provides [Flint INT4 Q4_1](https://huggingface.co/RecursiveSI/flint-int4-gguf) for Apple Silicon with Metal. The weights are about 26 GB and the publisher specifies at least 48 GB of unified memory. Its [NVFP4 build](https://huggingface.co/RecursiveSI/flint-nvfp4-gguf) targets NVIDIA CUDA.
+
+Install [Pi](https://pi.dev/docs/latest/quickstart) and a [llama.cpp release with Flint support](https://github.com/ggml-org/llama.cpp/releases). In **Settings → Assistants → Pi + Local model**, expand **Run Flint on Apple Silicon** for a command that downloads the weights separately and starts a local server. Once the server finishes loading, choose **Save and check**, then **Use assistant**. The default setup uses `http://127.0.0.1:8080/v1`, model ID `flint`, and a 65,536-token context. If you change the server's context limit, set the matching value in Settings.
+
+## Not yet verified or done
+
+- Set `MOM_MADE_DRY_RUN=1` to build and check a deployment without publishing it. Pi with local Flint was verified live. Live turns with Claude Code and Pi + OpenRouter still need verification.
+- Skills management, secret entry, file attachments, Developer ID signing, notarization, and per-project dependency management are pending. Projects share the node modules bundled with mom-made.
+- This is a trusted local developer tool, not a sandbox.
 
 - [Design](DESIGN.md)
 - [Implementation plan](IMPLEMENTATION.md)

@@ -7,4 +7,9 @@ contextBridge.exposeInMainWorld("mom", {
     ipcRenderer.on("state", handler);
     return () => ipcRenderer.removeListener("state", handler);
   },
+  onSettings: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on("show-settings", handler);
+    return () => ipcRenderer.removeListener("show-settings", handler);
+  },
 });

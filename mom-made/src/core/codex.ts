@@ -1,9 +1,40 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { localEnv } from "./runtime";
+const CANDIDATES = [
+  "/opt/homebrew/bin/codex",
+  "/usr/local/bin/codex",
+  join(homedir(), ".local/bin/codex"),
+  join(homedir(), ".npm-global/bin/codex"),
+  join(homedir(), ".bun/bin/codex"),
+  "/Applications/Codex.app/Contents/Resources/codex",
+];
+/** Finder-launched apps have a bare PATH, so look in the usual places, then ask a login shell. */
+export function findCodex(): string | undefined {
+  if (process.env.MOM_MADE_CODEX) return process.env.MOM_MADE_CODEX;
+  const hit = CANDIDATES.find(existsSync);
+  if (hit) return hit;
+  try {
+    const nvm = join(homedir(), ".nvm/versions/node");
+    for (const v of existsSync(nvm) ? readdirSync(nvm).sort().reverse() : []) {
+      const p = join(nvm, v, "bin/codex");
+      if (existsSync(p)) return p;
+    }
+    const out = execFileSync(process.env.SHELL || "/bin/zsh", ["-lic", "command -v codex"], {
+      timeout: 5000,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .trim()
+      .split("\n")
+      .pop();
+    if (out && existsSync(out)) return out;
+  } catch {}
+  return undefined;
+}
 export class Codex extends EventEmitter {
   child?: ChildProcessWithoutNullStreams;
   private seq = 0;
@@ -16,17 +47,17 @@ export class Codex extends EventEmitter {
     }
   >();
   private buffer = "";
+  private stderr = "";
+  stderrTail() {
+    const t = this.stderr.trim().split("\n").slice(-3).join("\n");
+    return t ? "\n" + t : "";
+  }
   private opening?: Promise<void>;
-  constructor(
-    readonly binary = process.env.MOM_MADE_CODEX ||
-      [
-        "/opt/homebrew/bin/codex",
-        "/usr/local/bin/codex",
-        join(homedir(), ".local/bin/codex"),
-      ].find(existsSync) ||
-      "codex",
-  ) {
+  constructor(private override?: string) {
     super();
+  }
+  get binary() {
+    return this.override ?? findCodex() ?? "codex";
   }
   async open() {
     if (this.opening) return this.opening;
@@ -69,7 +100,9 @@ export class Codex extends EventEmitter {
         }
       }
     });
-    child.stderr.on("data", () => {});
+    child.stderr.on("data", (d: Buffer) => {
+      this.stderr = (this.stderr + d.toString()).slice(-2000);
+    });
     const fail = (e: Error) => {
       if (this.child !== child) return;
       for (const p of this.pending.values()) {

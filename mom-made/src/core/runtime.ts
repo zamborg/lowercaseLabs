@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AppRecord, Runtime } from "./contracts";
 export function localEnv() {
-  return Object.fromEntries(
+  const env = Object.fromEntries(
     Object.entries(process.env).filter(([k]) =>
       [
         "HOME",
@@ -17,6 +18,12 @@ export function localEnv() {
       ].includes(k),
     ),
   ) as NodeJS.ProcessEnv;
+  const extra = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
+  const have = (env.PATH ?? "").split(":");
+  env.PATH = [...have, ...extra.filter((p) => !have.includes(p))]
+    .filter(Boolean)
+    .join(":");
+  return env;
 }
 export class Supervisor {
   states: Record<string, Runtime> = {};
@@ -34,6 +41,10 @@ export class Supervisor {
     const task = (async () => {
       if (this.children.has(app.id)) await this.stop(app.id);
       await this.launch(app);
+      const state = this.states[app.id];
+      // Parallel starts can choose the same inspector port before either binds it.
+      if (state.status === "failed" && state.logs.includes("EADDRINUSE"))
+        await this.launch(app);
     })().finally(() => this.pending.delete(app.id));
     this.pending.set(app.id, task);
     return task;
@@ -62,6 +73,8 @@ export class Supervisor {
           }),
       );
       app.port = port;
+      await this.migrate(app, state);
+      if (state.status !== "starting") return;
       const child = spawn(
         this.executable,
         [
@@ -132,6 +145,51 @@ export class Supervisor {
       child?.stdin?.end();
       this.changed();
     }
+  }
+  /** Applies the app's checked-in D1 migrations to its local database. */
+  private async migrate(app: AppRecord, state: Runtime) {
+    const dir = join(app.path, "migrations");
+    if (!existsSync(dir) || !readdirSync(dir).some((f) => f.endsWith(".sql")))
+      return;
+    const out = await new Promise<{ code: number | null; text: string }>(
+      (resolve) => {
+        const c = spawn(
+          this.executable,
+          [
+            "-r",
+            join(this.base, "dist/wrangler.cjs"),
+            join(this.base, "node_modules/wrangler/wrangler-dist/cli.js"),
+            "d1",
+            "migrations",
+            "apply",
+            "DB",
+            "--local",
+          ],
+          {
+            cwd: app.path,
+            env: {
+              ...localEnv(),
+              ELECTRON_RUN_AS_NODE: "1",
+              WRANGLER_SEND_METRICS: "false",
+              CI: "1",
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        );
+        let text = "";
+        const grab = (d: Buffer) => (text = (text + d.toString()).slice(-8000));
+        c.stdout.on("data", grab);
+        c.stderr.on("data", grab);
+        c.on("error", (e) => resolve({ code: 1, text: e.message }));
+        c.on("exit", (code) => resolve({ code, text }));
+        setTimeout(() => c.kill(), 60000).unref();
+      },
+    );
+    state.logs += out.text.replace(/\x1b\[[0-9;]*m/g, "");
+    if (out.code !== 0)
+      throw new Error(
+        "Your app's database could not be updated.\n" + out.text.slice(-600),
+      );
   }
   async stop(id: string) {
     const state = this.states[id];

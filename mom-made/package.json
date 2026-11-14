@@ -12,11 +12,12 @@
     "spike": "npm run build && electron . --spike",
     "pretest": "npm run build",
     "format": "prettier --write src tests scripts template",
-    "spike:codex": "tsx scripts/codex-spike.ts"
+    "spike:codex": "tsx scripts/codex-spike.ts",
+    "dist": "npm run build && electron-builder --mac --arm64 --dir",
+    "dist:dmg": "npm run build && electron-builder --mac --arm64"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "1.69.1",
-    "electron": "45.3.2",
     "hono": "4.13.18",
     "react": "19.3.1",
     "react-dom": "19.3.1",
@@ -28,9 +29,43 @@
     "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "electron": "45.3.2",
+    "electron-builder": "26.18.0",
     "esbuild": "0.28.2",
     "prettier": "3.10.1",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
+  },
+  "description": "A little Mac studio for making web apps by talking.",
+  "author": "lowercase labs",
+  "build": {
+    "appId": "com.lowercaselabs.mommade",
+    "productName": "mom-made",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "template/**",
+      "skills/**",
+      "package.json",
+      "!**/*.map",
+      "!**/node_modules/**/{test,tests,__tests__,docs,example,examples}/**",
+      "!**/node_modules/.cache/**"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg"
+      ],
+      "identity": null,
+      "hardenedRuntime": false
+    },
+    "dmg": {
+      "title": "mom-made"
+    }
   }
 }
