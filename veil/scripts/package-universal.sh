@@ -11,7 +11,9 @@ cp Resources/Info.plist "$app/Contents/Info.plist"
 codesign --force --sign - "$app"
 codesign --verify --deep --strict "$app"
 lipo "$app/Contents/MacOS/Veil" -verify_arch arm64 x86_64
-ditto -c -k --sequesterRsrc --keepParent "$app" releases/Veil-0.1.0-macos-universal.zip
+version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+archive="Veil-$version-macos-universal.zip"
+ditto -c -k --sequesterRsrc --keepParent "$app" "releases/$archive"
 cd releases
-shasum -a 256 Veil-0.1.0-macos-universal.zip > SHA256SUMS
-printf 'Created %s\n' "$PWD/Veil-0.1.0-macos-universal.zip"
+shasum -a 256 Veil-*-macos-universal.zip > SHA256SUMS
+printf 'Created %s\n' "$PWD/$archive"

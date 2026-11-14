@@ -37,7 +37,35 @@ final class MatcherTests: XCTestCase {
             XCTAssertThrowsError(try Matcher(secrets: [Secret(label: "A", value: value)]))
         }
         XCTAssertThrowsError(try Matcher(secrets: [], threshold: 0))
+        XCTAssertThrowsError(try Matcher(secrets: [], threshold: 1025))
         XCTAssertThrowsError(try Matcher(secrets: [Secret(label: "", value: "abcdef")]))
+    }
+
+    func testConfigurableThresholds() throws {
+        let secrets = [Secret(label: "demo", value: "N8v2K6p4R9t3W5x7")]
+        for threshold in [1, 4, 6, 8, 16] {
+            let matcher = try Matcher(secrets: secrets, threshold: threshold)
+            let value = secrets[0].value
+            XCTAssertTrue(matcher.matches(in: String(value.prefix(threshold - 1))).isEmpty)
+            XCTAssertEqual(matcher.matches(in: String(value.prefix(threshold))).first?.range, NSRange(location: 0, length: threshold))
+            XCTAssertEqual(matcher.matches(in: "🔒 " + value).first?.range, NSRange(location: 3, length: 16))
+        }
+    }
+
+    func testThresholdLongerThanSecretIsRejected() {
+        XCTAssertThrowsError(try Matcher(secrets: [Secret(label: "short key", value: "abcdef")], threshold: 7))
+    }
+
+    func testAppScopeSelectionAndSelfExclusion() {
+        let own = "labs.lowercase.veil"
+        let selected = AppScope(allApps: false, bundleIDs: ["com.apple.TextEdit", "com.googlecode.iterm2"])
+        XCTAssertTrue(selected.allows("com.apple.TextEdit", excluding: own))
+        XCTAssertTrue(selected.allows("com.googlecode.iterm2", excluding: own))
+        XCTAssertFalse(selected.allows("com.apple.Terminal", excluding: own))
+        XCTAssertFalse(selected.allows(nil, excluding: own))
+        XCTAssertFalse(AppScope(allApps: true, bundleIDs: []).allows(own, excluding: own))
+        XCTAssertTrue(AppScope(allApps: true, bundleIDs: []).allows("any.app", excluding: own))
+        XCTAssertFalse(AppScope(allApps: false, bundleIDs: []).allows("any.app", excluding: own))
     }
 
     func testDisplayCoordinateConversion() {

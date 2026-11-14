@@ -2,18 +2,23 @@ import AppKit
 import ApplicationServices
 import VeilCore
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
     private var window: NSWindow!
     private var statusItem: NSStatusItem!
     private let status = NSTextField(wrappingLabelWithString: "Paused. Configure secrets or use the synthetic demo.")
-    private let target = NSTextField(string: "com.googlecode.iterm2")
+    private let appPicker = NSPopUpButton(frame: .zero, pullsDown: true)
+    private let minimumField = NSTextField(string: "6")
+    private let minimumStepper = NSStepper()
     private let secrets = NSTextView()
     private let toggle = NSButton(title: "Start masking", target: nil, action: nil)
     private let overlay = Overlay()
     private let worker = DispatchQueue(label: "Veil.accessibility", qos: .userInitiated)
     private var timer: Timer?
     private var matcher: Matcher?
-    private var bundleID = ""
+    private var scope = AppScope(allApps: false, bundleIDs: ["com.googlecode.iterm2"])
+    private var minimumLength = 6
+    private var configuredSecrets: [Secret] = []
+    private var appChoices: [AppChoice] = []
     private var enabled = false
     private var busy = false
     private var generation = 0
@@ -22,6 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        let defaults = UserDefaults.standard
+        scope.allApps = defaults.bool(forKey: "allApps")
+        scope.bundleIDs = Set(defaults.stringArray(forKey: "selectedApps") ?? ["com.googlecode.iterm2"])
+        let savedMinimum = defaults.object(forKey: "minimumLength") as? Int ?? 6
+        minimumLength = (1...1024).contains(savedMinimum) ? savedMinimum : 6
         buildMenu()
         buildWindow()
         let polling = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in self?.tick() }
@@ -56,7 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func buildWindow() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 590), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 690), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Veil — visual masking prototype"
         window.isReleasedWhenClosed = false
         window.center()
@@ -72,13 +82,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let heading = NSTextField(labelWithString: "Hide known secrets as asterisks")
         heading.font = .systemFont(ofSize: 22, weight: .semibold)
         stack.addArrangedSubview(heading)
-        let intro = NSTextField(wrappingLabelWithString: "Veil covers matching text in the selected app’s front window. Original text and clipboard contents are preserved. Six consecutive characters trigger a match.")
+        let intro = NSTextField(wrappingLabelWithString: "Veil covers matching text in the active window of your chosen apps. Choose All apps to follow the active app automatically. Original text is preserved.")
         stack.addArrangedSubview(intro)
-        stack.addArrangedSubview(NSTextField(labelWithString: "Application bundle ID"))
-        target.placeholderString = "com.googlecode.iterm2"
-        target.setAccessibilityIdentifier("targetBundleID")
-        stack.addArrangedSubview(target)
-        target.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        intro.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        stack.addArrangedSubview(NSTextField(labelWithString: "Applications — check one or more"))
+        appPicker.setAccessibilityIdentifier("applicationPicker")
+        stack.addArrangedSubview(appPicker)
+        appPicker.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        refreshApps()
+        let minimumRow = NSStackView(); minimumRow.orientation = .horizontal; minimumRow.spacing = 10
+        minimumRow.addArrangedSubview(NSTextField(labelWithString: "Minimum matching substring"))
+        minimumField.integerValue = minimumLength
+        minimumField.delegate = self
+        minimumField.target = self; minimumField.action = #selector(minimumChanged)
+        minimumField.setAccessibilityIdentifier("minimumMatchLength")
+        minimumField.widthAnchor.constraint(equalToConstant: 70).isActive = true
+        minimumRow.addArrangedSubview(minimumField)
+        minimumStepper.minValue = 1; minimumStepper.maxValue = 1024; minimumStepper.increment = 1
+        minimumStepper.integerValue = minimumLength
+        minimumStepper.target = self; minimumStepper.action = #selector(stepMinimum)
+        minimumStepper.setAccessibilityIdentifier("minimumMatchStepper")
+        minimumRow.addArrangedSubview(minimumStepper)
+        minimumRow.addArrangedSubview(NSTextField(labelWithString: "consecutive characters (1–1024)"))
+        stack.addArrangedSubview(minimumRow)
+        let scopeNote = NSTextField(wrappingLabelWithString: "App selection and match length are saved and apply immediately. All apps scans the active window; inactive windows are outside this version’s scope. Smaller lengths produce more matches.")
+        scopeNote.font = .systemFont(ofSize: 12); scopeNote.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(scopeNote)
+        scopeNote.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         stack.addArrangedSubview(NSTextField(labelWithString: "Secrets — one label=secret per line (kept in memory for this session)"))
         secrets.isRichText = false; secrets.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         secrets.isAutomaticQuoteSubstitutionEnabled = false
@@ -111,9 +141,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showSettings() { overlay.hide(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+    @objc private func refreshApps() {
+        appChoices = AppCatalog.choices(including: scope.bundleIDs)
+        rebuildPicker()
+    }
+    private func rebuildPicker() {
+        let menu = NSMenu(); menu.autoenablesItems = false
+        let names = appChoices.filter { scope.bundleIDs.contains($0.bundleID) }.map(\.name)
+        let summary = scope.allApps ? "All apps — active window" : names.isEmpty ? "Choose apps…" : names.joined(separator: ", ")
+        menu.addItem(withTitle: summary, action: nil, keyEquivalent: "")
+        let all = menu.addItem(withTitle: "All apps — active window", action: #selector(selectAllApps), keyEquivalent: "")
+        all.target = self; all.state = scope.allApps ? .on : .off
+        menu.addItem(.separator())
+        for choice in appChoices {
+            let item = menu.addItem(withTitle: choice.name, action: #selector(selectApp(_:)), keyEquivalent: "")
+            item.target = self; item.representedObject = choice.bundleID
+            item.toolTip = choice.bundleID
+            item.state = !scope.allApps && scope.bundleIDs.contains(choice.bundleID) ? .on : .off
+        }
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Refresh app list", action: #selector(refreshApps), keyEquivalent: "").target = self
+        appPicker.menu = menu
+    }
+    @objc private func selectAllApps() {
+        scope.allApps.toggle()
+        selectionChanged()
+    }
+    @objc private func selectApp(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        if scope.allApps {
+            scope.allApps = false
+            scope.bundleIDs = [id]
+            selectionChanged()
+            return
+        }
+        scope.allApps = false
+        if scope.bundleIDs.contains(id) { scope.bundleIDs.remove(id) } else { scope.bundleIDs.insert(id) }
+        selectionChanged()
+    }
+    private func selectionChanged() {
+        generation += 1; overlay.hide(); lastPID = nil
+        UserDefaults.standard.set(scope.allApps, forKey: "allApps")
+        UserDefaults.standard.set(scope.bundleIDs.sorted(), forKey: "selectedApps")
+        rebuildPicker()
+        status.stringValue = "Application selection updated. Only the active window of a selected app is scanned."
+    }
+    @objc private func stepMinimum() {
+        minimumField.integerValue = minimumStepper.integerValue
+        minimumChanged()
+    }
+    @objc private func minimumChanged() {
+        do {
+            guard let value = Int(minimumField.stringValue), (1...1024).contains(value) else {
+                throw ConfigurationError("Enter a whole-number match length from 1 to 1024.")
+            }
+            guard value != minimumLength else { return }
+            let updated = enabled ? try Matcher(secrets: configuredSecrets, threshold: value) : nil
+            minimumLength = value; minimumStepper.integerValue = value
+            UserDefaults.standard.set(value, forKey: "minimumLength")
+            if let updated { generation += 1; overlay.hide(); matcher = updated }
+            status.stringValue = "Minimum match length: \(value) consecutive characters."
+        } catch {
+            minimumField.integerValue = minimumLength; minimumStepper.integerValue = minimumLength
+            status.stringValue = error.localizedDescription
+        }
+    }
+    func controlTextDidEndEditing(_ notification: Notification) {
+        if notification.object as? NSTextField === minimumField { minimumChanged() }
+    }
     @objc private func loadDemo() {
         pause()
-        target.stringValue = "com.apple.TextEdit"
+        scope = AppScope(allApps: false, bundleIDs: ["com.apple.TextEdit"])
+        selectionChanged()
+        minimumField.integerValue = 6; minimumChanged()
         secrets.string = "Synthetic key A=N8v2K6p4R9t3W5x7"
         status.stringValue = "Demo loaded. Start masking, then focus TextEdit with the synthetic key visible."
     }
@@ -136,18 +236,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return Secret(label: String(line[..<separator]).trimmingCharacters(in: .whitespaces), value: String(line[line.index(after: separator)...]))
             }
             guard !parsed.isEmpty else { throw ConfigurationError("Add at least one secret or load the synthetic demo.") }
-            let selected = target.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !selected.isEmpty, selected != Bundle.main.bundleIdentifier else { throw ConfigurationError("Select another application to mask.") }
-            let compiled = try Matcher(secrets: parsed)
+            guard scope.allApps || !scope.bundleIDs.isEmpty else { throw ConfigurationError("Select at least one application, or choose All apps.") }
+            guard let value = Int(minimumField.stringValue), (1...1024).contains(value) else { throw ConfigurationError("Enter a whole-number match length from 1 to 1024.") }
+            let compiled = try Matcher(secrets: parsed, threshold: value)
             guard AXIsProcessTrusted() else {
                 let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unavailable"
                 status.stringValue = "Accessibility access is required. Use the access button, enable Veil, then retry. Front app: \(front)."
                 return
             }
-            matcher = compiled; bundleID = selected; generation += 1; enabled = true
+            minimumLength = value; minimumStepper.integerValue = value
+            UserDefaults.standard.set(value, forKey: "minimumLength")
+            matcher = compiled; configuredSecrets = parsed; generation += 1; enabled = true
             monitoringActivity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Track visual secret masks while another app is active")
             toggle.title = "Pause masking"; statusItem.button?.title = "Veil ●"
-            status.stringValue = "Ready. Focus the selected app. Configuration changes apply after pausing and restarting."
+            status.stringValue = "Ready. Focus any selected app. Secret edits apply after pausing and restarting."
         } catch { status.stringValue = error.localizedDescription }
     }
     @objc private func activeAppChanged() {
@@ -157,10 +259,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func tick() {
         guard enabled else { return }
         guard AXIsProcessTrusted() else { pause(); status.stringValue = "Accessibility access was revoked. Monitoring paused."; return }
-        guard let app = NSWorkspace.shared.frontmostApplication, app.bundleIdentifier == bundleID, let matcher else {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              scope.allows(app.bundleIdentifier, excluding: Bundle.main.bundleIdentifier ?? "labs.lowercase.veil"), let matcher else {
             overlay.hide()
             let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unavailable"
-            status.stringValue = "Waiting for \(bundleID). Front app: \(front). Configuration changes apply after pausing and restarting."
+            status.stringValue = "Waiting for a selected app’s active window. Front app: \(front). Secret edits apply after pausing and restarting."
             return
         }
         guard !busy else { return }

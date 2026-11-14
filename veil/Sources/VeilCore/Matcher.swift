@@ -18,7 +18,7 @@ public struct Matcher {
     private let fragments: [String: Set<String>]
 
     public init(secrets: [Secret], threshold: Int = 6) throws {
-        guard threshold >= 6 else { throw ConfigurationError("Use a threshold of at least six characters.") }
+        guard (1...1024).contains(threshold) else { throw ConfigurationError("Choose a minimum match length from 1 to 1024 characters.") }
         self.threshold = threshold
         var index: [String: Set<String>] = [:]
         for secret in secrets {
@@ -26,7 +26,7 @@ public struct Matcher {
                 throw ConfigurationError("Each secret needs a label.")
             }
             guard secret.value.utf8.allSatisfy({ $0 >= 33 && $0 <= 126 }), secret.value.utf8.count >= threshold else {
-                throw ConfigurationError("Secrets must contain at least \(threshold) printable ASCII characters without spaces.")
+                throw ConfigurationError("Secret ‘\(secret.label)’ must contain at least \(threshold) printable ASCII characters without spaces.")
             }
             let characters = Array(secret.value.utf8)
             for offset in 0...(characters.count - threshold) {
@@ -57,6 +57,21 @@ public struct Matcher {
             }
         }
         return matches
+    }
+}
+
+public struct AppScope {
+    public var allApps: Bool
+    public var bundleIDs: Set<String>
+
+    public init(allApps: Bool, bundleIDs: Set<String>) {
+        self.allApps = allApps
+        self.bundleIDs = bundleIDs
+    }
+
+    public func allows(_ bundleID: String?, excluding ownBundleID: String) -> Bool {
+        guard let bundleID, bundleID != ownBundleID else { return false }
+        return allApps || bundleIDs.contains(bundleID)
     }
 }
 
