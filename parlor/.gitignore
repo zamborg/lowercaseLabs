@@ -1,8 +1,0 @@
-build/
-build-worker/
-Parlor.xcodeproj/
-ImageWorker/.build/
-ImageWorker/.swiftpm/
-.DS_Store
-Packages/ParlorCore/.build/
-dist/
