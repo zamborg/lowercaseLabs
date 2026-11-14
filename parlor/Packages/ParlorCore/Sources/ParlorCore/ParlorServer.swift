@@ -6,9 +6,19 @@ import Network
 /// server answers with plain JSON).
 public final class LoopbackServer: @unchecked Sendable {
     public struct Request: Sendable { public var method: String; public var path: String; public var headers: [String: String]; public var body: Data }
+    /// Writes chunks of a streamed reply. `write` returns false once the client has gone, so a producer can stop.
+    public struct StreamWriter: Sendable {
+        let send: @Sendable (Data) async -> Bool
+        public func write(_ d: Data) async -> Bool { await send(d) }
+    }
     public struct Response: Sendable {
         public var status: Int; public var body: Data; public var contentType = "application/json"
+        /// When set, the reply is streamed (no Content-Length, ends when the connection closes) instead of `body`.
+        public var stream: (@Sendable (StreamWriter) async -> Void)?
         public init(status: Int, body: Data = Data(), contentType: String = "application/json") { self.status = status; self.body = body; self.contentType = contentType }
+        public init(streaming contentType: String = "text/event-stream", _ producer: @escaping @Sendable (StreamWriter) async -> Void) {
+            self.status = 200; self.body = Data(); self.contentType = contentType; self.stream = producer
+        }
     }
 
     private let queue = DispatchQueue(label: "parlor.server")
@@ -69,7 +79,21 @@ public final class LoopbackServer: @unchecked Sendable {
     }
 
     private func send(_ c: NWConnection, _ r: Response) {
-        let reason = [200: "OK", 202: "Accepted", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed", 413: "Payload Too Large"][r.status] ?? "OK"
+        let reason = [200: "OK", 202: "Accepted", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed", 413: "Payload Too Large", 429: "Too Many Requests", 500: "Internal Server Error", 502: "Bad Gateway", 503: "Service Unavailable"][r.status] ?? "OK"
+        if let producer = r.stream {
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: \(r.contentType)\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+            c.send(content: Data(head.utf8), completion: .contentProcessed { _ in })
+            Task {
+                let writer = StreamWriter { data in
+                    await withCheckedContinuation { (k: CheckedContinuation<Bool, Never>) in
+                        c.send(content: data, completion: .contentProcessed { err in k.resume(returning: err == nil) })
+                    }
+                }
+                await producer(writer)
+                c.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in c.cancel() })
+            }
+            return
+        }
         var head = "HTTP/1.1 \(r.status) \(reason)\r\nContent-Length: \(r.body.count)\r\nConnection: close\r\n"
         if !r.body.isEmpty { head += "Content-Type: \(r.contentType)\r\n" }
         if r.status == 401 { head += "WWW-Authenticate: Bearer\r\n" }
@@ -131,6 +155,9 @@ public final class ParlorMCPEndpoint {
         ephemeral[secret] = .token(name, tier)
         return secret
     }
+
+    /// Who a bearer secret belongs to: a process the app launched, or a token made in System.
+    func authenticate(_ bearer: String) -> Caller? { caller(for: bearer) }
 
     private func caller(for bearer: String) -> Caller? {
         if let c = ephemeral[bearer] { return c }

@@ -87,9 +87,17 @@ struct AgentEditorView: View {
                     Text("None").tag("")
                     ForEach(imageChoices, id: \.self) { Text(label(for: $0)).tag($0) }
                 }
-                if engine.library.installedDirectory(for: draft.model) == nil {
+                if let remote = remoteProvider(for: draft.model) {
+                    Label("\(remote) is a remote provider: this agent's messages leave your Mac.", systemImage: "network").foregroundStyle(.orange).font(.caption)
+                } else if engine.router.route(draft.model) == nil, engine.library.installedDirectory(for: draft.model) == nil {
                     Label("\(shortModelName(draft.model)) is not downloaded yet.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.caption)
                 }
+            }
+            Section("Harness") {
+                TextField("Command (leave empty for the built-in loop)", text: Binding(get: { draft.harness ?? "" }, set: { draft.harness = $0.isEmpty ? nil : $0 }))
+                    .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)).accessibilityIdentifier("agent-harness")
+                Text("Runs this agent's turns in your own program instead of the built-in loop. It talks to the models through parlor's OpenAI-compatible endpoint and its tool calls still go through the tools and permission tier below. See harnesses/CLAUDE.md in your parlor folder.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Tools this agent may use") { toolsSection }
             Section("Control of the app") {
@@ -130,9 +138,13 @@ struct AgentEditorView: View {
     }
 
     private var languageChoices: [String] {
-        var set = engine.library.installed(kind: .language).map(\.repo)
+        var set = engine.library.installed(kind: .language).map(\.repo) + engine.providerModelChoices
         if !set.contains(draft.model) { set.append(draft.model) }
         return set
+    }
+    private func remoteProvider(for model: String) -> String? {
+        guard let (p, _) = engine.router.route(model), p.config.locality == .remote else { return nil }
+        return p.config.id
     }
     private var imageChoices: [String] {
         var set = engine.library.installed(kind: .image).map(\.repo)

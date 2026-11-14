@@ -95,6 +95,7 @@ final class ParlorUITests: XCTestCase {
         try py.write(to: script, atomically: true, encoding: .utf8)
         let mcp = #"{"mcpServers":{"fake":{"command":"python3","args":["\#(script.path)"]},"broken":{"command":"/no/such/command"}}}"#
         try mcp.write(to: home.appendingPathComponent("mcp.json"), atomically: true, encoding: .utf8)
+        try #"{"providers":[{"id":"nowhere","baseURL":"http://127.0.0.1:9/v1","models":["m"]}]}"#.write(to: home.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
         app.launchEnvironment["PARLOR_ROUTE"] = "system"
         app.launch()
         XCTAssertTrue(app.buttons["stop-mcp:fake"].waitForExistence(timeout: 20), "fake server running")
@@ -104,6 +105,12 @@ final class ParlorUITests: XCTestCase {
         app.buttons["start-mcp:fake"].click()
         XCTAssertTrue(app.buttons["stop-mcp:fake"].waitForExistence(timeout: 20), "started again")
         XCTAssertTrue(app.staticTexts["Your data"].exists)
+        // Providers: the configured one is listed and can be tested; an unreachable one says so.
+        let test = app.buttons["test-provider-nowhere"]
+        XCTAssertTrue(test.waitForExistence(timeout: 5), "provider listed with a Test button")
+        test.click()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Failed'")).firstMatch.waitForExistence(timeout: 10), "unreachable provider reports failure")
+        XCTAssertTrue(app.staticTexts["Runtime API"].exists, "runtime API is a service")
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.lifetime = .keepAlways; add(shot)
     }
 

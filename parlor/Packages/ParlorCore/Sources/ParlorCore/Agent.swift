@@ -48,6 +48,15 @@ public struct Agent: Identifiable, Hashable, Sendable {
         }
     }
 
+    /// A command that runs this agent's turns instead of the built-in loop (the `harness` front-matter key).
+    public var harness: String? {
+        get { extra.first { $0.key == "harness" }.flatMap { f -> String? in if case .scalar(let s) = f.value, !s.trimmingCharacters(in: .whitespaces).isEmpty { return s } else { return nil } } }
+        set {
+            extra.removeAll { $0.key == "harness" }
+            if let v = newValue, !v.isEmpty { extra.append(ExtraField(key: "harness", value: .scalar(v))) }
+        }
+    }
+
     public var initial: String { String(name.first.map { String($0).uppercased() } ?? "?") }
 
     public static func slug(_ name: String) -> String {

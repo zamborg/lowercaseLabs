@@ -26,6 +26,15 @@ public final class ParlorEngine {
     private var watcher: FolderWatcher?
     private var reloadTask: Task<Void, Never>?
     private let mlx: MLXRuntime?
+    /// Sends `provider/model` names to their provider and everything else to MLX.
+    public let router: ProviderRouter
+    /// The OpenAI-compatible endpoint (SPEC §4) on 127.0.0.1.
+    public private(set) var runtimeAPI: RuntimeAPIEndpoint!
+    public private(set) var runtimeError: String?
+    private var runtimeForHarness = false
+    /// Runs agents that have a `harness:` command.
+    public let externalHarness: ExternalHarness
+    private var harnessTokens: [String: String] = [:]
     private let queue = LLMQueue()
     /// Generations waiting behind the one running.
     public private(set) var queueDepth = 0
@@ -48,18 +57,21 @@ public final class ParlorEngine {
         self.home = home
         let lib = ModelLibrary(home: home)
         self.library = lib
-        if let runtime {
-            self.mlx = nil
-            self.deps = RoomDeps(home: home, hub: hub, llm: QueuedRuntime(inner: runtime, queue: queue), harness: harness, library: lib)
-        } else {
-            let m = MLXRuntime(library: lib)
-            self.mlx = m
-            self.deps = RoomDeps(home: home, hub: hub, llm: QueuedRuntime(inner: m, queue: queue), harness: harness, library: lib)
-        }
+        let base: LanguageModelRuntime
+        if let runtime { self.mlx = nil; base = runtime } else { let m = MLXRuntime(library: lib); self.mlx = m; base = m }
+        let router = ProviderRouter(inner: base)
+        self.router = router
+        let envBox = EnvBox()
+        let external = ExternalHarness(home: home) { agent in await envBox.provider?(agent) ?? [:] }
+        self.externalHarness = external
+        self.deps = RoomDeps(home: home, hub: hub, llm: QueuedRuntime(inner: router, queue: queue),
+                             harness: HarnessRouter(builtIn: harness, external: external), library: lib)
+        envBox.provider = { [weak self] agent in await self?.harnessEnvironment(agent) ?? [:] }
         self.mcp = MCPManager(hub: hub, home: home)
         deps.agentLookup = { [weak self] id in self?.agent(id) }
         self.commands = CommandCenter(engine: self)
         self.endpoint = ParlorMCPEndpoint(engine: self)
+        self.runtimeAPI = RuntimeAPIEndpoint(engine: self)
     }
 
     public var runtime: LanguageModelRuntime { deps.llm }
@@ -83,7 +95,92 @@ public final class ParlorEngine {
         await mlx?.setKeepAlive(minutes: settings.llm.keepLoadedMinutes)
         await mlx?.configure(budgetFraction: settings.memoryBudgetFraction, slots: settings.cacheSlotsPerModel)
         await image?.configure(settings.image)
+        router.configure(settings.providers, home: home)
         await syncServer()
+        await syncRuntimeAPI()
+    }
+
+    /// Start, stop or move the runtime API to match settings. A launched harness keeps it up.
+    private func syncRuntimeAPI() async {
+        let want = settings.runtimeAPI
+        if !want.enabled && !runtimeForHarness { runtimeAPI.stop(); runtimeError = nil; return }
+        if runtimeAPI.isRunning, want.port == 0 || runtimeAPI.port == want.port { return }
+        do { try await runtimeAPI.start(port: want.port); runtimeError = nil }
+        catch { runtimeAPI.stop(); runtimeError = error.localizedDescription }
+    }
+
+    /// Bring the runtime API up for a harness, on the configured port or any free one.
+    func ensureRuntimeAPI() async {
+        if runtimeAPI.isRunning { return }
+        runtimeForHarness = true
+        if (try? await runtimeAPI.start(port: settings.runtimeAPI.port)) == nil {
+            do { try await runtimeAPI.start(port: 0); runtimeError = nil } catch { runtimeError = error.localizedDescription }
+        } else { runtimeError = nil }
+    }
+
+    /// What a launched harness gets in its environment (SPEC §2.5). One secret serves both servers, at the agent's tier.
+    func harnessEnvironment(_ agent: Agent) async -> [String: String] {
+        await ensureRuntimeAPI()
+        let key = agent.id + ":" + agent.tier.rawValue
+        if harnessTokens[key] == nil { harnessTokens[key] = endpoint.issueEphemeral(name: "harness:" + agent.id, tier: agent.tier) }
+        let token = harnessTokens[key]!
+        let parlorPort = endpoint.isRunning ? endpoint.port : settings.parlorServer.port
+        return [
+            "OPENAI_BASE_URL": "http://127.0.0.1:\(runtimeAPI.port)/v1", "OPENAI_API_KEY": token,
+            "PARLOR_MCP_URL": "http://127.0.0.1:\(parlorPort)/mcp", "PARLOR_URL": "http://127.0.0.1:\(parlorPort)/mcp",
+            "PARLOR_TOKEN": token, "PARLOR_AGENT": agent.id, "PARLOR_HOME": home.root.path,
+            "PARLOR_WORKSPACE": externalHarness.workspace(for: agent.id).path]
+    }
+
+    /// Models providers answered with on their last test, for pickers (`provider/model`).
+    public private(set) var providerModelCache: [String: [String]] = [:]
+
+    /// Every provider model an agent could use, configured or learned from a test.
+    public var providerModelChoices: [String] {
+        var out: [String] = []
+        for c in settings.providers where c.enabled && c.problem == nil {
+            let names = (c.models?.isEmpty == false) ? c.models!.map { c.id + "/" + $0 } : (providerModelCache[c.id] ?? [])
+            out += names
+        }
+        return out
+    }
+
+    public func setProviderEnabled(_ id: String, _ on: Bool) {
+        updateSettings { if let i = $0.providers.firstIndex(where: { $0.id == id }) { $0.providers[i].enabled = on } }
+    }
+
+    /// Ask a provider for its models (starting its server if it has one). A readable line either way.
+    public func testProvider(_ id: String) async -> String {
+        guard let p = router.provider(id) else {
+            if let c = settings.providers.first(where: { $0.id == id }), let why = c.problem { return "Misconfigured: \(why)" }
+            return "No such provider."
+        }
+        guard p.config.enabled else { return "Off. Turn it on first." }
+        do {
+            let ms = try await p.check()
+            providerModelCache[id] = ms.map(\.qualified)
+            await refreshServices()
+            return ms.isEmpty ? "Reachable, but it lists no models." : "Reachable · " + ms.prefix(4).map(\.id).joined(separator: ", ") + (ms.count > 4 ? " +\(ms.count - 4)" : "")
+        } catch { return "Failed: " + error.localizedDescription }
+    }
+
+    /// Every model the runtime API offers, as `provider/model`.
+    public func runtimeModelNames() async -> [String] {
+        var out: [String] = []
+        if mlx != nil { out += library.installed(kind: .language).map { "mlx/" + $0.repo } }
+        for p in router.all where p.config.enabled {
+            if let m = p.config.models, !m.isEmpty { out += m.map { p.config.id + "/" + $0 } }
+            else if p.process == nil || p.process!.snapshot().state.isAlive, let ms = try? await p.models() { out += ms.map(\.qualified) }
+        }
+        return out
+    }
+
+    /// Whether a name could be served: an enabled provider's, an installed MLX model, or anything under a substitute runtime.
+    func runtimeKnowsModel(_ name: String) -> Bool {
+        if router.route(name) != nil { return true }
+        guard mlx != nil else { return true }
+        let repo = name.hasPrefix("mlx/") ? String(name.dropFirst(4)) : name
+        return library.installedDirectory(for: repo) != nil
     }
 
     /// Start, stop or move the `parlor` server to match settings.
@@ -105,6 +202,17 @@ public final class ParlorEngine {
             let url = home.modulesDir.appendingPathComponent(name)
             let current = try? String(contentsOf: url, encoding: .utf8)
             if current == nil || !(current!.contains(Seeds.moduleMarker)) { try? text.write(to: url, atomically: true, encoding: .utf8) }
+        }
+    }
+
+    /// The harness guide and the sample harness, rewritten when this app version has newer ones.
+    private func seedHarnessFiles() {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: home.harnessesDir, withIntermediateDirectories: true)
+        for (name, text) in [("CLAUDE.md", Seeds.harnessGuide), ("openai_loop.py", Seeds.harnessSample)] {
+            let url = home.harnessesDir.appendingPathComponent(name)
+            let current = try? String(contentsOf: url, encoding: .utf8)
+            if current == nil || !(current!.contains(Seeds.harnessMarker)) { try? text.write(to: url, atomically: true, encoding: .utf8) }
         }
     }
 
@@ -184,6 +292,7 @@ public final class ParlorEngine {
         }
         loadConfig()
         seedModuleFiles()
+        seedHarnessFiles()
         reloadModules()
         await mcp.setModuleProvider { [weak self] in await self?.moduleConfigs() ?? [:] }
         // Servers start in the background: a slow or broken one must not hold up the window.
@@ -197,6 +306,9 @@ public final class ParlorEngine {
     public func shutdown() async {
         watcher?.stop()
         endpoint.stop()
+        runtimeAPI.stop()
+        externalHarness.stopAll()
+        router.stopAll()
         await mcp.stopAll()
         await image?.shutdown()
         await deps.llm.unload()
@@ -459,6 +571,32 @@ public final class ParlorEngine {
             detail: ps.enabled ? "http://127.0.0.1:\(ps.port)/mcp · \(settings.tokens.count) token\(settings.tokens.count == 1 ? "" : "s")" : "off",
             state: psState, memoryBytes: nil, lastUsed: nil, queueDepth: nil, lifecycle: "always", restarts: 0,
             canStart: !ps.enabled, canStop: ps.enabled, canRestart: ps.enabled, logURL: nil))
+        let ra = settings.runtimeAPI
+        let raState: ServiceState = runtimeAPI.isRunning ? .running : (runtimeError.map { .failed($0) } ?? .stopped)
+        out.append(ServiceInfo(
+            id: "runtimeAPI", kind: "server", title: "Runtime API",
+            detail: runtimeAPI.isRunning ? "http://127.0.0.1:\(runtimeAPI.port)/v1 · OpenAI-compatible" : (ra.enabled ? "starting" : "off · starts with an external harness"),
+            state: raState, memoryBytes: nil, lastUsed: nil, queueDepth: nil, lifecycle: "always", restarts: 0,
+            canStart: !runtimeAPI.isRunning, canStop: runtimeAPI.isRunning, canRestart: runtimeAPI.isRunning, logURL: nil))
+        // Providers that run a server process (llama.cpp and friends).
+        for p in router.all where p.process != nil {
+            let s = p.process!.snapshot()
+            out.append(ServiceInfo(
+                id: "provider:" + p.config.id, kind: "provider", title: p.config.id,
+                detail: s.external ? "already running · \(p.config.baseURL)" : (p.config.service?.command ?? ""),
+                state: s.state, memoryBytes: s.pid.flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: s.lastUsed, queueDepth: nil,
+                lifecycle: "onDemand", restarts: 0, canStart: !s.state.isAlive && p.config.enabled, canStop: s.state.isAlive, canRestart: p.config.enabled,
+                logURL: ServiceLog.url(home: home, service: "provider:" + p.config.id)))
+        }
+        // External harness processes.
+        for id in externalHarness.running() {
+            out.append(ServiceInfo(
+                id: "harness:" + id, kind: "harness", title: agent(id)?.name ?? id,
+                detail: agent(id)?.harness ?? "", state: .running,
+                memoryBytes: externalHarness.pid(agent: id).flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: nil, queueDepth: nil,
+                lifecycle: "onDemand", restarts: 0, canStart: false, canStop: true, canRestart: true,
+                logURL: ServiceLog.url(home: home, service: "harness:" + id)))
+        }
         services = out
     }
 
@@ -472,6 +610,30 @@ public final class ParlorEngine {
             case .restart: endpoint.stop()
             }
             await syncServer(); await refreshServices(); return
+        }
+        if id == "runtimeAPI" {
+            switch action {
+            case .start: updateSettings { $0.runtimeAPI.enabled = true }; runtimeAPI.stop(); await syncRuntimeAPI()
+            case .stop: updateSettings { $0.runtimeAPI.enabled = false }; runtimeForHarness = false; runtimeAPI.stop()
+            case .restart: runtimeAPI.stop(); await syncRuntimeAPI(); if !runtimeAPI.isRunning { await ensureRuntimeAPI() }
+            }
+            await refreshServices(); return
+        }
+        if id.hasPrefix("provider:") {
+            let pid = String(id.dropFirst(9))
+            guard let p = router.provider(pid), let proc = p.process else { throw CommandError("No provider service \"\(pid)\". Use services.list.") }
+            switch action {
+            case .start: guard p.config.enabled else { throw CommandError("Provider \(pid) is off.") }; try await proc.ensureRunning()
+            case .stop: proc.stop()
+            case .restart: proc.stop(); try await proc.ensureRunning()
+            }
+            await refreshServices(); return
+        }
+        if id.hasPrefix("harness:") {
+            let aid = String(id.dropFirst(8))
+            guard externalHarness.running().contains(aid) else { throw CommandError("No running harness for \"\(aid)\". It starts with the agent's next message.") }
+            externalHarness.stop(agent: aid)
+            await refreshServices(); return
         }
         let isMCP = id.hasPrefix("mcp:") || id.hasPrefix("module:")
         let name = id.split(separator: ":", maxSplits: 1).last.map(String.init) ?? id
@@ -548,4 +710,9 @@ public final class ParlorEngine {
             }
         }
     }
+}
+
+/// Lets the harness host ask the engine for an environment without the engine existing yet.
+final class EnvBox: @unchecked Sendable {
+    var provider: (@Sendable (Agent) async -> [String: String])?
 }

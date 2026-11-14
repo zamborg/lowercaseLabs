@@ -16,7 +16,8 @@ enum Seeds {
     - `mcp.json` mounted MCP servers, same format as Claude Desktop. Optional per server: `"lifecycle": "onDemand"`
       and `"idleMinutes": 10` start it on first use and stop it when idle.
     - `modules/<name>/` small tools you or a model write; see `modules/CLAUDE.md`. They run only after you approve them in System.
-    - `settings.json` machine settings, access tokens (hashes only) and module approvals.
+    - `harnesses/` a sample external harness and its guide; see `harnesses/CLAUDE.md`. `workspaces/<agent>/` is a harness's working folder.
+    - `settings.json` machine settings, access tokens (hashes only), module approvals, `providers` and `runtimeAPI`.
     - `logs/` one log per service (`mcp-<name>.log`, `image.log`, `module-<name>.log`), rotated at 1 MB.
 
     ## Agent file
@@ -42,6 +43,20 @@ enum Seeds {
 
     Optional agent key `tier: none|read|act|configure` lets the agent use the app's own `parlor.*` tools
     (list or change agents, post in rooms, change settings). It defaults to `none`. Add `parlor.*` to `tools` too.
+
+    Optional agent key `harness: <command>` runs the agent's turns in your own program instead of the built-in loop
+    (see `harnesses/CLAUDE.md`).
+
+    ## Providers
+    `settings.json` may list other model servers that speak the OpenAI chat API (llama.cpp's `llama-server`, LM Studio, Ollama):
+    ```
+    "providers": [{"id": "llama", "baseURL": "http://127.0.0.1:8081/v1", "models": ["qwen3-4b"],
+                   "service": {"command": "llama-server -m ~/parlor/models/gguf/Qwen3-4B-Q4_K_M.gguf --port 8081 --jinja -c 8192"}}]
+    ```
+    `service` is optional: parlor starts it on the first request and stops it when idle. Agents use a provider's model as
+    `model: llama/qwen3-4b`. A provider with `"locality": "remote"` starts disabled; `keyRef` names a Keychain item for its API key.
+    `"runtimeAPI": {"enabled": true, "port": 11500}` serves every model at `http://127.0.0.1:11500/v1` (OpenAI-compatible,
+    token required) for other tools.
 
     ## Rules
     - One chat per agent. Do not create extra chat folders.
@@ -233,6 +248,179 @@ enum Seeds {
     3. Nothing but protocol on stdout.
     4. Tell the user to open System and approve the module.
     """
+
+    static let harnessMarker = "parlor-harnesses-v1"
+
+    /// A complete external harness in standard-library Python: the loop an OpenAI-style script already has,
+    /// plus the few lines that speak the turn protocol. Copy it and change what the agent does.
+    static let harnessSample = "# \(harnessMarker): managed by parlor. Copy this file to make your own; edits here are overwritten.\n" + #"""
+    """
+    A harness: a program that runs an agent's turn instead of parlor's built-in loop.
+
+    Set it on an agent with a `harness:` line in agents/<id>.md, for example
+        harness: python3 ~/parlor/harnesses/openai_loop.py
+
+    parlor starts it once and keeps it running. For each message it sends one JSON line on stdin
+    ({"type": "turn.start", ...}); the script answers with JSON lines on stdout and ends with
+    {"type": "turn.done"}. Anything printed to stderr goes to logs/harness-<agent>.log.
+
+    The script reaches the model through the OpenAI-compatible endpoint parlor serves
+    (OPENAI_BASE_URL and OPENAI_API_KEY are set for it), so any OpenAI-style code works unchanged.
+    To run a tool, send a "tool.call" line and wait for the "tool.result" line. parlor runs the tool, enforces
+    the agent's tool list and tier, and writes the result into the chat.
+    """
+    import json, os, sys, time, urllib.request, datetime
+
+    BASE = os.environ["OPENAI_BASE_URL"]
+    KEY = os.environ["OPENAI_API_KEY"]
+
+
+    def send(obj):
+        sys.stdout.write(json.dumps(obj) + "\n")
+        sys.stdout.flush()
+
+
+    def read():
+        line = sys.stdin.readline()
+        return json.loads(line) if line else None
+
+
+    def chat(turn, model, messages, tools, settings):
+        """One streamed chat completion. Returns (text, tool_calls)."""
+        body = {"model": model, "messages": messages, "stream": True,
+                "stream_options": {"include_usage": True}, "temperature": settings.get("temperature", 0.6)}
+        if tools:
+            body["tools"] = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
+                                                               "parameters": t["schema"]}} for t in tools]
+        req = urllib.request.Request(BASE + "/chat/completions", data=json.dumps(body).encode(), method="POST",
+                                     headers={"Authorization": "Bearer " + KEY, "Content-Type": "application/json"})
+        text, calls, started = "", {}, time.time()
+        with urllib.request.urlopen(req) as resp:
+            for raw in resp:
+                line = raw.decode().strip()
+                if not line.startswith("data:") or line.endswith("[DONE]"):
+                    continue
+                chunk = json.loads(line[5:])
+                if chunk.get("usage"):
+                    u = chunk["usage"]
+                    send({"type": "stats", "turn": turn, "promptTokens": u.get("prompt_tokens", 0),
+                          "completionTokens": u.get("completion_tokens", 0),
+                          "tokensPerSecond": u.get("completion_tokens", 0) / max(time.time() - started, 0.001)})
+                choice = (chunk.get("choices") or [{}])[0]
+                delta = choice.get("delta", {})
+                if delta.get("content"):
+                    text += delta["content"]
+                    send({"type": "text.delta", "turn": turn, "text": text})
+                for tc in delta.get("tool_calls", []):
+                    c = calls.setdefault(tc["index"], {"id": "", "name": "", "arguments": ""})
+                    c["id"] = tc.get("id") or c["id"]
+                    c["name"] += tc.get("function", {}).get("name", "")
+                    c["arguments"] += tc.get("function", {}).get("arguments", "")
+        return text, [calls[i] for i in sorted(calls)]
+
+
+    def history(start):
+        persona = start["agent"]["persona"] or "You are %s." % start["agent"]["name"]
+        system = persona + "\n\nToday is " + datetime.date.today().strftime("%A, %B %d, %Y") + "."
+        msgs = [{"role": "system", "content": system}]
+        for m in start["transcript"]:
+            if m["role"] == "user":
+                msgs.append({"role": "user", "content": m["text"]})
+            elif m["role"] == "assistant":
+                entry = {"role": "assistant", "content": m["text"]}
+                if m.get("toolCalls"):
+                    entry["tool_calls"] = [{"id": c["id"], "type": "function",
+                                            "function": {"name": c["name"], "arguments": json.dumps(c["arguments"])}}
+                                           for c in m["toolCalls"]]
+                msgs.append(entry)
+            elif m["role"] == "tool":
+                msgs.append({"role": "tool", "tool_call_id": m["toolCallID"], "content": m["text"]})
+        return msgs
+
+
+    def run_turn(start):
+        turn = start["turn"]
+        messages = history(start)
+        for step in range(start["settings"].get("max_steps", 8)):
+            send({"type": "status", "turn": turn, "text": "Thinking"})
+            tools = start["tools"] if step < start["settings"].get("max_steps", 8) - 1 else []
+            text, calls = chat(turn, start["agent"]["model"], messages, tools, start["settings"])
+            send({"type": "message", "turn": turn, "role": "assistant", "text": text,
+                  "toolCalls": [{"id": c["id"], "name": c["name"], "arguments": json.loads(c["arguments"] or "{}")} for c in calls]})
+            if not calls:
+                return
+            messages.append({"role": "assistant", "content": text, "tool_calls": [
+                {"id": c["id"], "type": "function", "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}} for c in calls]})
+            for c in calls:
+                send({"type": "tool.call", "turn": turn, "callID": c["id"], "name": c["name"],
+                      "arguments": json.loads(c["arguments"] or "{}")})
+                while True:
+                    m = read()
+                    if m is None:
+                        sys.exit(0)
+                    if m.get("type") == "turn.cancel" and m.get("turn") == turn:
+                        return
+                    if m.get("type") == "tool.result" and m.get("callID") == c["id"]:
+                        messages.append({"role": "tool", "tool_call_id": c["id"], "content": m["text"]})
+                        break
+
+
+    while True:
+        msg = read()
+        if msg is None:
+            break
+        if msg.get("type") != "turn.start":
+            continue
+        try:
+            run_turn(msg)
+            send({"type": "turn.done", "turn": msg["turn"]})
+        except Exception as e:
+            send({"type": "error", "turn": msg["turn"], "message": str(e)})
+    """#
+
+    static let harnessGuide = "<!-- \(harnessMarker) -->\n" + #"""
+    # Harnesses
+
+    A harness runs an agent's turn in your own program instead of parlor's built-in loop. The chat, the log, tools and tiers
+    stay the same; only the thinking changes.
+
+    Give an agent one by adding a line to `agents/<id>.md`:
+
+        harness: python3 ~/parlor/harnesses/openai_loop.py
+
+    `openai_loop.py` in this folder is a complete example; copy it. The program runs with its working directory set to
+    `workspaces/<agent>/` and these environment variables:
+
+    - `OPENAI_BASE_URL`, `OPENAI_API_KEY`: parlor's OpenAI-compatible endpoint (`/v1/models`, `/v1/chat/completions`, streaming,
+      function calling). Existing OpenAI-style code works unchanged. Models are named `provider/model`, such as
+      `mlx/mlx-community/Qwen3-4B-4bit` or `llama/qwen3-4b`.
+    - `PARLOR_MCP_URL`, `PARLOR_TOKEN`: the `parlor` MCP server, at the agent's tier. The key and the token are the same secret.
+    - `PARLOR_AGENT`, `PARLOR_WORKSPACE`, `PARLOR_HOME`.
+
+    ## Protocol (JSON lines, one object per line)
+
+    parlor to harness, on stdin:
+
+        {"type":"turn.start","version":1,"turn":"<id>","conversation":"<id>","agent":{...},"participants":[...],
+         "transcript":[...log lines...],"tools":[{"name":"server__tool","description":"...","schema":{}}],
+         "settings":{...},"memory":""}
+        {"type":"tool.result","turn":"<id>","callID":"...","text":"...","isError":false,"images":[]}
+        {"type":"turn.cancel","turn":"<id>"}
+
+    harness to parlor, on stdout:
+
+        {"type":"text.delta","turn":"<id>","text":"the whole visible text so far"}
+        {"type":"status","turn":"<id>","text":"Searching"}
+        {"type":"message","turn":"<id>","role":"assistant","text":"...","toolCalls":[{"id":"...","name":"server__tool","arguments":{}}]}
+        {"type":"tool.call","turn":"<id>","callID":"...","name":"server__tool","arguments":{}}
+        {"type":"stats","turn":"<id>","promptTokens":0,"completionTokens":0,"tokensPerSecond":0}
+        {"type":"turn.done","turn":"<id>"}
+        {"type":"error","turn":"<id>","message":"..."}
+
+    Send a `message` for every model step (with `toolCalls` if it called tools), then a `tool.call` per call and wait for its
+    `tool.result`. parlor checks the agent's tool list and tier, runs the tool, and records the result itself; do not send tool
+    messages. End every turn with `turn.done` (or `error`). Print diagnostics to stderr: they land in `logs/harness-<agent>.log`.
+    """#
 
     static func mabel() -> Agent {
         Agent(

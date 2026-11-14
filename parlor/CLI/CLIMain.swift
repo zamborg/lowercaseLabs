@@ -144,6 +144,13 @@ struct CLIMain {
 
     @MainActor static func chat(_ engine: ParlorEngine, _ id: String, _ text: String) async -> Int32 {
         guard let agent = engine.agent(id) else { out("no such agent \(id)"); return 1 }
+        // Mounted servers start in the background; give the ones this agent names a moment to list their tools.
+        let wanted = agent.tools.filter { $0 != "*" && !$0.hasPrefix("parlor.") }
+        for _ in 0..<150 {
+            let have = await engine.hub.allTools()
+            if wanted.allSatisfy({ p in have.contains { t in p == t.qualified || (p.hasSuffix(".*") && t.qualified.hasPrefix(String(p.dropLast()))) } }) { break }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
         let room = engine.room(for: id)
         let before = room.messages.count
         let t0 = Date()

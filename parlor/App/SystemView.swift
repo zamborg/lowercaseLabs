@@ -9,6 +9,7 @@ struct SystemView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 servicesSection
+                providersSection
                 modulesSection
                 accessSection
                 dataSection
@@ -78,6 +79,46 @@ struct SystemView: View {
         case .stopped: .gray
         case .failed: .red
         }
+    }
+
+    // MARK: providers
+
+    @State private var providerResults: [String: String] = [:]
+
+    private var providersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Model providers").font(.headline)
+            Text("Where language models come from. MLX runs inside the app. Others are OpenAI-compatible servers (llama.cpp, LM Studio, Ollama, a hosted API), listed under \"providers\" in settings.json. An agent uses one with model: provider/name.")
+                .font(.caption).foregroundStyle(.secondary)
+            providerRow(id: "mlx", detail: "built in · \(engine.library.installed(kind: .language).count) models installed", remote: false, enabled: true, toggle: nil)
+            ForEach(engine.settings.providers) { c in
+                providerRow(id: c.id, detail: c.problem ?? c.baseURL + (c.service != nil ? " · starts on demand" : ""), remote: c.locality == .remote,
+                            enabled: c.enabled, toggle: { engine.setProviderEnabled(c.id, $0) })
+            }
+        }
+    }
+
+    private func providerRow(id: String, detail: String, remote: Bool, enabled: Bool, toggle: ((Bool) -> Void)?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(id).font(.headline)
+                if remote { Label("remote", systemImage: "network").font(.caption).padding(.horizontal, 7).padding(.vertical, 1).background(.orange.opacity(0.2), in: Capsule()).help("Prompts sent to this provider leave your Mac") }
+                else { Text("local").font(.caption).padding(.horizontal, 7).padding(.vertical, 1).background(.quaternary, in: Capsule()) }
+                Spacer()
+                if id != "mlx", enabled {
+                    Button("Test") { Task { providerResults[id] = "Testing…"; providerResults[id] = await engine.testProvider(id) } }
+                        .controlSize(.small).accessibilityIdentifier("test-provider-\(id)")
+                }
+                if let toggle {
+                    Toggle("", isOn: Binding(get: { enabled }, set: toggle)).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        .accessibilityIdentifier("provider-enabled-\(id)")
+                }
+            }
+            Text(detail).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            if let r = providerResults[id] { Text(r).font(.caption).foregroundStyle(r.hasPrefix("Reachable") ? Color.green : Color.secondary).textSelection(.enabled) }
+        }
+        .padding(12).background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .contain).accessibilityIdentifier("provider-\(id)")
     }
 
     // MARK: modules

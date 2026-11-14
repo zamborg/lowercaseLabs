@@ -228,12 +228,32 @@ extension CommandCenter {
         add("models.unload", .act, "Unload language models from memory.") { _, _ in
             await self.engine.unloadModels(); return .object(["unloaded": .bool(true)])
         }
-        add("providers.list", .read, "Model providers. The built-in MLX provider is always present.") { _, _ in
-            .array([.object(["id": .string("mlx"), "kind": .string("mlx"), "enabled": .bool(true)])])
+        add("providers.list", .read, "Model providers: the built-in MLX one and the ones in settings.json.") { _, _ in
+            var rows: [JSON] = [.object(["id": .string("mlx"), "kind": .string("mlx"), "locality": .string("local"), "enabled": .bool(true),
+                                         "models": .int(self.engine.library.installed(kind: .language).count)])]
+            for c in self.engine.settings.providers {
+                var o: [String: JSON] = ["id": .string(c.id), "kind": .string(c.kind), "baseURL": .string(c.baseURL), "locality": .string(c.locality.rawValue),
+                                         "enabled": .bool(c.enabled), "has_service": .bool(c.service != nil)]
+                if let p = c.problem { o["problem"] = .string(p) }
+                if let s = self.engine.router.provider(c.id)?.process?.snapshot() { o["state"] = .string(s.state.label) }
+                if let m = c.models { o["models"] = .strings(m) }
+                rows.append(.object(o))
+            }
+            return .array(rows)
         }
-        add("providers.test", .read, "Check a provider can serve a model.", props: [("id", "string", "Provider id")], required: ["id"]) { a, _ in
-            guard try a.string("id") == "mlx" else { throw CommandError("No provider \"\(try a.string("id"))\".") }
-            return .object(["ok": .bool(true), "models": .int(self.engine.library.installed(kind: .language).count)])
+        add("providers.test", .read, "Check a provider answers and list its models. Starts its server if it has one.", props: [("id", "string", "Provider id")], required: ["id"]) { a, _ in
+            let id = try a.string("id")
+            if id == "mlx" { return .object(["ok": .bool(true), "models": .strings(self.engine.library.installed(kind: .language).map(\.repo))]) }
+            guard let p = self.engine.router.provider(id) else {
+                if let c = self.engine.settings.providers.first(where: { $0.id == id }), let why = c.problem { throw CommandError("Provider \"\(id)\" is misconfigured: \(why).") }
+                throw CommandError("No provider \"\(id)\". Use providers.list.")
+            }
+            guard p.config.enabled else { throw CommandError("Provider \"\(id)\" is off. Turn it on in System first.") }
+            do {
+                let started = Date()
+                let ms = try await p.check()
+                return .object(["ok": .bool(true), "models": .strings(ms.map(\.qualified)), "seconds": .double(Date().timeIntervalSince(started))])
+            } catch { return .object(["ok": .bool(false), "error": .string(error.localizedDescription)]) }
         }
     }
 

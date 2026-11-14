@@ -13,6 +13,10 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
     public var cacheSlotsPerModel = 4
     /// The app-hosted `parlor` MCP server that outside clients (Claude Code) and launched modules talk to.
     public var parlorServer = ParlorServer()
+    /// OpenAI-compatible endpoint other tools (and external harnesses) use to reach the local models.
+    public var runtimeAPI = RuntimeAPI()
+    /// Model providers besides the built-in MLX one.
+    public var providers: [ProviderConfig] = []
     /// Access tokens: names and hashes only; the secret is shown once when it is made.
     public var tokens: [APIToken] = []
     /// Module name → manifest hash the user approved.
@@ -31,8 +35,22 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
         }
     }
 
+    public struct RuntimeAPI: Codable, Equatable, Sendable {
+        /// Off by default. Launching an external harness starts it for that harness regardless.
+        public var enabled = false
+        public var port = 11500
+        public init() {}
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? enabled
+            port = try c.decodeIfPresent(Int.self, forKey: .port) ?? port
+        }
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        runtimeAPI = try c.decodeIfPresent(RuntimeAPI.self, forKey: .runtimeAPI) ?? runtimeAPI
+        providers = try c.decodeIfPresent([ProviderConfig].self, forKey: .providers) ?? providers
         memoryBudgetFraction = try c.decodeIfPresent(Double.self, forKey: .memoryBudgetFraction) ?? memoryBudgetFraction
         cacheSlotsPerModel = try c.decodeIfPresent(Int.self, forKey: .cacheSlotsPerModel) ?? cacheSlotsPerModel
         parlorServer = try c.decodeIfPresent(ParlorServer.self, forKey: .parlorServer) ?? parlorServer
