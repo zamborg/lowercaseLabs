@@ -30,6 +30,14 @@ public struct LLMMessage: Sendable {
     }
 }
 
+/// Who is waiting on a generation. Lower runs sooner.
+public enum LLMPriority: Int, Sendable, Comparable {
+    case user = 0        // a person is watching the reply
+    case room = 1        // a turn in a multi-agent conversation
+    case background = 2  // summaries, scheduled and autonomous work
+    public static func < (a: LLMPriority, b: LLMPriority) -> Bool { a.rawValue < b.rawValue }
+}
+
 public struct LLMRequest: Sendable {
     public var messages: [LLMMessage]
     public var tools: [ToolDef]
@@ -37,10 +45,11 @@ public struct LLMRequest: Sendable {
     public var maxTokens: Int?
     public var thinking: Bool
     public var tuning: LLMTuning
+    public var priority: LLMPriority
 
-    public init(messages: [LLMMessage], tools: [ToolDef] = [], temperature: Double = 0.6, maxTokens: Int? = nil, thinking: Bool = false, tuning: LLMTuning = LLMTuning()) {
+    public init(messages: [LLMMessage], tools: [ToolDef] = [], temperature: Double = 0.6, maxTokens: Int? = nil, thinking: Bool = false, tuning: LLMTuning = LLMTuning(), priority: LLMPriority = .user) {
         self.messages = messages; self.tools = tools; self.temperature = temperature
-        self.maxTokens = maxTokens; self.thinking = thinking; self.tuning = tuning
+        self.maxTokens = maxTokens; self.thinking = thinking; self.tuning = tuning; self.priority = priority
     }
 }
 

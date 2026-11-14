@@ -15,15 +15,16 @@ public struct TurnInput: Sendable {
     /// Prompt size reported on the previous turn, 0 if unknown.
     public var lastPromptTokens: Int
     public var now: Date
+    public var priority: LLMPriority
 
     public init(
         agent: Agent, conversationID: String, participants: [Participant], transcript: [ChatMessage],
         summary: ChatLog.Summary?, tools: [ToolDef], settings: ResolvedSettings,
-        lastPromptTokens: Int = 0, now: Date = Date()
+        lastPromptTokens: Int = 0, now: Date = Date(), priority: LLMPriority = .user
     ) {
         self.agent = agent; self.conversationID = conversationID; self.participants = participants
         self.transcript = transcript; self.summary = summary; self.tools = tools; self.settings = settings
-        self.lastPromptTokens = lastPromptTokens; self.now = now
+        self.lastPromptTokens = lastPromptTokens; self.now = now; self.priority = priority
     }
 }
 
@@ -103,7 +104,8 @@ public struct BuiltInHarness: Harness {
             let offered = step == maxSteps - 1 ? [] : input.tools
             let req = LLMRequest(
                 messages: messages, tools: offered, temperature: s.temperature,
-                maxTokens: s.maxReplyTokens, thinking: s.thinking, tuning: LLMTuning(settings: s.llm))
+                maxTokens: s.maxReplyTokens, thinking: s.thinking, tuning: LLMTuning(settings: s.llm),
+                priority: input.priority)
             var raw = ""
             var calls: [ToolCallRecord] = []
             for try await ev in context.llm.generate(model: input.agent.model, request: req) {
@@ -140,7 +142,7 @@ public struct BuiltInHarness: Harness {
     public static func compact(input: TurnInput, summary: ChatLog.Summary?, llm: LanguageModelRuntime) async throws -> (ChatLog.Summary, folded: Int)? {
         let s = input.settings
         guard let new = try await Compactor(keepRecent: s.keepRecent, summaryTokens: s.summaryTokens)
-            .compact(agent: input.agent, messages: input.transcript, existing: summary, llm: llm) else { return nil }
+            .compact(agent: input.agent, messages: input.transcript, existing: summary, llm: llm, priority: input.priority) else { return nil }
         let folded = input.transcript.filter { $0.role != .marker }.firstIndex(where: { $0.id == new.through }).map { $0 + 1 } ?? 0
         return (new, folded)
     }

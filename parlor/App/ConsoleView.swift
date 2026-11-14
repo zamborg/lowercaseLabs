@@ -43,6 +43,14 @@ struct ConsoleSection: View {
                 row("Repetition penalty", "Values like 1.1 discourage loops, which small models fall into. Blank for off.") {
                     optionalDouble(bind(\.llm.repetitionPenalty), prompt: "off")
                 }
+                row("Memory budget", "Share of this Mac's memory the loaded models may use. Past it, the least recently used model is unloaded.") {
+                    HStack(spacing: 4) {
+                        doubleField(bind(\.memoryBudgetFraction), width: 56); Text("of RAM").foregroundStyle(.secondary)
+                    }
+                }
+                row("Cache slots per model", "Prompt caches kept per loaded model. A request reuses the one sharing the longest start with its prompt, so alternating chats stay fast.") {
+                    intField(bind(\.cacheSlotsPerModel), width: 56)
+                }
                 row("Unload when idle", "Minutes with no chat before the model is released from memory. 0 keeps it loaded.") {
                     HStack(spacing: 4) { intField(bind(\.llm.keepLoadedMinutes), width: 56); Text("min").foregroundStyle(.secondary) }
                 }
@@ -98,6 +106,7 @@ struct ConsoleSection: View {
             stat("From cache", stats.map { s in
                 s.promptTokens > 0 ? "\(Int(Double(s.cachedTokens) / Double(s.promptTokens) * 100))%" : "–" } ?? "–")
             stat("Language model", engine.loadedModel.map(shortModelName) ?? "unloaded")
+            stat("Queue", engine.queueDepth == 0 ? "empty" : "\(engine.queueDepth) waiting")
             stat("Image worker", engine.imageWorkerState)
             Spacer()
         }

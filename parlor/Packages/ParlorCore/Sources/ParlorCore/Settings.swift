@@ -7,11 +7,17 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
     public var llm = LLM()
     public var image = Image()
     public var loop = Loop()
+    /// Share of physical memory the resident language models may use before the least recently used one is unloaded.
+    public var memoryBudgetFraction = 0.6
+    /// Prompt-cache slots kept per resident model; a request reuses the slot sharing the longest prefix.
+    public var cacheSlotsPerModel = 4
 
     public init() {}
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        memoryBudgetFraction = try c.decodeIfPresent(Double.self, forKey: .memoryBudgetFraction) ?? memoryBudgetFraction
+        cacheSlotsPerModel = try c.decodeIfPresent(Int.self, forKey: .cacheSlotsPerModel) ?? cacheSlotsPerModel
         llm = try c.decodeIfPresent(LLM.self, forKey: .llm) ?? llm
         image = try c.decodeIfPresent(Image.self, forKey: .image) ?? image
         loop = try c.decodeIfPresent(Loop.self, forKey: .loop) ?? loop

@@ -6,82 +6,111 @@ import MLXLLM
 import MLXLMCommon
 import Tokenizers
 
-/// In-process MLX language model runtime. Holds at most one model in memory;
-/// switching agents to a different model unloads the old one first.
+/// In-process MLX language model runtime. Several models stay resident while they fit the memory
+/// budget (least recently used leaves first), and each keeps a few prompt-cache slots.
 ///
-/// Speed: the attention cache from the last chat prompt is kept, and the next request only
-/// processes the part of its prompt that differs (usually the newest messages). Memory: the
-/// model unloads after an idle period.
+/// Speed: a request takes the slot whose cached prompt shares the longest start with its own and only
+/// processes the part that differs, so alternating chats or agents keep their caches. Memory: models
+/// unload after an idle period, and the budget counts every resident model.
 public actor MLXRuntime: LanguageModelRuntime {
+    struct Resident {
+        let container: ModelContainer
+        let bytes: Int64
+        let slots: SlotCache
+        var lastUsed: Date
+        var inFlight = 0
+    }
+
     private let library: ModelLibrary
-    private var container: ModelContainer?
-    private var loadedID: String?
-    private let prefix = PrefixCache()
+    private var residents: [String: Resident] = [:]
     private var keepAlive: TimeInterval = 0
     private var idleTask: Task<Void, Never>?
-    private var inFlight = 0
+    private var budgetFraction = 0.6
+    private var slotLimit = 4
 
     public init(library: ModelLibrary) { self.library = library }
 
-    public func loadedModel() async -> String? { loadedID }
+    /// Most recently used resident model.
+    public func loadedModel() async -> String? { residents.max { $0.value.lastUsed < $1.value.lastUsed }?.key }
+    public func loadedModels() -> [String] { residents.keys.sorted() }
+    public func residentBytes() -> Int64 { residents.values.reduce(0) { $0 + $1.bytes } }
 
     public func unload() async {
         idleTask?.cancel()
-        container = nil
-        loadedID = nil
-        prefix.reset()
+        residents = [:]
     }
 
-    /// Minutes of idleness before the model is unloaded. 0 keeps it loaded.
+    /// Minutes of idleness before a model is unloaded. 0 keeps it loaded.
     public func setKeepAlive(minutes: Int) {
         keepAlive = TimeInterval(max(0, minutes) * 60)
-        if inFlight == 0 { scheduleIdleUnload() }
+        scheduleSweep()
     }
 
-    private func scheduleIdleUnload() {
+    public func configure(budgetFraction: Double, slots: Int) {
+        self.budgetFraction = min(0.95, max(0.1, budgetFraction))
+        slotLimit = max(1, slots)
+        for r in residents.values { r.slots.limit = slotLimit }
+    }
+
+    private func scheduleSweep() {
         idleTask?.cancel()
-        guard keepAlive > 0, loadedID != nil else { return }
+        guard keepAlive > 0, !residents.isEmpty else { return }
         let secs = keepAlive
         idleTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(secs * 1_000_000_000))
-            if !Task.isCancelled { await self?.unloadIfIdle() }
+            if !Task.isCancelled { await self?.sweep() }
         }
     }
 
-    private func unloadIfIdle() async { if inFlight == 0 { await unload() } }
+    private func sweep() {
+        let now = Date()
+        for (id, r) in residents where r.inFlight == 0 && now.timeIntervalSince(r.lastUsed) >= keepAlive { residents[id] = nil }
+        scheduleSweep()
+    }
 
-    private func begin() { inFlight += 1; idleTask?.cancel() }
-    private func end() { inFlight -= 1; if inFlight == 0 { scheduleIdleUnload() } }
+    private func begin(_ id: String) { residents[id]?.inFlight += 1; residents[id]?.lastUsed = Date(); idleTask?.cancel() }
+    private func end(_ id: String) { residents[id]?.inFlight -= 1; residents[id]?.lastUsed = Date(); scheduleSweep() }
 
-    private func ensureLoaded(_ id: String) async throws -> ModelContainer {
-        if let container, loadedID == id { return container }
-        container = nil
-        loadedID = nil
-        prefix.reset()
+    /// Unload least recently used idle models until `needed` more bytes fit the budget.
+    private func makeRoom(for needed: Int64) {
+        let budget = Int64(Double(ProcessInfo.processInfo.physicalMemory) * budgetFraction)
+        while residentBytes() + needed > budget,
+              let victim = residents.filter({ $0.value.inFlight == 0 }).min(by: { $0.value.lastUsed < $1.value.lastUsed }) {
+            residents[victim.key] = nil
+        }
+    }
+
+    private func ensureLoaded(_ id: String) async throws -> Resident {
+        if var r = residents[id] { r.lastUsed = Date(); residents[id] = r; return r }
         guard let dir = library.installedDirectory(for: id) else { throw ParlorError.modelNotInstalled(id) }
+        let bytes = library.installed(kind: .language).first { $0.repo == id }?.bytes ?? 0
+        makeRoom(for: bytes)
         let c: ModelContainer
         do { c = try await loadModelContainer(from: dir, using: #huggingFaceTokenizerLoader()) }
         catch {
             throw ParlorError.message("Couldn't load \(id): \(error.localizedDescription) This usually means the weights are not an MLX-compatible conversion of a supported architecture.")
         }
-        container = c
-        loadedID = id
-        return c
+        let r = Resident(container: c, bytes: bytes, slots: SlotCache(limit: slotLimit), lastUsed: Date())
+        residents[id] = r
+        return r
     }
 
     public nonisolated func generate(model: String, request: LLMRequest) -> AsyncThrowingStream<LLMEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
-                await self.begin()
+                var slots: SlotCache?
                 do {
-                    let container = try await self.ensureLoaded(model)
-                    try await Self.run(container: container, request: request, prefix: self.prefix, continuation: continuation)
+                    let r = try await self.ensureLoaded(model)
+                    slots = r.slots
+                    await self.begin(model)
+                    try await Self.run(container: r.container, request: request, slots: r.slots, continuation: continuation)
+                    await self.end(model)
                     continuation.finish()
                 } catch {
-                    self.prefix.reset()
+                    slots?.resetAll()
+                    await self.end(model)
                     continuation.finish(throwing: error)
                 }
-                await self.end()
             }
             continuation.onTermination = { _ in task.cancel() }
         }
@@ -89,7 +118,7 @@ public actor MLXRuntime: LanguageModelRuntime {
 
     /// One generation, serialised against the model by `perform`.
     private static func run(
-        container: ModelContainer, request: LLMRequest, prefix: PrefixCache,
+        container: ModelContainer, request: LLMRequest, slots: SlotCache,
         continuation: AsyncThrowingStream<LLMEvent, Error>.Continuation
     ) async throws {
         let specs: [ToolSpec]? = request.tools.isEmpty ? nil : request.tools.map(Self.spec)
@@ -116,26 +145,26 @@ public actor MLXRuntime: LanguageModelRuntime {
             var cache: [KVCache]? = nil
             var cached = 0
             var all: [Int] = []
+            var slot = -1
             if reuse, lm.image == nil, lm.video == nil, lm.audio == nil {
                 all = lm.text.tokens.reshaped(-1).asArray(Int.self)
-                if let c = prefix.cache, canTrimPromptCache(c), let off = c.first?.offset, off == prefix.tokens.count {
-                    // Longest shared start, always leaving at least the final token to process.
-                    let common = min(Self.commonPrefix(prefix.tokens, all), all.count - 1)
-                    if common >= 32 {
-                        if off > common { trimPromptCache(c, numTokens: off - common) }
-                        cache = c
-                        cached = common
-                        input = LMInput(tokens: MLXArray(Array(all[common...])))
-                    }
+                // Try slots from longest shared prefix to shortest; always leave the final token to process.
+                for (idx, shared) in slots.candidates(for: all) {
+                    let common = min(shared, all.count - 1)
+                    guard common >= 32, let c = slots.slots[idx].cache, canTrimPromptCache(c),
+                          let off = c.first?.offset, off == slots.slots[idx].tokens.count else { continue }
+                    if off > common { trimPromptCache(c, numTokens: off - common) }
+                    slot = idx; cache = c; cached = common
+                    input = LMInput(tokens: MLXArray(Array(all[common...])))
+                    break
                 }
-                if cache == nil { cache = try context.model.newCache(parameters: params) }
-                prefix.cache = cache
-                prefix.tokens = []          // not valid again until this run finishes cleanly
+                if slot < 0 { slot = slots.victim(); cache = try context.model.newCache(parameters: params) }
+                slots.claim(slot, cache: cache)      // not valid again until this run finishes cleanly
             }
 
             let stream = try MLXLMCommon.generate(input: input, cache: cache, parameters: params, context: context, tools: specs)
             for await g in stream {
-                if Task.isCancelled { prefix.reset(); return }
+                if Task.isCancelled { if slot >= 0 { slots.reset(slot) }; return }
                 switch g {
                 case .chunk(let s): continuation.yield(.text(s))
                 case .toolCall(let call):
@@ -150,12 +179,12 @@ public actor MLXRuntime: LanguageModelRuntime {
                 case .rejectedToolCall: break
                 }
             }
-            if reuse, let c = cache {
+            if reuse, slot >= 0, let c = cache {
                 // Drop the reply from the cache: the next prompt re-renders it through the chat template anyway.
                 if let off = c.first?.offset, off > all.count, canTrimPromptCache(c) {
                     trimPromptCache(c, numTokens: off - all.count)
                 }
-                if c.first?.offset == all.count, canTrimPromptCache(c) { prefix.tokens = all } else { prefix.reset() }
+                if c.first?.offset == all.count, canTrimPromptCache(c) { slots.finish(slot, tokens: all) } else { slots.reset(slot) }
             }
         }
     }
@@ -227,10 +256,36 @@ public actor MLXRuntime: LanguageModelRuntime {
     }
 }
 
-/// The attention cache of the last chat prompt and the tokens it covers. Only touched inside
-/// `ModelContainer.perform`, which runs one generation at a time.
-final class PrefixCache: @unchecked Sendable {
-    var cache: [KVCache]?
-    var tokens: [Int] = []
-    func reset() { cache = nil; tokens = [] }
+/// Prompt-cache slots for one resident model. Only touched inside `ModelContainer.perform`, which runs
+/// one generation at a time, plus `resetAll` and `limit` from the runtime actor between runs.
+final class SlotCache: @unchecked Sendable {
+    struct Slot { var cache: [KVCache]?; var tokens: [Int] = []; var used = 0 }
+    var slots: [Slot] = []
+    private var tick = 0
+    var limit: Int { didSet { while slots.count > max(1, limit) { evictOldest() } } }
+
+    init(limit: Int) { self.limit = max(1, limit) }
+
+    /// Valid slots (they hold a finished prompt), best shared prefix first.
+    func candidates(for tokens: [Int]) -> [(Int, Int)] {
+        slots.indices.compactMap { i in
+            guard slots[i].cache != nil, !slots[i].tokens.isEmpty else { return nil }
+            return (i, MLXRuntime.commonPrefix(slots[i].tokens, tokens))
+        }.sorted { $0.1 > $1.1 }
+    }
+
+    /// An empty slot, a new one while under the limit, or the least recently used.
+    func victim() -> Int {
+        if let i = slots.firstIndex(where: { $0.cache == nil }) { return i }
+        if slots.count < limit { slots.append(Slot(cache: nil)); return slots.count - 1 }
+        return slots.indices.min { slots[$0].used < slots[$1].used } ?? 0
+    }
+
+    func claim(_ i: Int, cache: [KVCache]?) { tick += 1; slots[i].cache = cache; slots[i].tokens = []; slots[i].used = tick }
+    func finish(_ i: Int, tokens: [Int]) { tick += 1; slots[i].tokens = tokens; slots[i].used = tick }
+    func reset(_ i: Int) { guard slots.indices.contains(i) else { return }; slots[i].cache = nil; slots[i].tokens = [] }
+    func resetAll() { for i in slots.indices { reset(i) } }
+    private func evictOldest() {
+        if let i = slots.indices.min(by: { slots[$0].used < slots[$1].used }) { slots.remove(at: i) }
+    }
 }

@@ -24,6 +24,9 @@ public final class ParlorEngine {
     private var watcher: FolderWatcher?
     private var reloadTask: Task<Void, Never>?
     private let mlx: MLXRuntime?
+    private let queue = LLMQueue()
+    /// Generations waiting behind the one running.
+    public private(set) var queueDepth = 0
     public private(set) var image: ImageProvider?
 
     /// Pass a runtime to substitute the model (tests); nil uses MLX.
@@ -33,11 +36,11 @@ public final class ParlorEngine {
         self.library = lib
         if let runtime {
             self.mlx = nil
-            self.deps = RoomDeps(home: home, hub: hub, llm: runtime, harness: harness, library: lib)
+            self.deps = RoomDeps(home: home, hub: hub, llm: QueuedRuntime(inner: runtime, queue: queue), harness: harness, library: lib)
         } else {
             let m = MLXRuntime(library: lib)
             self.mlx = m
-            self.deps = RoomDeps(home: home, hub: hub, llm: m, harness: harness, library: lib)
+            self.deps = RoomDeps(home: home, hub: hub, llm: QueuedRuntime(inner: m, queue: queue), harness: harness, library: lib)
         }
         self.mcp = MCPManager(hub: hub, home: home)
     }
@@ -61,6 +64,7 @@ public final class ParlorEngine {
     private func applySettings() async {
         deps.settings = settings
         await mlx?.setKeepAlive(minutes: settings.llm.keepLoadedMinutes)
+        await mlx?.configure(budgetFraction: settings.memoryBudgetFraction, slots: settings.cacheSlotsPerModel)
         await image?.configure(settings.image)
     }
 
@@ -232,6 +236,7 @@ public final class ParlorEngine {
 
     public func refreshLoaded() async {
         loadedModel = await deps.llm.loadedModel()
+        queueDepth = await queue.depth
         if let image { imageWorkerState = await image.stateDescription() }
     }
 

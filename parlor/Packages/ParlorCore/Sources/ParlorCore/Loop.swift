@@ -13,7 +13,8 @@ public struct Compactor: Sendable {
 
     /// Returns the new summary, or nil when there is nothing old enough to fold.
     public func compact(
-        agent: Agent, messages: [ChatMessage], existing: ChatLog.Summary?, llm: LanguageModelRuntime
+        agent: Agent, messages: [ChatMessage], existing: ChatLog.Summary?, llm: LanguageModelRuntime,
+        priority: LLMPriority = .user
     ) async throws -> ChatLog.Summary? {
         let real = messages.filter { $0.role != .marker }
         guard real.count > keepRecent + 1 else { return nil }
@@ -47,7 +48,7 @@ public struct Compactor: Sendable {
                 LLMMessage(role: .system, text: "You write faithful, compact conversation summaries."),
                 LLMMessage(role: .user, text: prompt),
             ], temperature: 0.2, maxTokens: summaryTokens, thinking: false,
-            tuning: LLMTuning(useCache: false))
+            tuning: LLMTuning(useCache: false), priority: priority)
         for try await ev in llm.generate(model: agent.model, request: req) {
             if case .text(let t) = ev { out += t }
         }

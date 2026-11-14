@@ -1,5 +1,6 @@
 import XCTest
 @testable import ParlorCore
+import MLXLMCommon
 
 /// Thread-safe event sink for harness tests.
 final class Events: @unchecked Sendable {
@@ -266,4 +267,127 @@ final class Seen: @unchecked Sendable {
     private var items: [LLMRequest] = []
     func add(_ r: LLMRequest) { lock.lock(); items.append(r); lock.unlock() }
     var all: [LLMRequest] { lock.lock(); defer { lock.unlock() }; return items }
+}
+
+// MARK: - step 2: queue and cache slots
+
+/// Records the order in which queued jobs actually start.
+final class Order: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String] = []
+    func add(_ s: String) { lock.lock(); items.append(s); lock.unlock() }
+    var all: [String] { lock.lock(); defer { lock.unlock() }; return items }
+}
+
+final class QueueTests: XCTestCase {
+    func testQueueRunsOneAtATimeByPriorityThenLoadedModel() async throws {
+        let q = LLMQueue()
+        let order = Order()
+        let first = try await q.acquire(model: "A", priority: .user)         // running
+        var jobs: [Task<Void, Error>] = []
+        func enqueue(_ name: String, _ model: String, _ p: LLMPriority) async {
+            jobs.append(Task { let t = try await q.acquire(model: model, priority: p); order.add(name); await q.release(t) })
+            while await q.depth < jobs.count { try? await Task.sleep(nanoseconds: 5_000_000) }
+        }
+        await enqueue("bg-A", "A", .background)
+        await enqueue("room-B", "B", .room)
+        await enqueue("user-B", "B", .user)
+        await enqueue("user-A", "A", .user)
+        let depth = await q.depth
+        XCTAssertEqual(depth, 4)
+        await q.release(first)
+        for j in jobs { try await j.value }
+        // Users first, and between equals the model that just ran (A) goes before B; then room; then background.
+        XCTAssertEqual(order.all, ["user-A", "user-B", "room-B", "bg-A"])
+    }
+
+    func testQueueFairnessAndCancellation() async throws {
+        let q = LLMQueue(fairness: 2)
+        let order = Order()
+        let running = try await q.acquire(model: "A", priority: .user)
+        let low = Task { let t = try await q.acquire(model: "B", priority: .background); order.add("low"); await q.release(t) }
+        while await q.depth < 1 { try? await Task.sleep(nanoseconds: 5_000_000) }
+        // A stream of higher-priority jobs cannot starve the low one forever.
+        var highs: [Task<Void, Error>] = []
+        for i in 0..<5 {
+            highs.append(Task { let t = try await q.acquire(model: "A", priority: .user); order.add("high\(i)"); await q.release(t) })
+            while await q.depth < 2 + i { try? await Task.sleep(nanoseconds: 5_000_000) }
+        }
+        await q.release(running)
+        try await low.value
+        for h in highs { try await h.value }
+        let idx = try XCTUnwrap(order.all.firstIndex(of: "low"))
+        XCTAssertLessThanOrEqual(idx, 2, "the low-priority job runs after being passed over twice")
+
+        // A cancelled waiter leaves the queue without running.
+        let hold = try await q.acquire(model: "A", priority: .user)
+        let doomed = Task { _ = try await q.acquire(model: "A", priority: .user) }
+        while await q.depth < 1 { try? await Task.sleep(nanoseconds: 5_000_000) }
+        doomed.cancel()
+        _ = await doomed.result
+        let d = await q.depth
+        XCTAssertEqual(d, 0)
+        await q.release(hold)
+    }
+
+    func testQueuedRuntimeSerialisesTwoStreams() async throws {
+        let inFlight = Counter()
+        let slow = SlowRuntime(counter: inFlight)
+        let rt = QueuedRuntime(inner: slow)
+        async let a: Void = { for try await _ in rt.generate(model: "m", request: LLMRequest(messages: [])) {} }()
+        async let b: Void = { for try await _ in rt.generate(model: "m", request: LLMRequest(messages: [], priority: .room)) {} }()
+        _ = try await (a, b)
+        XCTAssertEqual(inFlight.maxSeen, 1, "never two generations at once")
+        XCTAssertEqual(inFlight.total, 2)
+    }
+
+    func testSlotsKeepAlternatingConversationsApart() {
+        let s = SlotCache(limit: 2)
+        let a = Array(0..<100), b = Array(1000..<1100)
+        // First prompt of each conversation takes its own slot.
+        let ia = s.victim(); s.claim(ia, cache: [KVCacheSimple()]); s.finish(ia, tokens: a)
+        let ib = s.victim(); s.claim(ib, cache: [KVCacheSimple()]); s.finish(ib, tokens: b)
+        XCTAssertNotEqual(ia, ib)
+        // The next turn of A (same start, longer) picks A's slot, not B's.
+        let nextA = a + [7, 8, 9]
+        XCTAssertEqual(s.candidates(for: nextA).first?.0, ia)
+        XCTAssertEqual(s.candidates(for: nextA).first?.1, 100)
+        let nextB = b + [5]
+        XCTAssertEqual(s.candidates(for: nextB).first?.0, ib)
+        // A third conversation evicts the least recently used slot (A's).
+        XCTAssertEqual(s.victim(), ia)
+        // Lowering the limit drops the oldest slot.
+        s.limit = 1
+        XCTAssertEqual(s.slots.count, 1)
+    }
+
+    func testSettingsCarryBudgetAndSlots() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("s-\(UUID().uuidString).json")
+        try #"{"memoryBudgetFraction":0.4,"cacheSlotsPerModel":2}"#.write(to: url, atomically: true, encoding: .utf8)
+        let s = ParlorSettings.load(url)
+        XCTAssertEqual(s.memoryBudgetFraction, 0.4); XCTAssertEqual(s.cacheSlotsPerModel, 2)
+        XCTAssertEqual(ParlorSettings().cacheSlotsPerModel, 4)
+    }
+}
+
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var now = 0
+    private(set) var maxSeen = 0
+    private(set) var total = 0
+    func enter() { lock.lock(); now += 1; total += 1; maxSeen = max(maxSeen, now); lock.unlock() }
+    func leave() { lock.lock(); now -= 1; lock.unlock() }
+}
+
+final class SlowRuntime: LanguageModelRuntime, @unchecked Sendable {
+    let counter: Counter
+    init(counter: Counter) { self.counter = counter }
+    func generate(model: String, request: LLMRequest) -> AsyncThrowingStream<LLMEvent, Error> {
+        AsyncThrowingStream { c in
+            counter.enter()
+            Task { try? await Task.sleep(nanoseconds: 80_000_000); c.yield(.text("x")); self.counter.leave(); c.finish() }
+        }
+    }
+    func loadedModel() async -> String? { "slow" }
+    func unload() async {}
 }
