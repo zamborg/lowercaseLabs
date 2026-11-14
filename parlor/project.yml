@@ -1,0 +1,78 @@
+name: Parlor
+options:
+  bundleIdPrefix: com.lowercaselabs
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_HARDENED_RUNTIME: NO
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+packages:
+  ParlorCore:
+    path: Packages/ParlorCore
+targets:
+  Parlor:
+    type: application
+    platform: macOS
+    sources: [App]
+    dependencies:
+      - package: ParlorCore
+    postBuildScripts:
+      - name: Embed image worker
+        script: ${SRCROOT}/scripts/embed-worker.sh
+        basedOnDependencyAnalysis: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.parlor
+        PRODUCT_NAME: Parlor
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Parlor
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_NSHumanReadableCopyright: "lowercaseLabs"
+        CODE_SIGN_ENTITLEMENTS: App/Parlor.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  parlor-cli:
+    type: tool
+    platform: macOS
+    sources: [CLI]
+    dependencies:
+      - package: ParlorCore
+    settings:
+      base:
+        PRODUCT_NAME: parlor-cli
+  ParlorTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests]
+    dependencies:
+      - package: ParlorCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.parlor.tests
+  ParlorUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [UITests]
+    dependencies:
+      - target: Parlor
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.parlor.uitests
+        TEST_TARGET_NAME: Parlor
+schemes:
+  Parlor:
+    build:
+      targets:
+        Parlor: all
+        parlor-cli: [run]
+    test:
+      targets: [ParlorTests, ParlorUITests]
+    run:
+      config: Debug

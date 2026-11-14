@@ -1,0 +1,522 @@
+<title>parlor mockups and plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout concept: a quiet studio page that frames native-Mac window mockups; one tab per screen, plan tabs after. */
+:root{
+  --bg:#e9ecee; --panel:#ffffff; --panel2:#f4f5f6; --side:#eef0f2; --line:#d9dde1; --line2:#e6e9ec;
+  --fg:#1b2227; --mute:#66717a; --faint:#98a2aa; --accent:#1f7a6d; --accent-fg:#fff; --accent-soft:#dcefeb;
+  --warn:#b7791f; --warn-soft:#f6ead3; --bad:#b4423a; --good:#2f8f5b; --code:#eef0f2;
+  --u-bubble:#1f7a6d; --u-fg:#fff; --a-bubble:#f0f2f4;
+  --shadow:0 1px 2px rgba(20,30,40,.08),0 12px 40px rgba(20,30,40,.14);
+  --f-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;
+  --f-head:"Space Grotesk",-apple-system,system-ui,sans-serif;
+  --f-mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#101315; --panel:#1d2124; --panel2:#262b2f; --side:#171b1e; --line:#33393e; --line2:#2a2f33;
+  --fg:#e7ebee; --mute:#9aa5ad; --faint:#6b767e; --accent:#46b8a6; --accent-fg:#06201c; --accent-soft:#1c3a35;
+  --warn:#e2b25a; --warn-soft:#3a2f18; --bad:#e07a70; --good:#5bc489; --code:#14181a;
+  --u-bubble:#2a8f80; --u-fg:#fff; --a-bubble:#2a2f33;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 40px rgba(0,0,0,.45);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#101315; --panel:#1d2124; --panel2:#262b2f; --side:#171b1e; --line:#33393e; --line2:#2a2f33;
+  --fg:#e7ebee; --mute:#9aa5ad; --faint:#6b767e; --accent:#46b8a6; --accent-fg:#06201c; --accent-soft:#1c3a35;
+  --warn:#e2b25a; --warn-soft:#3a2f18; --bad:#e07a70; --good:#5bc489; --code:#14181a;
+  --u-bubble:#2a8f80; --u-fg:#fff; --a-bubble:#2a2f33;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 40px rgba(0,0,0,.45);color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--f-ui);padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1180px;margin:0 auto}
+h1,h2,h3{font-family:var(--f-head);text-wrap:balance;margin:0}
+header.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:baseline;justify-content:space-between;margin-bottom:18px}
+header.top h1{font-size:30px;letter-spacing:-.02em}
+header.top p{margin:0;color:var(--mute);max-width:60ch}
+nav.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0 22px}
+nav.tabs a{padding:7px 14px;border-radius:999px;color:var(--mute);text-decoration:none;border:1px solid var(--line);background:var(--panel);font-weight:500}
+nav.tabs a:hover{color:var(--fg)}
+nav.tabs a.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+nav.tabs .sep{width:1px;background:var(--line);margin:4px 6px}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+section.view{display:none}
+section.view.on{display:block}
+.note{color:var(--mute);margin:0 0 14px;max-width:80ch}
+.scroll-x{overflow-x:auto;padding-bottom:6px}
+
+/* ---------- mac window ---------- */
+.win{min-width:900px;height:640px;background:var(--panel);border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--line);display:grid;grid-template-columns:232px 1fr;overflow:hidden}
+.side{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.lights{display:flex;gap:8px;padding:14px 16px 10px}
+.lights i{width:12px;height:12px;border-radius:50%;display:block}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+.side .grp{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:12px 16px 4px;font-weight:600}
+.side ul{list-style:none;margin:0;padding:0 8px}
+.agent{display:flex;gap:10px;align-items:center;padding:7px 8px;border-radius:8px;cursor:default}
+.agent.on{background:var(--accent-soft)}
+.agent .nm{font-weight:600;font-size:13px;line-height:1.2}
+.agent .sub{font-size:11.5px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px}
+.agent .dot{margin-left:auto;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#fff;font-size:13px;flex:none}
+.av.lg{width:56px;height:56px;font-size:22px}
+.c1{background:#1f7a6d}.c2{background:#8a5a9e}.c3{background:#c0683a}.c4{background:#3f6fb5}.c5{background:#7a7f2a}
+.side .push{flex:1}
+.side .nav{padding:8px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+.side .nav div{padding:6px 8px;border-radius:7px;font-size:13px;color:var(--mute);display:flex;justify-content:space-between}
+.side .nav div.on{background:var(--accent-soft);color:var(--fg);font-weight:600}
+.mem{margin:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:11.5px;color:var(--mute)}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;display:flex;margin-top:5px}
+.bar b{display:block;height:100%}
+.main{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel)}
+.tb{height:52px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:0 16px;flex:none}
+.tb .t{font-weight:600}
+.tb .sp{flex:1}
+.chip{display:inline-flex;gap:6px;align-items:center;padding:3px 10px;border-radius:999px;background:var(--panel2);border:1px solid var(--line2);font-size:12px;color:var(--mute);white-space:nowrap}
+.chip.ok::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--good)}
+.btn{font:inherit;font-size:13px;padding:5px 12px;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+.btn:hover{background:var(--panel2)}
+.btn.pri{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+.btn.bad{color:var(--bad)}
+.btn.sm{padding:3px 9px;font-size:12px}
+
+/* ---------- chat ---------- */
+.log{flex:1;overflow:auto;padding:18px 24px;display:flex;flex-direction:column;gap:12px;min-height:0}
+.m{display:flex;gap:10px;max-width:78%;align-items:flex-start}
+.m.u{align-self:flex-end;flex-direction:row-reverse}
+.b{padding:9px 13px;border-radius:14px;background:var(--a-bubble);line-height:1.45}
+.m.u .b{background:var(--u-bubble);color:var(--u-fg)}
+.sel{display:none;margin-top:9px}
+.pruning .sel{display:block}
+.sel input{accent-color:var(--accent)}
+.pruning .m{cursor:pointer}
+.tool{font-family:var(--f-mono);font-size:12px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--panel2);color:var(--mute);display:flex;gap:8px;align-items:center;margin:4px 0}
+.tool b{color:var(--fg);font-weight:600}
+.tool .ok{color:var(--good)}
+.divider{display:flex;align-items:center;gap:10px;color:var(--faint);font-size:11.5px;margin:2px 0}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
+.img{border-radius:12px;overflow:hidden;border:1px solid var(--line);width:300px;margin-top:6px}
+.img svg{display:block;width:100%;height:auto}
+.img .cap{padding:7px 10px;font-size:11.5px;color:var(--mute);display:flex;justify-content:space-between;gap:8px;background:var(--panel2)}
+.comp{padding:10px 24px;border-top:1px solid var(--line);display:none;gap:8px;align-items:center;background:var(--warn-soft);font-size:13px}
+.pruning .comp{display:flex}
+.composer{padding:12px 20px 16px;border-top:1px solid var(--line);flex:none}
+.in{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:8px 8px 8px 14px;background:var(--panel)}
+.in span{flex:1;color:var(--faint)}
+.meta{display:flex;justify-content:space-between;color:var(--faint);font-size:11.5px;margin-top:6px}
+.typing{display:inline-flex;gap:3px}.typing i{width:5px;height:5px;border-radius:50%;background:var(--faint);animation:bl 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes bl{0%,60%,100%{opacity:.3}30%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.typing i{animation:none}}
+
+/* ---------- forms ---------- */
+.split{flex:1;display:grid;grid-template-columns:1fr 300px;min-height:0}
+.form{overflow:auto;padding:18px 24px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.form label,.lbl{font-size:12px;font-weight:600;color:var(--mute);display:block;margin-bottom:4px}
+.field{border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--panel);width:100%;font:inherit;color:var(--fg)}
+textarea.field{min-height:118px;resize:none;line-height:1.5;font-size:13px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.pane{border-left:1px solid var(--line);background:var(--panel2);padding:16px;overflow:auto;min-width:0}
+pre.code{margin:0;font:11.5px/1.55 var(--f-mono);background:var(--code);border:1px solid var(--line2);border-radius:8px;padding:10px 12px;overflow:auto;white-space:pre}
+.toolgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px}
+.toolgrid label{display:flex;gap:7px;align-items:center;font-weight:500;color:var(--fg);font-size:13px;margin:0}
+.toolgrid input{accent-color:var(--accent)}
+.toolgrid .h{grid-column:1/-1;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:600;margin-top:4px}
+.range{display:flex;align-items:center;gap:10px}
+.range .track{flex:1;height:4px;background:var(--line);border-radius:2px;position:relative}
+.range .track i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:2px}
+.range .track u{position:absolute;top:-5px;width:14px;height:14px;border-radius:50%;background:var(--panel);border:2px solid var(--accent)}
+
+/* ---------- tables ---------- */
+table.t{width:100%;border-collapse:collapse;font-size:13px}
+table.t th{text-align:left;font-size:11.5px;color:var(--faint);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+table.t td{padding:9px 8px;border-bottom:1px solid var(--line2);vertical-align:middle}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+.badge{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600;display:inline-block}
+.badge.g{background:var(--accent-soft);color:var(--accent)}
+.badge.w{background:var(--warn-soft);color:var(--warn)}
+.badge.n{background:var(--panel2);color:var(--mute);border:1px solid var(--line2)}
+.prog{height:6px;border-radius:3px;background:var(--line);overflow:hidden;min-width:120px}
+.prog i{display:block;height:100%;background:var(--accent)}
+.card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel)}
+.dotg{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--good);margin-right:6px}
+.dotw{background:var(--warn)}
+
+/* ---------- plan pages ---------- */
+.doc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:28px 32px;box-shadow:var(--shadow)}
+.doc h2{font-size:22px;margin:28px 0 8px;letter-spacing:-.01em}
+.doc h2:first-child{margin-top:0}
+.doc h3{font-size:15px;margin:18px 0 4px}
+.doc p,.doc li{max-width:78ch}
+.doc ul{padding-left:20px;margin:6px 0}
+.doc code{font-family:var(--f-mono);font-size:12.5px;background:var(--code);padding:1px 5px;border-radius:4px}
+.phase{display:grid;grid-template-columns:96px 1fr;gap:6px 18px;padding:14px 0;border-top:1px solid var(--line)}
+.phase .when{font-weight:700;font-family:var(--f-head)}
+.phase .when small{display:block;color:var(--mute);font-weight:500;font-family:var(--f-ui)}
+.gate{margin-top:6px;padding:6px 10px;border-radius:8px;background:var(--accent-soft);font-size:13px}
+.gate b{color:var(--accent)}
+.dec{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:4px 18px;padding:10px 0;border-top:1px solid var(--line2)}
+.dec b{font-weight:600}
+@media (max-width:700px){.phase,.dec{grid-template-columns:1fr}.doc{padding:20px 16px}}
+svg text{font-family:var(--f-ui)}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div><h1>parlor</h1><p>A local, native Mac chat app for persistent agents. Working title. Mockups of the five screens, then the architecture and the build plan.</p></div>
+  <div class="chip">M1 Max · 64 GB · macOS 26 · Xcode 26.6</div>
+</header>
+
+<nav class="tabs" aria-label="Sections">
+  <a href="#chat">Chat</a><a href="#agents">Agents</a><a href="#models">Models</a><a href="#tools">Tools</a><a href="#roleplay">Character mode</a>
+  <span class="sep"></span>
+  <a href="#arch">Architecture</a><a href="#plan">Build plan</a>
+</nav>
+
+<!-- ================= CHAT ================= -->
+<section class="view" id="v-chat">
+<p class="note">One chat per agent. The sidebar is the agent list, so switching agents is switching rooms. Press <b>Prune</b> to try selection mode: delete messages, cut everything after a point, or compact now.</p>
+<div class="scroll-x"><div class="win" id="chatwin">
+  <aside class="side">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="grp">Assistants</div>
+    <ul>
+      <li class="agent on"><span class="av c1">M</span><div><div class="nm">Mabel</div><div class="sub">chief of staff</div></div><span class="dot"></span></li>
+      <li class="agent"><span class="av c4">R</span><div><div class="nm">Rook</div><div class="sub">research, blunt</div></div></li>
+      <li class="agent"><span class="av c5">L</span><div><div class="nm">Lint</div><div class="sub">code reviewer</div></div></li>
+    </ul>
+    <div class="grp">Characters</div>
+    <ul>
+      <li class="agent"><span class="av c2">P</span><div><div class="nm">Pip</div><div class="sub">a dog who is a poet</div></div></li>
+      <li class="agent"><span class="av c3">C</span><div><div class="nm">Captain Orla</div><div class="sub">lighthouse keeper</div></div></li>
+    </ul>
+    <div class="push"></div>
+    <div style="padding:0 8px 8px"><button class="btn" style="width:100%">+ New agent</button></div>
+    <div class="mem">Memory 24.1 / 64 GB
+      <div class="bar"><b style="width:27%;background:var(--accent)"></b><b style="width:11%;background:#c0683a"></b></div>
+      <div style="margin-top:4px">LLM 17.4 · image idle</div></div>
+    <div class="nav"><div class="on">Chats</div><div>Agents</div><div>Models</div><div>Tools <span>6</span></div></div>
+  </aside>
+  <div class="main" id="chatmain">
+    <div class="tb"><span class="av c1" style="width:26px;height:26px;font-size:12px">M</span><span class="t">Mabel</span>
+      <span class="chip ok">Qwen3 30B-A3B · 4-bit</span><span class="chip">6 tools</span>
+      <span class="sp"></span><button class="btn" id="prunebtn">Prune</button></div>
+    <div class="log">
+      <div class="divider">Earlier conversation compacted · 41 messages → 312 token summary</div>
+      <div class="m u"><div class="b">What does my Thursday look like? And draw me something for the team offsite invite, calm, lighthouse vibe.</div><label class="sel"><input type="checkbox" aria-label="select message"></label></div>
+      <div class="m"><span class="av c1" style="width:26px;height:26px;font-size:12px">M</span><div>
+        <div class="b">Checking your calendar, then I'll start on the image.</div>
+        <div class="tool"><span class="ok">✓</span><b>calendar.list_events</b> day=2026-11-19 <span style="margin-left:auto">0.4s</span></div>
+        <div class="tool"><span class="ok">✓</span><b>image.generate</b> “quiet lighthouse at dusk, flat…” <span style="margin-left:auto">21s</span></div>
+        <div class="b" style="margin-top:6px">Thursday is light: standup at 10:00, a 1:1 with Dana at 2:30, nothing after 3:30. Here is a first pass for the invite.</div>
+        <div class="img"><svg viewBox="0 0 300 200" role="img" aria-label="Generated image of a lighthouse at dusk"><defs><linearGradient id="sk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2d3e6b"/><stop offset=".6" stop-color="#e58a6a"/><stop offset="1" stop-color="#f3c78a"/></linearGradient></defs>
+          <rect width="300" height="200" fill="url(#sk)"/><circle cx="215" cy="118" r="26" fill="#fbe3b0" opacity=".9"/>
+          <path d="M0 150 Q60 128 120 146 T300 140 V200 H0Z" fill="#26324f"/><path d="M0 170 Q80 156 160 168 T300 164 V200 H0Z" fill="#1b2540"/>
+          <path d="M92 150 L100 80 H116 L124 150Z" fill="#f2ece0"/><rect x="100" y="98" width="16" height="9" fill="#c0463a"/><rect x="97" y="72" width="22" height="10" fill="#1b2540"/><path d="M95 72 L108 58 L121 72Z" fill="#c0463a"/><circle cx="108" cy="77" r="3" fill="#ffe08a"/>
+          <path d="M108 77 L290 50 V104Z" fill="#ffe08a" opacity=".16"/></svg>
+          <div class="cap"><span>768×768 · z-image-turbo · 21s</span><span>seed 4417 · prompt ▸</span></div></div>
+        <div class="sel"><input type="checkbox" aria-label="select message"></div>
+      </div></div>
+      <div class="m u"><div class="b">Love it. Warmer sky, and move the lighthouse left.</div><label class="sel"><input type="checkbox" aria-label="select message"></label></div>
+      <div class="m"><span class="av c1" style="width:26px;height:26px;font-size:12px">M</span><div class="b"><span class="typing"><i></i><i></i><i></i></span></div></div>
+    </div>
+    <div class="comp"><b>3 selected</b><span style="flex:1"></span><button class="btn sm">Delete selected</button><button class="btn sm">Cut everything after here</button><button class="btn sm pri">Compact now</button></div>
+    <div class="composer"><div class="in"><span>Message Mabel…  <small>(⌘↩ to send)</small></span><button class="btn pri">Send</button></div>
+      <div class="meta"><span>Tool changes since this chat started: none</span><span>context 6.1k / 32k</span></div></div>
+  </div>
+</div></div>
+</section>
+
+<!-- ================= AGENTS ================= -->
+<section class="view" id="v-agents">
+<p class="note">An agent is a file. This editor reads and writes <code>agents/mabel.md</code>, and you can see the file on the right. Editing the file from outside (Claude Code, a text editor) updates the app live.</p>
+<div class="scroll-x"><div class="win">
+  <aside class="side">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="grp">Agents</div>
+    <ul>
+      <li class="agent on"><span class="av c1">M</span><div><div class="nm">Mabel</div><div class="sub">chief of staff</div></div></li>
+      <li class="agent"><span class="av c4">R</span><div><div class="nm">Rook</div><div class="sub">research, blunt</div></div></li>
+      <li class="agent"><span class="av c5">L</span><div><div class="nm">Lint</div><div class="sub">code reviewer</div></div></li>
+      <li class="agent"><span class="av c2">P</span><div><div class="nm">Pip</div><div class="sub">a dog who is a poet</div></div></li>
+      <li class="agent"><span class="av c3">C</span><div><div class="nm">Captain Orla</div><div class="sub">lighthouse keeper</div></div></li>
+    </ul>
+    <div class="push"></div>
+    <div style="padding:0 8px 8px;display:flex;flex-direction:column;gap:6px"><button class="btn" style="width:100%">+ New agent</button><button class="btn" style="width:100%">Import agent…</button></div>
+    <div class="nav"><div>Chats</div><div class="on">Agents</div><div>Models</div><div>Tools <span>6</span></div></div>
+  </aside>
+  <div class="main">
+    <div class="tb"><span class="t">Edit Mabel</span><span class="chip">saved · agents/mabel.md</span><span class="sp"></span><button class="btn">Duplicate</button><button class="btn">Export</button><button class="btn bad">Delete</button></div>
+    <div class="split">
+      <div class="form">
+        <div style="display:flex;gap:14px;align-items:center"><span class="av lg c1">M</span>
+          <div style="flex:1"><label for="a1">Name</label><input id="a1" class="field" value="Mabel"><div style="height:8px"></div><label for="a2">One-line description</label><input id="a2" class="field" value="Chief of staff. Keeps my week, notes and people straight."></div></div>
+        <div><label for="a3">Persona</label><textarea id="a3" class="field">You are Mabel, my chief of staff. Calm, brief, a little dry. You track my calendar, notes and people. When I ask for something with a deadline you confirm the date back to me. You never send messages for me without asking first. If a tool fails, say so plainly and suggest the next step.</textarea></div>
+        <div class="row2">
+          <div><label for="a4">Language model</label><select id="a4" class="field"><option>Qwen3 30B-A3B · 4-bit (17.4 GB)</option></select></div>
+          <div><label for="a5">Image model</label><select id="a5" class="field"><option>Z-Image Turbo · bf16 (12 GB)</option></select></div>
+        </div>
+        <div><span class="lbl">Tools this agent may use</span>
+          <div class="toolgrid">
+            <span class="h">calendar</span><label><input type="checkbox" checked>list_events</label><label><input type="checkbox" checked>create_event</label>
+            <span class="h">notes</span><label><input type="checkbox" checked>search</label><label><input type="checkbox" checked>append</label>
+            <span class="h">image (built in)</span><label><input type="checkbox" checked>generate</label><label><input type="checkbox">edit</label>
+            <span class="h">messages</span><label><input type="checkbox">send_imessage</label><label><input type="checkbox">contacts_search</label>
+          </div></div>
+        <div class="row2">
+          <div><span class="lbl">Context budget</span><div class="range"><div class="track"><i style="width:60%"></i><u style="left:calc(60% - 7px)"></u></div><span class="num">32k</span></div></div>
+          <div><span class="lbl">Compact when above</span><div class="range"><div class="track"><i style="width:70%"></i><u style="left:calc(70% - 7px)"></u></div><span class="num">70%</span></div></div>
+        </div>
+      </div>
+      <div class="pane"><span class="lbl">agents/mabel.md</span>
+<pre class="code">---
+name: Mabel
+description: Chief of staff…
+model: qwen3-30b-a3b-4bit
+image_model: z-image-turbo
+tools:
+  - calendar.*
+  - notes.search
+  - notes.append
+  - image.generate
+context: 32768
+compact_at: 0.7
+avatar: M / teal
+---
+You are Mabel, my chief of
+staff. Calm, brief, a little
+dry. You track my calendar…</pre>
+        <div style="height:14px"></div><span class="lbl">Templates</span>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="card" style="padding:8px 10px">Personal assistant</div><div class="card" style="padding:8px 10px">Roleplay character</div><div class="card" style="padding:8px 10px">Blank</div></div>
+      </div>
+    </div>
+  </div>
+</div></div>
+</section>
+
+<!-- ================= MODELS ================= -->
+<section class="view" id="v-models">
+<p class="note">Everything downloaded comes from Hugging Face MLX repos. The app shows what fits in 64 GB before you download, and loads and unloads for you when agents switch.</p>
+<div class="scroll-x"><div class="win">
+  <aside class="side">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="push"></div>
+    <div class="mem">Memory 24.1 / 64 GB
+      <div class="bar"><b style="width:27%;background:var(--accent)"></b><b style="width:11%;background:#c0683a"></b></div>
+      <div style="margin-top:4px">LLM 17.4 · image idle</div></div>
+    <div class="nav"><div>Chats</div><div>Agents</div><div class="on">Models</div><div>Tools <span>6</span></div></div>
+  </aside>
+  <div class="main">
+    <div class="tb"><span class="t">Models</span><span class="sp"></span><input class="field" style="width:280px" value="Search mlx-community…" aria-label="Search models"></div>
+    <div class="form">
+      <div><h3 style="font-size:14px;margin-bottom:6px">Installed</h3>
+        <table class="t"><tr><th>Name</th><th>Kind</th><th>Quant</th><th class="num">Size</th><th>Used by</th><th>State</th></tr>
+          <tr><td><b>Qwen3 30B-A3B</b></td><td>language</td><td>4-bit</td><td class="num">17.4 GB</td><td>Mabel, Rook, Lint</td><td><span class="badge g">loaded</span></td></tr>
+          <tr><td><b>Llama 3.2 3B Instruct</b></td><td>language</td><td>4-bit</td><td class="num">1.8 GB</td><td>Pip, Captain Orla</td><td><span class="badge n">on disk</span></td></tr>
+          <tr><td><b>Z-Image Turbo</b></td><td>image</td><td>bf16</td><td class="num">12.0 GB</td><td>Mabel, Pip</td><td><span class="badge n">on disk</span></td></tr>
+          <tr><td><b>FLUX.2 Klein 4B</b></td><td>image</td><td>4-bit</td><td class="num">4.1 GB</td><td>none</td><td><span class="badge n">on disk</span></td></tr></table></div>
+      <div><h3 style="font-size:14px;margin-bottom:6px">Downloading</h3>
+        <div class="card" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:180px"><b>Gemma 3 12B Instruct</b> <span class="badge n">language · 4-bit</span><div style="color:var(--mute);font-size:12px">mlx-community/gemma-3-12b-it-4bit</div></div>
+          <div class="prog" style="flex:1"><i style="width:63%"></i></div><span class="num" style="min-width:150px;color:var(--mute)">4.6 / 7.3 GB · 38 MB/s</span><button class="btn sm">Pause</button></div></div>
+      <div><h3 style="font-size:14px;margin-bottom:6px">Search results</h3>
+        <table class="t"><tr><th>Repo</th><th>Kind</th><th class="num">Size</th><th>Fit on this Mac</th><th></th></tr>
+          <tr><td>mlx-community/Qwen3-8B-4bit</td><td>language</td><td class="num">4.6 GB</td><td><span class="badge g">fits with room</span></td><td><button class="btn sm">Download</button></td></tr>
+          <tr><td>mlx-community/Llama-3.3-70B-Instruct-4bit</td><td>language</td><td class="num">39.7 GB</td><td><span class="badge w">tight with image model</span></td><td><button class="btn sm">Download</button></td></tr>
+          <tr><td>mlx-community/Z-Image-bf16</td><td>image</td><td class="num">12.3 GB</td><td><span class="badge g">fits with room</span></td><td><button class="btn sm">Download</button></td></tr></table></div>
+    </div>
+  </div>
+</div></div>
+</section>
+
+<!-- ================= TOOLS ================= -->
+<section class="view" id="v-tools">
+<p class="note">Mounted servers use the same <code>mcp.json</code> format as Claude Desktop, so recipes paste in. A fresh chat picks up the current tool list. Open chats get a “tools updated” divider when a server announces changes.</p>
+<div class="scroll-x"><div class="win">
+  <aside class="side">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="push"></div>
+    <div class="nav"><div>Chats</div><div>Agents</div><div>Models</div><div class="on">Tools <span>6</span></div></div>
+  </aside>
+  <div class="main">
+    <div class="tb"><span class="t">Tools</span><span class="sp"></span><button class="btn">Edit mcp.json</button><button class="btn pri">+ Add server</button></div>
+    <div class="form">
+      <div class="card"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="dotg"></span><b>image</b> <span class="badge n">built in</span><span style="color:var(--mute)">local image model worker</span><span style="flex:1"></span><span class="chip">2 tools</span></div>
+        <div style="margin-top:8px;color:var(--mute);font-size:13px"><code>generate</code> prompt, size, seed · <code>edit</code> image, prompt</div></div>
+      <div class="card"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="dotg"></span><b>zass</b> <span class="badge n">stdio</span><span style="color:var(--mute)">uv run --project mcp/zass zass-mcp</span><span style="flex:1"></span><span class="chip">23 tools</span><button class="btn sm">Restart</button></div>
+        <div style="margin-top:8px;color:var(--mute);font-size:13px"><code>briefing</code> <code>todo_add</code> <code>note_search</code> <code>imessage_send</code> <code>contacts_search</code> +18</div></div>
+      <div class="card"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="dotg"></span><b>calendar</b> <span class="badge n">stdio</span><span style="color:var(--mute)">npx -y @acme/calendar-mcp</span><span style="flex:1"></span><span class="chip">4 tools</span><button class="btn sm">Restart</button></div></div>
+      <div class="card"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="dotg dotw"></span><b>notes</b> <span class="badge n">http</span><span style="color:var(--mute)">http://localhost:8731/mcp</span><span style="flex:1"></span><span class="badge w">reconnecting</span></div></div>
+      <div><span class="lbl">mcp.json</span><pre class="code">{
+  "mcpServers": {
+    "zass": { "command": "uv", "args": ["run","--project","mcp/zass","zass-mcp"] },
+    "calendar": { "command": "npx", "args": ["-y","@acme/calendar-mcp"] }
+  }
+}</pre></div>
+    </div>
+  </div>
+</div></div>
+</section>
+
+<!-- ================= ROLEPLAY ================= -->
+<section class="view" id="v-roleplay">
+<p class="note">Same primitives, different agent file: no tools except image, a persona-heavy prompt, a smaller faster model, and an avatar that can be a generated image. This is the check that the substrate is general.</p>
+<div class="scroll-x"><div class="win">
+  <aside class="side">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="grp">Assistants</div>
+    <ul><li class="agent"><span class="av c1">M</span><div><div class="nm">Mabel</div><div class="sub">chief of staff</div></div></li></ul>
+    <div class="grp">Characters</div>
+    <ul>
+      <li class="agent on"><span class="av c2">P</span><div><div class="nm">Pip</div><div class="sub">a dog who is a poet</div></div><span class="dot"></span></li>
+      <li class="agent"><span class="av c3">C</span><div><div class="nm">Captain Orla</div><div class="sub">lighthouse keeper</div></div></li>
+    </ul>
+    <div class="push"></div>
+    <div class="nav"><div class="on">Chats</div><div>Agents</div><div>Models</div><div>Tools <span>6</span></div></div>
+  </aside>
+  <div class="main">
+    <div class="tb"><span class="av c2" style="width:26px;height:26px;font-size:12px">P</span><span class="t">Pip</span><span class="chip ok">Llama 3.2 3B · 4-bit</span><span class="chip">1 tool</span><span class="sp"></span><button class="btn">Prune</button></div>
+    <div class="log">
+      <div class="m u"><div class="b">Pip, what did you see on your walk?</div></div>
+      <div class="m"><span class="av c2" style="width:26px;height:26px;font-size:12px">P</span><div>
+        <div class="b" style="font-style:italic">*ears up, tail going* A squirrel, a bin, a very serious pigeon.<br>The wind smelled like the sea had been through the hedge.<br>I wrote you a small poem about it in the mud. Want to see?</div></div></div>
+      <div class="m u"><div class="b">Yes, show me the mud poem.</div></div>
+      <div class="m"><span class="av c2" style="width:26px;height:26px;font-size:12px">P</span><div>
+        <div class="tool"><span class="ok">✓</span><b>image.generate</b> “mud poem, paw prints…” <span style="margin-left:auto">14s</span></div>
+        <div class="img"><svg viewBox="0 0 300 200" role="img" aria-label="Generated image of paw prints in mud"><rect width="300" height="200" fill="#6e5a46"/><rect y="120" width="300" height="80" fill="#5a4838"/>
+          <g fill="#3d3024"><ellipse cx="60" cy="150" rx="9" ry="11"/><circle cx="48" cy="134" r="4"/><circle cx="58" cy="129" r="4"/><circle cx="69" cy="131" r="4"/><circle cx="76" cy="140" r="4"/>
+          <ellipse cx="130" cy="120" rx="9" ry="11"/><circle cx="118" cy="104" r="4"/><circle cx="128" cy="99" r="4"/><circle cx="139" cy="101" r="4"/><circle cx="146" cy="110" r="4"/>
+          <ellipse cx="205" cy="150" rx="9" ry="11"/><circle cx="193" cy="134" r="4"/><circle cx="203" cy="129" r="4"/><circle cx="214" cy="131" r="4"/><circle cx="221" cy="140" r="4"/></g>
+          <path d="M20 60 H280 M20 80 H240" stroke="#a38b6f" stroke-width="3" stroke-linecap="round" opacity=".5"/></svg>
+          <div class="cap"><span>768×768 · z-image-turbo · 14s</span><span>seed 91 · prompt ▸</span></div></div></div></div>
+    </div>
+    <div class="composer"><div class="in"><span>Message Pip…</span><button class="btn pri">Send</button></div><div class="meta"><span>One chat. Prune to start the story over.</span><span>context 2.2k / 8k</span></div></div>
+  </div>
+</div></div>
+</section>
+
+<!-- ================= ARCHITECTURE ================= -->
+<section class="view" id="v-arch">
+<div class="doc">
+<h2>How the pieces fit</h2>
+<p>One SwiftUI app. Three runtimes behind small protocols. All state is plain files, so an external Claude Code can rewrite the fabric while the app watches.</p>
+<div class="scroll-x"><svg viewBox="0 0 1040 470" width="1040" style="min-width:880px;max-width:100%;height:auto" role="img" aria-label="Architecture diagram">
+  <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="var(--mute)"/></marker></defs>
+  <g stroke="var(--line)" stroke-width="1.5">
+  <rect x="20" y="20" width="1000" height="90" rx="12" fill="var(--panel2)"/>
+  <rect x="20" y="140" width="1000" height="130" rx="12" fill="var(--panel2)"/>
+  <rect x="20" y="300" width="1000" height="150" rx="12" fill="var(--panel2)"/></g>
+  <g font-size="11" font-weight="700" fill="var(--faint)" letter-spacing="1"><text x="36" y="40">UI · SwiftUI</text><text x="36" y="160">CORE · Swift package, no UI imports</text><text x="36" y="320">RUNTIMES AND DISK</text></g>
+  <g font-size="13" fill="var(--fg)" text-anchor="middle">
+    <rect x="50" y="52" width="220" height="42" rx="8" fill="var(--panel)" stroke="var(--line)"/><text x="160" y="78">Chat room</text>
+    <rect x="290" y="52" width="220" height="42" rx="8" fill="var(--panel)" stroke="var(--line)"/><text x="400" y="78">Agent editor</text>
+    <rect x="530" y="52" width="220" height="42" rx="8" fill="var(--panel)" stroke="var(--line)"/><text x="640" y="78">Model library</text>
+    <rect x="770" y="52" width="220" height="42" rx="8" fill="var(--panel)" stroke="var(--line)"/><text x="880" y="78">Tools mounts</text>
+
+    <rect x="50" y="176" width="270" height="74" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="185" y="204" font-weight="700">AgentLoop (swappable)</text><text x="185" y="226" font-size="11.5" fill="var(--mute)">stream → tool calls → results → repeat</text>
+    <rect x="340" y="176" width="200" height="74" rx="8" fill="var(--panel)" stroke="var(--line)"/><text x="440" y="204" font-weight="700">Compactor</text><text x="440" y="226" font-size="11.5" fill="var(--mute)">summarize oldest, keep last N</text>
+    <rect x="560" y="176" width="200" height="74" rx="8" fill="var(--panel)" stroke="var(--line)"/><text x="660" y="204" font-weight="700">Store</text><text x="660" y="226" font-size="11.5" fill="var(--mute)">files + FSEvents watcher</text>
+    <rect x="780" y="176" width="210" height="74" rx="8" fill="var(--panel)" stroke="var(--line)"/><text x="885" y="204" font-weight="700">ToolHub</text><text x="885" y="226" font-size="11.5" fill="var(--mute)">union of mounted MCP tools</text>
+
+    <rect x="50" y="344" width="210" height="84" rx="8" fill="var(--panel)" stroke="var(--line)"/><text x="155" y="372" font-weight="700">LLM runtime</text><text x="155" y="392" font-size="11.5" fill="var(--mute)">MLX in process (actor)</text><text x="155" y="410" font-size="11.5" fill="var(--mute)">model downloader (HF)</text>
+    <rect x="280" y="344" width="210" height="84" rx="8" fill="var(--panel)" stroke="var(--line)"/><text x="385" y="372" font-weight="700">Image worker</text><text x="385" y="392" font-size="11.5" fill="var(--mute)">child process, MLX</text><text x="385" y="410" font-size="11.5" fill="var(--mute)">exposed as image.* tools</text>
+    <rect x="510" y="344" width="210" height="84" rx="8" fill="var(--panel)" stroke="var(--line)"/><text x="615" y="372" font-weight="700">MCP servers</text><text x="615" y="392" font-size="11.5" fill="var(--mute)">stdio and http children</text><text x="615" y="410" font-size="11.5" fill="var(--mute)">from mcp.json</text>
+    <rect x="740" y="344" width="250" height="84" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-dasharray="5 4"/><text x="865" y="372" font-weight="700">~/parlor/ on disk</text><text x="865" y="392" font-size="11.5" fill="var(--mute)">agents/ chats/ media/ models/</text><text x="865" y="410" font-size="11.5" fill="var(--mute)">mcp.json · CLAUDE.md</text>
+  </g>
+  <g stroke="var(--mute)" stroke-width="1.5" fill="none" marker-end="url(#ar)">
+    <path d="M160 94V176"/><path d="M400 94 L400 120 L660 120 L660 176"/><path d="M640 94 V130 H185 V176" opacity="0"/><path d="M880 94V176"/>
+    <path d="M155 250V344"/><path d="M885 250 V300 L615 300 V344"/><path d="M885 250 V318 L385 318 V344" opacity="0"/><path d="M660 250 V300 L865 300 V344"/>
+  </g>
+  <g fill="var(--mute)" font-size="11.5"><text x="180" y="300">infer</text><text x="900" y="296">tools/call</text><text x="672" y="296">read/write</text></g>
+  <g>
+    <rect x="740" y="456" width="0" height="0"/>
+  </g>
+</svg></div>
+<p style="margin-top:10px"><b>External Claude Code</b> works on the disk folder, not the app. The folder has its own <code>CLAUDE.md</code> explaining the file formats, so “add an agent called Orla who is a lighthouse keeper” is a file write, and the running app picks it up.</p>
+
+<h2>On disk</h2>
+<pre class="code">~/parlor/
+  CLAUDE.md                 how the folder works, for external agents
+  mcp.json                  mounted servers (Claude Desktop format)
+  agents/mabel.md           frontmatter + persona body
+  chats/mabel/log.jsonl     one chat per agent, append only
+  chats/mabel/summary.md    rolling compaction summary
+  media/2026-11/…png        generated images, referenced from the log
+  models/                   MLX weights, shared HF cache layout</pre>
+
+<h2>The agent loop, in full</h2>
+<pre class="code">protocol AgentLoop { func run(agent: Agent, history: History, tools: [Tool],
+                              llm: LLM, emit: (Event) -> Void) async throws }
+
+SimpleLoop:
+  messages = system(persona + summary) + recent turns
+  repeat:
+    stream = llm.generate(messages, tools)       // tokens and tool calls
+    emit tokens; collect tool calls
+    if none: break
+    run each call through ToolHub → append results
+  if tokens(messages) > agent.compact_at * context: Compactor.run()</pre>
+<p>Image generation, built-in actions and external MCP tools are all just entries in <code>ToolHub</code>. The loop never special-cases them.</p>
+</div>
+</section>
+
+<!-- ================= PLAN ================= -->
+<section class="view" id="v-plan">
+<div class="doc">
+<h2>Decisions already made</h2>
+<div class="dec"><b>Native SwiftUI, not Open WebUI</b><span>Open WebUI is a Python and Svelte web server in Docker. It would be the biggest dependency in the app and fights “as native as possible, super simple”. We borrow its ideas (model manager, tool mounting), not its code.</span></div>
+<div class="dec"><b>MLX for language models</b><span>Apple’s own framework and the best-supported path on Apple Silicon. Use <code>mlx-swift-lm</code> in process behind an actor. Weights come from <code>mlx-community</code> repos.</span></div>
+<div class="dec"><b>Image model in a child process</b><span>Z-Image Turbo or FLUX.2 Klein via a Swift MLX port, run as a separate worker. Memory is returned to the OS when it exits, and a crash cannot take the chat down. On an M1 Max expect roughly 20–40 s per 768–1024 px image.</span></div>
+<div class="dec"><b>Downloads via swift-huggingface</b><span>Resumable snapshot downloads with a cache layout shared with Python tooling. The UI adds size, “fits in memory?” and progress.</span></div>
+<div class="dec"><b>MCP via the official Swift SDK</b><span>stdio and http client, one connection per server. The app is not sandboxed so it can spawn servers. Distribute outside the App Store (Developer ID).</span></div>
+<div class="dec"><b>Files are the database</b><span>Same call as zass. Agents are markdown with frontmatter, chats are JSONL. No SQLite. This is what lets Claude Code rewrite the fabric, and what makes pruning, export and backup trivial.</span></div>
+<div class="dec"><b>One chat per agent</b><span>Enforced by the data model: <code>chats/&lt;agent&gt;/</code>. “New conversation” means prune or reset, not a second thread.</span></div>
+<div class="dec"><b>Agent loop is ~150 lines behind a protocol</b><span>Swap it per agent later (ReAct, planner, none) without touching UI or runtimes.</span></div>
+
+<h2>Build plan</h2>
+<div class="phase"><div class="when">0 · Spike<small>2–3 days</small></div><div>SwiftUI window, MLX streaming chat with one 4-bit model, one stdio MCP server (zass), full tool-call round trip.
+<div class="gate"><b>Gate:</b> a chosen model calls a tool correctly in 9 of 10 scripted prompts. If not, pick a different model or add constrained tool-call parsing before building anything else.</div></div></div>
+<div class="phase"><div class="when">1 · Core<small>~1 week</small></div><div>Swift package <code>ParlorCore</code>: Store (agents, chats, FSEvents reload), AgentLoop, Compactor, ToolHub, LLM actor. Plus a headless <code>parlor-cli</code> that drives the same core.
+<div class="gate"><b>Gate:</b> CLI run: create agent file → send 60 messages → compaction fires → tool call returns → history intact after relaunch. Runs in CI-style test, no UI.</div></div></div>
+<div class="phase"><div class="when">2 · Chat + agents UI<small>~1 week</small></div><div>Sidebar, streaming chat, tool-call chips, agent editor with live file preview, prune mode (delete, cut-after, compact now).
+<div class="gate"><b>Gate:</b> XCUITest drives “create Pip, chat, prune, relaunch”. Screenshots checked against these mockups.</div></div></div>
+<div class="phase"><div class="when">3 · Models<small>~4 days</small></div><div>HF search, resumable download, disk and memory gauge, load and unload on agent switch, fit warnings.
+<div class="gate"><b>Gate:</b> download a small model from scratch, interrupt, resume, assign to an agent, chat. Memory gauge matches Activity Monitor within 10%.</div></div></div>
+<div class="phase"><div class="when">4 · Tool mounts<small>~4 days</small></div><div>mcp.json editor, per-server status and restart, per-agent tool allowlist, tools/list_changed handling and the “tools updated” divider.
+<div class="gate"><b>Gate:</b> add a server while a chat is open, see the divider, next turn can call the new tool.</div></div></div>
+<div class="phase"><div class="when">5 · Images<small>~1 week</small></div><div>Image worker, <code>image.generate</code> tool, inline rendering, prompt and seed disclosure, save and copy.
+<div class="gate"><b>Gate:</b> “draw X” in chat → image in the log within 40 s on the M1 Max, worker memory freed after idle timeout.</div></div></div>
+<div class="phase"><div class="when">6 · Make it ours<small>ongoing</small></div><div>Agent templates (assistant, character), import and export agent packs, folder <code>CLAUDE.md</code>, optional local MCP so external Claude Code can drive the app, not only its files.</div></div>
+
+<h2>Risks</h2>
+<ul>
+<li><b>Tool-calling quality of small local models.</b> The biggest unknown, hence the phase 0 gate. Mitigation: pick the model for tool reliability first, keep tool lists short per agent.</li>
+<li><b>Memory.</b> A 17 GB language model plus a 12 GB image model fits in 64 GB, but not alongside heavy apps. The image worker unloads on idle, and the library warns before a download that will not fit.</li>
+<li><b>Swift MLX API churn.</b> The packages move fast. Pin versions, wrap each behind our own protocol so a change is local.</li>
+<li><b>Swift image ports are community projects.</b> Fallback is the Python <code>mflux</code> as the same worker interface, since the worker is a process boundary anyway.</li>
+</ul>
+
+<h2>How I will verify</h2>
+<p>Each gate above is run by the agent doing the work, in user-flow terms (“say draw → image appears in 24 s”), through <code>parlor-cli</code> and XCUITest on this Mac. Nothing is handed over as “please try it”.</p>
+
+<h2>Defaults I picked, tell me if wrong</h2>
+<ul>
+<li>Working name <b>parlor</b>, repo folder <code>lowercaseLabs/parlor/</code>, data in <code>~/parlor/</code>.</li>
+<li>macOS 26 only (this machine), Swift 6, SwiftUI with minimal AppKit.</li>
+<li>Qwen3 30B-A3B 4-bit as the first assistant model, Llama 3.2 3B for characters, Z-Image Turbo for images. All swappable, they are just defaults to test with.</li>
+<li>No cloud calls anywhere, including telemetry. Hugging Face downloads are the only network use.</li>
+</ul>
+</div>
+</section>
+</div>
+
+<script>
+(function(){
+  var ids=['chat','agents','models','tools','roleplay','arch','plan'];
+  function show(){
+    var h=(location.hash||'#chat').slice(1); if(ids.indexOf(h)<0)h='chat';
+    ids.forEach(function(i){document.getElementById('v-'+i).classList.toggle('on',i===h)});
+    document.querySelectorAll('nav.tabs a').forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+h)});
+  }
+  window.addEventListener('hashchange',show);show();
+  var b=document.getElementById('prunebtn'),m=document.getElementById('chatmain');
+  b.addEventListener('click',function(){var on=m.classList.toggle('pruning');b.textContent=on?'Done':'Prune';b.classList.toggle('pri',on)});
+})();
+</script>
