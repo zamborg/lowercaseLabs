@@ -58,3 +58,20 @@ UI tests (`-only-testing:ParlorUITests`) need Developer Mode: `sudo DevToolsSecu
 
 Debug-only env hooks for screenshots: `PARLOR_DEMO=1` (scripted model), `PARLOR_ROUTE=agent:<id>|models|tools`,
 `PARLOR_MODE=edit`, `PARLOR_AUTOSEND`, `PARLOR_AUTODOWNLOAD=repo@language,repo@image`.
+
+## Packaging
+
+```bash
+scripts/package.sh
+```
+
+Builds a Release `Parlor.app` with the image worker inside, `parlor-cli`, and `dist/Parlor-<version>.dmg` (the version is `MARKETING_VERSION` in `project.yml`). Without options it is ad-hoc signed: it runs on the Mac that built it, and on another Mac the first launch needs right-click → Open (or System Settings → Privacy & Security → Open Anyway), because it is not notarized.
+
+To distribute without that prompt you need a paid Apple Developer account:
+
+```bash
+xcrun notarytool store-credentials parlor          # once: Apple ID, team ID, app-specific password
+SIGN_ID="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=parlor scripts/package.sh
+```
+
+That signs with the hardened runtime, notarizes the dmg and staples the ticket. Models are not bundled: a fresh install starts with an empty parlor folder at `~/parlor` and downloads models from the Models screen.
