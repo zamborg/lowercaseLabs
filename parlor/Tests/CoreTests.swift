@@ -272,6 +272,17 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(hubOut.isError); XCTAssertTrue(hubOut.text.contains("timed out"))
         await engine.shutdown()
     }
+
+    /// Live network: a PyTorch-only repo is refused before anything is downloaded.
+    func testPyTorchOnlyRepoIsRefusedUpFront() async throws {
+        let lib = ModelLibrary(home: tempHome())
+        do { _ = try await lib.preflight("Gryphe/MythoMax-L2-13b", kind: .language); XCTFail("should refuse") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("safetensors")) }
+        let ok = try await lib.preflight("mlx-community/Qwen3-4B-4bit", kind: .language)
+        XCTAssertGreaterThan(ok ?? 0, 1_000_000_000)
+        let r = try await lib.search("Gryphe/MythoMax-L2-13b", kind: .language, limit: 3)
+        XCTAssertNotNil(r.first { $0.repo == "Gryphe/MythoMax-L2-13b" }?.unsupported)
+    }
 }
 
 struct SlowTools: ToolProvider {

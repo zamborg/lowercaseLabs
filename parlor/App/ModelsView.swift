@@ -172,9 +172,13 @@ struct ModelsView: View {
                             Text("\(r.repo) · \(r.downloads.formatted()) downloads").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Text(engine.library.fit(bytes: r.bytes).label).font(.caption).foregroundStyle(.secondary)
-                        Text(r.bytes.map(byteString) ?? "?").foregroundStyle(.secondary).monospacedDigit()
-                        action(repo: r.repo, kind: r.kind, bytes: r.bytes)
+                        if let why = r.unsupported {
+                            Text(why).font(.caption).foregroundStyle(.orange).lineLimit(2).frame(maxWidth: 280, alignment: .trailing)
+                        } else {
+                            Text(engine.library.fit(bytes: r.bytes).label).font(.caption).foregroundStyle(.secondary)
+                            Text(r.bytes.map(byteString) ?? "?").foregroundStyle(.secondary).monospacedDigit()
+                            action(repo: r.repo, kind: r.kind, bytes: r.bytes)
+                        }
                     }
                     .padding(.vertical, 8).padding(.horizontal, 12)
                     Divider()

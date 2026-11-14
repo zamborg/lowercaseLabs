@@ -18,6 +18,8 @@ public struct ModelSearchResult: Identifiable, Hashable, Sendable {
     public var kind: ModelKind
     public var downloads: Int
     public var bytes: Int64?
+    /// Why Parlor can't run this repo, or nil when it can (or when that is not known yet).
+    public var unsupported: String? = nil
     public var id: String { repo }
     public var shortName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
 }
@@ -87,7 +89,7 @@ public final class ModelLibrary: @unchecked Sendable {
     /// Directory of a fully downloaded model, if present.
     public func installedDirectory(for repo: String) -> URL? {
         let dir = directory(for: repo)
-        return FileManager.default.fileExists(atPath: marker(dir).path) ? dir : nil
+        return FileManager.default.fileExists(atPath: marker(dir).path) && Self.hasWeights(dir) ? dir : nil
     }
 
     public func refresh() {
@@ -96,7 +98,7 @@ public final class ModelLibrary: @unchecked Sendable {
         let orgs = (try? fm.contentsOfDirectory(at: home.modelsDir, includingPropertiesForKeys: nil)) ?? []
         for org in orgs where org.hasDirectoryPath {
             let names = (try? fm.contentsOfDirectory(at: org, includingPropertiesForKeys: nil)) ?? []
-            for dir in names where fm.fileExists(atPath: marker(dir).path) {
+            for dir in names where fm.fileExists(atPath: marker(dir).path) && Self.hasWeights(dir) {
                 guard let d = try? Data(contentsOf: marker(dir)),
                       let m = try? JSONDecoder().decode(Marker.self, from: d) else { continue }
                 found.append(InstalledModel(repo: m.repo, kind: m.kind, bytes: Self.size(of: dir), directory: dir))
@@ -106,6 +108,13 @@ public final class ModelLibrary: @unchecked Sendable {
     }
 
     struct Marker: Codable { var repo: String; var kind: ModelKind }
+
+    /// A download that fetched only configs (for example a PyTorch-only repo) is not an installed model.
+    static func hasWeights(_ dir: URL) -> Bool {
+        guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) else { return false }
+        for case let u as URL in e where u.pathExtension == "safetensors" { return true }
+        return false
+    }
 
     static func size(of dir: URL) -> Int64 {
         var total: Int64 = 0
@@ -150,23 +159,51 @@ public final class ModelLibrary: @unchecked Sendable {
         struct Row: Decodable { var id: String; var downloads: Int? }
         let rows = try JSONDecoder().decode([Row].self, from: data)
         // The search API no longer reports sizes, so sum each repo's file tree (concurrently; a failure just leaves "?").
-        let sizes = await withTaskGroup(of: (String, Int64?).self) { group -> [String: Int64] in
-            for r in rows { group.addTask { (r.id, await Self.repoBytes(r.id)) } }
-            var out: [String: Int64] = [:]
-            for await (id, b) in group { if let b { out[id] = b } }
+        let infos = await withTaskGroup(of: (String, RepoInfo?).self) { group -> [String: RepoInfo] in
+            for r in rows { group.addTask { (r.id, await Self.repoInfo(r.id)) } }
+            var out: [String: RepoInfo] = [:]
+            for await (id, i) in group { if let i { out[id] = i } }
             return out
         }
-        return rows.map { ModelSearchResult(repo: $0.id, kind: kind, downloads: $0.downloads ?? 0, bytes: sizes[$0.id]) }
+        return rows.map { r in
+            let info = infos[r.id]
+            return ModelSearchResult(repo: r.id, kind: kind, downloads: r.downloads ?? 0, bytes: info?.bytes,
+                                     unsupported: info.flatMap { Self.unsupportedReason($0, kind: kind, repo: r.id) })
+        }
     }
 
-    static func repoBytes(_ repo: String) async -> Int64? {
+    struct RepoInfo: Sendable { var bytes: Int64; var weightBytes: Int64; var files: [String] }
+
+    /// Sizes and file names from the repo's tree. Nil when the network call fails.
+    static func repoInfo(_ repo: String) async -> RepoInfo? {
         guard let url = URL(string: "https://huggingface.co/api/models/\(repo)/tree/main?recursive=true"),
               let (data, resp) = try? await URLSession.shared.data(from: url),
               (resp as? HTTPURLResponse)?.statusCode == 200,
-              let files = try? JSONDecoder().decode([TreeEntry].self, from: data) else { return nil }
-        return files.filter { $0.type == "file" }.reduce(0) { $0 + ($1.size ?? 0) }
+              let entries = try? JSONDecoder().decode([TreeEntry].self, from: data) else { return nil }
+        let files = entries.filter { $0.type == "file" }
+        return RepoInfo(
+            bytes: files.reduce(0) { $0 + ($1.size ?? 0) },
+            weightBytes: files.filter { $0.path.hasSuffix(".safetensors") }.reduce(0) { $0 + ($1.size ?? 0) },
+            files: files.map(\.path))
     }
-    private struct TreeEntry: Decodable { var type: String; var size: Int64? }
+    private struct TreeEntry: Decodable { var type: String; var path: String; var size: Int64? }
+
+    /// Parlor loads safetensors weights (MLX conversions); the image worker runs Z-Image only.
+    static func unsupportedReason(_ i: RepoInfo, kind: ModelKind, repo: String) -> String? {
+        if i.weightBytes == 0 {
+            let hint = repo.hasPrefix("mlx-community/") ? "" : " Look for an MLX conversion under mlx-community."
+            return "No safetensors weights (PyTorch or GGUF only)." + hint
+        }
+        if kind == .image, !repo.lowercased().contains("z-image") { return "The image worker runs Z-Image models only." }
+        return nil
+    }
+
+    /// Fail early, before anything is written, when a repo can't run here.
+    func preflight(_ repo: String, kind: ModelKind) async throws -> Int64? {
+        guard let info = await Self.repoInfo(repo) else { return nil }   // check failed offline: let the download report it
+        if let why = Self.unsupportedReason(info, kind: kind, repo: repo) { throw ParlorError.message("\(repo): \(why)") }
+        return info.weightBytes
+    }
 
     // MARK: downloads
 
@@ -177,6 +214,7 @@ public final class ModelLibrary: @unchecked Sendable {
         tasks[repo] = Task { [weak self] in
             do {
                 guard let id = Repo.ID(rawValue: repo) else { throw ParlorError.message("Bad repo id \(repo)") }
+                _ = try await self?.preflight(repo, kind: kind)
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 // Explicit extensions: an empty glob list makes the hub client try to write directory entries as files.
                 let globs = ["*.safetensors", "*.json", "*.jinja", "*.txt", "*.model", "*.tiktoken", "*.md"]

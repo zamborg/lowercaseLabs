@@ -59,7 +59,11 @@ public actor MLXRuntime: LanguageModelRuntime {
         loadedID = nil
         prefix.reset()
         guard let dir = library.installedDirectory(for: id) else { throw ParlorError.modelNotInstalled(id) }
-        let c = try await loadModelContainer(from: dir, using: #huggingFaceTokenizerLoader())
+        let c: ModelContainer
+        do { c = try await loadModelContainer(from: dir, using: #huggingFaceTokenizerLoader()) }
+        catch {
+            throw ParlorError.message("Couldn't load \(id): \(error.localizedDescription) This usually means the weights are not an MLX-compatible conversion of a supported architecture.")
+        }
         container = c
         loadedID = id
         return c

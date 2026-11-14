@@ -28,7 +28,7 @@ struct MessageRow: View {
         switch message.role {
         case .user:
             HStack { Spacer(minLength: 80)
-                Text(markdown(message.text)).textSelection(.enabled)
+                Text(markdown(message.text)).selectable(!selecting)
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14))
                     .foregroundStyle(.white)
@@ -38,7 +38,7 @@ struct MessageRow: View {
             else {
                 HStack(alignment: .top, spacing: 8) {
                     AvatarView(agent: agent, size: 26)
-                    Text(markdown(message.text)).textSelection(.enabled)
+                    Text(markdown(message.text)).selectable(!selecting)
                         .padding(.horizontal, 12).padding(.vertical, 8)
                         .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
                     Spacer(minLength: 80)
@@ -149,5 +149,12 @@ struct ImageCard: View {
                 if p.runModal() == .OK, let dest = p.url { try? FileManager.default.copyItem(at: url, to: dest) }
             }
         }
+    }
+}
+
+extension View {
+    /// Text selection swallows clicks, so it is off while the user is picking messages to prune.
+    @ViewBuilder func selectable(_ on: Bool) -> some View {
+        if on { textSelection(.enabled) } else { textSelection(.disabled) }
     }
 }
