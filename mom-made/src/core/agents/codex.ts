@@ -173,8 +173,13 @@ export class CodexAgent implements Agent {
     };
     let thread = t.session;
     if (thread)
-      await this.codex.request("thread/resume", { ...params, threadId: thread });
-    else thread = (await this.codex.request("thread/start", params)).thread.id as string;
+      await this.codex.request("thread/resume", {
+        ...params,
+        threadId: thread,
+      });
+    else
+      thread = (await this.codex.request("thread/start", params)).thread
+        .id as string;
     emit({ type: "session", id: thread });
     const done = new Promise<void>((resolve) => {
       this.current = {
@@ -213,7 +218,10 @@ export class CodexAgent implements Agent {
     const c = this.current;
     if (!c) return;
     if (c.turn)
-      await this.codex.request("turn/interrupt", { threadId: c.thread, turnId: c.turn });
+      await this.codex.request("turn/interrupt", {
+        threadId: c.thread,
+        turnId: c.turn,
+      });
     else {
       this.codex.close();
       c.finish({ type: "done", status: "interrupted" });
@@ -223,13 +231,23 @@ export class CodexAgent implements Agent {
     if (this.approvalId !== id) throw Error("Approval is no longer pending");
     this.approvalId = undefined;
     this.codex.answer(id, {
-      decision: d === "decline" ? "decline" : d === "always" ? "acceptForSession" : "accept",
+      decision:
+        d === "decline"
+          ? "decline"
+          : d === "always"
+            ? "acceptForSession"
+            : "accept",
     });
   }
   async login() {
     await this.codex.open();
-    const r = await this.codex.request("account/login/start", { type: "chatgpt" });
-    if (typeof r.authUrl === "string" && new URL(r.authUrl).protocol === "https:")
+    const r = await this.codex.request("account/login/start", {
+      type: "chatgpt",
+    });
+    if (
+      typeof r.authUrl === "string" &&
+      new URL(r.authUrl).protocol === "https:"
+    )
       await this.openUrl(r.authUrl);
   }
   async compact(cwd: string, session: string) {

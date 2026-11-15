@@ -26,9 +26,27 @@ export function findClaude(): string | undefined {
   return CANDIDATES.find(existsSync);
 }
 const SAFE_BASH = [
-  "ls", "cat", "rg", "grep", "find", "head", "tail", "wc", "pwd", "mkdir",
-  "mv", "cp", "touch", "npm install", "npm i", "npm run build", "npm uninstall",
-  "git status", "git diff", "git log", "sed -n",
+  "ls",
+  "cat",
+  "rg",
+  "grep",
+  "find",
+  "head",
+  "tail",
+  "wc",
+  "pwd",
+  "mkdir",
+  "mv",
+  "cp",
+  "touch",
+  "npm install",
+  "npm i",
+  "npm run build",
+  "npm uninstall",
+  "git status",
+  "git diff",
+  "git log",
+  "sed -n",
 ];
 const MODELS = [
   { model: "sonnet", displayName: "Claude Sonnet", isDefault: true },
@@ -59,8 +77,11 @@ export class ClaudeAgent implements Agent {
     const bin = findClaude();
     if (!bin) return { installed: false, ready: false, models: [] };
     const out = await new Promise<string>((resolve) =>
-      execFile(bin, ["auth", "status"], { env: localEnv(), timeout: 10000 }, (_e, so) =>
-        resolve(String(so ?? "")),
+      execFile(
+        bin,
+        ["auth", "status"],
+        { env: localEnv(), timeout: 10000 },
+        (_e, so) => resolve(String(so ?? "")),
       ),
     );
     try {
@@ -68,7 +89,9 @@ export class ClaudeAgent implements Agent {
       return {
         installed: true,
         ready: !!s.loggedIn,
-        account: s.loggedIn ? s.email ?? s.authMethod ?? "Signed in" : undefined,
+        account: s.loggedIn
+          ? (s.email ?? s.authMethod ?? "Signed in")
+          : undefined,
         models: MODELS,
       };
     } catch {
@@ -78,24 +101,47 @@ export class ClaudeAgent implements Agent {
   async run(t: TurnInput, emit: (e: AgentEvent) => void) {
     const bin = findClaude();
     if (!bin) {
-      emit({ type: "done", status: "failed", error: "Claude Code is not installed." });
+      emit({
+        type: "done",
+        status: "failed",
+        error: "Claude Code is not installed.",
+      });
       return;
     }
     this.interrupted = false;
-    const mcp = JSON.stringify({ mcpServers: t.mcp ? { "mom-made": t.mcp } : {} });
+    const mcp = JSON.stringify({
+      mcpServers: t.mcp ? { "mom-made": t.mcp } : {},
+    });
     const args = [
       "-p",
-      "--input-format", "stream-json",
-      "--output-format", "stream-json",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
       "--verbose",
       "--include-partial-messages",
-      "--mcp-config", mcp,
+      "--mcp-config",
+      mcp,
       "--strict-mcp-config",
-      "--append-system-prompt", t.instructions,
+      "--append-system-prompt",
+      t.instructions,
     ];
     if (t.mcp) {
-      args.push("--permission-mode", "acceptEdits", "--allowedTools",
-        ["Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "mcp__mom-made", ...SAFE_BASH.map((b) => `Bash(${b}:*)`)].join(","));
+      args.push(
+        "--permission-mode",
+        "acceptEdits",
+        "--allowedTools",
+        [
+          "Read",
+          "Edit",
+          "Write",
+          "MultiEdit",
+          "Glob",
+          "Grep",
+          "mcp__mom-made",
+          ...SAFE_BASH.map((b) => `Bash(${b}:*)`),
+        ].join(","),
+      );
     } else {
       args.push("--tools", "");
     }
@@ -105,7 +151,11 @@ export class ClaudeAgent implements Agent {
     for (const img of t.images)
       content.push({
         type: "image",
-        source: { type: "base64", media_type: "image/png", data: readFileSync(img).toString("base64") },
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: readFileSync(img).toString("base64"),
+        },
       });
     const child = spawn(bin, args, {
       cwd: t.cwd,
@@ -126,7 +176,10 @@ export class ClaudeAgent implements Agent {
       else if (r.type === "stream_event") {
         const ev = r.event ?? {};
         if (ev.type === "message_start") emit({ type: "textBreak" });
-        if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") {
+        if (
+          ev.type === "content_block_delta" &&
+          ev.delta?.type === "text_delta"
+        ) {
           sawText = true;
           emit({ type: "text", delta: ev.delta.text });
         }
@@ -146,9 +199,18 @@ export class ClaudeAgent implements Agent {
             });
           else if (name === "Bash") {
             const c = classify(String(input.command ?? ""));
-            emit({ type: "activity", kind: c.kind, text: c.text, detail: String(input.command ?? "") });
+            emit({
+              type: "activity",
+              kind: c.kind,
+              text: c.text,
+              detail: String(input.command ?? ""),
+            });
           } else if (/^(Read|Glob|Grep|LS)$/.test(name))
-            emit({ type: "activity", kind: "look", text: "Looked through the files" });
+            emit({
+              type: "activity",
+              kind: "look",
+              text: "Looked through the files",
+            });
         }
       } else if (r.type === "result") {
         if (r.is_error)
@@ -158,7 +220,8 @@ export class ClaudeAgent implements Agent {
             error: String(r.result ?? "Claude Code stopped."),
           });
         else {
-          if (!sawText && r.result) emit({ type: "text", delta: String(r.result) });
+          if (!sawText && r.result)
+            emit({ type: "text", delta: String(r.result) });
           finish({ type: "done", status: "completed" });
         }
       }
@@ -167,16 +230,26 @@ export class ClaudeAgent implements Agent {
       child.on("error", (e) => {
         finish({ type: "done", status: "failed", error: e.message });
       });
-      child.stdin!.on("error", (e) => finish({ type: "done", status: "failed", error: e.message }));
+      child.stdin!.on("error", (e) =>
+        finish({ type: "done", status: "failed", error: e.message }),
+      );
       child.on("close", (code) => {
         finish(
           this.interrupted
             ? { type: "done", status: "interrupted" }
-            : { type: "done", status: "failed", error: `Claude Code stopped unexpectedly (${code}). ${err}`.trim() },
+            : {
+                type: "done",
+                status: "failed",
+                error:
+                  `Claude Code stopped unexpectedly (${code}). ${err}`.trim(),
+              },
         );
         resolve();
       });
-      child.stdin!.end(JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n");
+      child.stdin!.end(
+        JSON.stringify({ type: "user", message: { role: "user", content } }) +
+          "\n",
+      );
     });
     this.child = undefined;
     if (outcome) emit(outcome);
@@ -194,10 +267,20 @@ export class ClaudeAgent implements Agent {
     const bin = findClaude();
     if (!bin) throw Error("Claude Code is not installed.");
     await new Promise<void>((resolve, reject) => {
-      const child = execFile(bin, ["auth", "login"], { env: localEnv(), timeout: 5 * 60_000 }, (error) => {
-        if (error) reject(Error("Claude Code sign-in did not finish. Run claude auth login in Terminal, then refresh connections."));
-        else resolve();
-      });
+      const child = execFile(
+        bin,
+        ["auth", "login"],
+        { env: localEnv(), timeout: 5 * 60_000 },
+        (error) => {
+          if (error)
+            reject(
+              Error(
+                "Claude Code sign-in did not finish. Run claude auth login in Terminal, then refresh connections.",
+              ),
+            );
+          else resolve();
+        },
+      );
       child.stdin?.end();
     });
   }

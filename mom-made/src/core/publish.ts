@@ -54,7 +54,10 @@ export class Publisher {
       };
       c.stdout.on("data", grab);
       c.stderr.on("data", grab);
-      const timer = setTimeout(() => c.kill(), args[0] === "whoami" ? 15000 : 10 * 60_000);
+      const timer = setTimeout(
+        () => c.kill(),
+        args[0] === "whoami" ? 15000 : 10 * 60_000,
+      );
       c.on("error", (e) => {
         clearTimeout(timer);
         resolve({ code: 1, out: e.message });
@@ -71,7 +74,10 @@ export class Publisher {
       const who = JSON.parse(r.out);
       if (who.loggedIn === false) return { state: "login-required" };
       if (r.code === 0 && who.loggedIn === true)
-        return { state: "ready", account: who.email ?? who.accounts?.[0]?.name };
+        return {
+          state: "ready",
+          account: who.email ?? who.accounts?.[0]?.name,
+        };
     } catch {}
     return { state: "unknown" };
   }

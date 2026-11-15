@@ -25,9 +25,11 @@ export class Store {
     this.migrate();
   }
   private migrate() {
-    const v = (this.db.prepare("PRAGMA user_version").get() as {
-      user_version: number;
-    }).user_version;
+    const v = (
+      this.db.prepare("PRAGMA user_version").get() as {
+        user_version: number;
+      }
+    ).user_version;
     if (v < 1) {
       this.db.exec("BEGIN");
       try {
@@ -40,7 +42,8 @@ export class Store {
         const ins = this.db.prepare(
           "INSERT OR IGNORE INTO messages(id,role,text,app,turn) VALUES(?,?,?,?,?)",
         );
-        for (const m of old) ins.run(m.id, m.role, m.text, m.appId, m.turnId ?? null);
+        for (const m of old)
+          ins.run(m.id, m.role, m.text, m.appId, m.turnId ?? null);
         this.db.exec("DELETE FROM kv WHERE key='messages'");
         this.db.exec("PRAGMA user_version=1");
         this.db.exec("COMMIT");
@@ -76,7 +79,10 @@ export class Store {
         `SELECT id,role,text,app AS appId,turn AS turnId,kind,detail,image FROM
          (SELECT * FROM messages ${appId === undefined ? "" : "WHERE app = ?"} ORDER BY seq DESC LIMIT ?) ORDER BY seq`,
       )
-      .all(...(appId === undefined ? [limit] : [appId, limit])) as Record<string, string | null>[];
+      .all(...(appId === undefined ? [limit] : [appId, limit])) as Record<
+      string,
+      string | null
+    >[];
     return rows.map((r) => {
       const m: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(r)) if (v !== null) m[k] = v;
@@ -101,7 +107,14 @@ export class Store {
     turnId?: string,
     extra: Extra = {},
   ) {
-    const m: Message = { id: randomUUID(), role, text, appId, turnId, ...extra };
+    const m: Message = {
+      id: randomUUID(),
+      role,
+      text,
+      appId,
+      turnId,
+      ...extra,
+    };
     this.tx(() => {
       this.event(appId, "message", m);
       this.db
@@ -131,7 +144,9 @@ export class Store {
   }
   update(id: string, patch: { text?: string; detail?: string }) {
     if (patch.text !== undefined)
-      this.db.prepare("UPDATE messages SET text=? WHERE id=?").run(patch.text, id);
+      this.db
+        .prepare("UPDATE messages SET text=? WHERE id=?")
+        .run(patch.text, id);
     if (patch.detail !== undefined)
       this.db
         .prepare("UPDATE messages SET detail=? WHERE id=?")
@@ -155,7 +170,12 @@ export class Store {
         .prepare(
           "SELECT at,ok,url,note FROM deployments WHERE app=? ORDER BY seq DESC LIMIT 20",
         )
-        .all(app) as { at: string; ok: number; url: string | null; note: string }[]
+        .all(app) as {
+        at: string;
+        ok: number;
+        url: string | null;
+        note: string;
+      }[]
     ).map((r) => ({
       at: r.at,
       ok: !!r.ok,

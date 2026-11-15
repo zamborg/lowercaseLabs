@@ -7,7 +7,6 @@ import {
   Tray,
   nativeImage,
   shell,
-  dialog,
   safeStorage,
 } from "electron";
 import { join, resolve } from "node:path";
@@ -110,7 +109,9 @@ function emit() {
 function checkCloudflare(login = false) {
   if (cloudflareRequest) {
     if (!login) return cloudflareRequest;
-    throw Error("A Cloudflare connection check is already running. Try again in a moment.");
+    throw Error(
+      "A Cloudflare connection check is already running. Try again in a moment.",
+    );
   }
   cloudflareRequest = (login ? publisher.login() : publisher.whoami())
     .then((status) => {
@@ -118,7 +119,9 @@ function checkCloudflare(login = false) {
       emit();
       return status;
     })
-    .finally(() => { cloudflareRequest = undefined; });
+    .finally(() => {
+      cloudflareRequest = undefined;
+    });
   return cloudflareRequest;
 }
 function requireApp(id: string) {
@@ -138,11 +141,14 @@ function renderView() {
       v.setBounds({
         x: bounds.x,
         y: bounds.y,
-        width: Math.max(0, Math.min(bounds.width, win.getContentBounds().width - bounds.x)),
-        height: Math.max(0, Math.min(
-          bounds.height,
-          win.getContentBounds().height - bounds.y,
-        )),
+        width: Math.max(
+          0,
+          Math.min(bounds.width, win.getContentBounds().width - bounds.x),
+        ),
+        height: Math.max(
+          0,
+          Math.min(bounds.height, win.getContentBounds().height - bounds.y),
+        ),
       });
     v.setVisible(visible);
   }
@@ -213,7 +219,12 @@ function start(a: AppRecord): Promise<void> {
       await supervisor.start(a);
       const current = requireApp(a.id);
       if (a.port !== current.port) store.saveApp({ ...current, port: a.port });
-      if (current.open && !closed && !quitting && supervisor.states[a.id]?.status === "ready")
+      if (
+        current.open &&
+        !closed &&
+        !quitting &&
+        supervisor.states[a.id]?.status === "ready"
+      )
         await preview(current);
     } catch (e) {
       const runtime = supervisor.states[a.id];
@@ -235,11 +246,18 @@ const reply = (text: string, isError = false): ToolReply => ({
 async function grab(appId: string) {
   const v = views.get(appId);
   if (!v) throw Error("no view");
-  let img = await v.webContents.capturePage(undefined, { stayHidden: true }).catch(() => undefined);
+  let img = await v.webContents
+    .capturePage(undefined, { stayHidden: true })
+    .catch(() => undefined);
   if ((!img || img.isEmpty()) && bounds.visible) {
     // A hidden native view cannot be captured; show it briefly, then restore.
     v.setVisible(true);
-    v.setBounds({ x: bounds.x, y: bounds.y, width: Math.max(bounds.width, 400), height: Math.max(bounds.height, 300) });
+    v.setBounds({
+      x: bounds.x,
+      y: bounds.y,
+      width: Math.max(bounds.width, 400),
+      height: Math.max(bounds.height, 300),
+    });
     await new Promise((r) => setTimeout(r, 200));
     img = await v.webContents.capturePage().catch(() => undefined);
     renderView();
@@ -256,28 +274,53 @@ const PAGE_SCRIPT = `(() => {
   });
   return JSON.stringify({ title: document.title, url: location.href, text: document.body.innerText.slice(0, 5000), elements: els });
 })()`;
-async function tool(appId: string, name: string, args: Record<string, unknown>): Promise<ToolReply> {
+async function tool(
+  appId: string,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<ToolReply> {
   const rt = supervisor.states[appId];
-  if (!store.apps().some((a) => a.id === appId)) return reply("Unknown app.", true);
-  if (name === "app_logs") return reply((rt?.logs || "No server output yet.").slice(-6000));
+  if (!store.apps().some((a) => a.id === appId))
+    return reply("Unknown app.", true);
+  if (name === "app_logs")
+    return reply((rt?.logs || "No server output yet.").slice(-6000));
   const v = views.get(appId);
   if (!v || rt?.status !== "ready")
-    return reply("The app is not running right now. Its status is " + (rt?.status ?? "stopped") + ". Check app_logs.", true);
+    return reply(
+      "The app is not running right now. Its status is " +
+        (rt?.status ?? "stopped") +
+        ". Check app_logs.",
+      true,
+    );
   const wc = v.webContents;
   const gen = viewGeneration.get(appId) ?? 0;
   if (staleNavigation(args.navigationId, gen))
-    return reply(`The page changed (navigationId is now ${gen}). Call app_page_text again before acting.`, true);
+    return reply(
+      `The page changed (navigationId is now ${gen}). Call app_page_text again before acting.`,
+      true,
+    );
   const js = (code: string) => wc.executeJavaScript(code, true);
   switch (name) {
     case "app_screenshot": {
       const img = await grab(appId);
       const size = img.getSize();
       const scaled = size.width > 1400 ? img.resize({ width: 1400 }) : img;
-      return { content: [{ type: "image", data: scaled.toPNG().toString("base64"), mimeType: "image/png" }, { type: "text", text: `navigationId ${gen}` }] };
+      return {
+        content: [
+          {
+            type: "image",
+            data: scaled.toPNG().toString("base64"),
+            mimeType: "image/png",
+          },
+          { type: "text", text: `navigationId ${gen}` },
+        ],
+      };
     }
     case "app_page_text": {
       const r = JSON.parse(await js(PAGE_SCRIPT));
-      return reply(`navigationId ${gen}\n${r.title} — ${r.url}\n\nInteractive:\n${r.elements.join("\n")}\n\nText:\n${r.text}`);
+      return reply(
+        `navigationId ${gen}\n${r.title} — ${r.url}\n\nInteractive:\n${r.elements.join("\n")}\n\nText:\n${r.text}`,
+      );
     }
     case "app_console": {
       const l = consoleLog.get(appId) ?? [];
@@ -302,7 +345,12 @@ async function tool(appId: string, name: string, args: Record<string, unknown>):
         return "OK";
       })(${JSON.stringify(args.text ?? "")}, ${JSON.stringify(args.selector ?? "")})`);
       await new Promise((res) => setTimeout(res, 400));
-      return reply(r === "OK" ? "Clicked. Take a screenshot to see the result." : "Nothing matching that was found on the page.", r !== "OK");
+      return reply(
+        r === "OK"
+          ? "Clicked. Take a screenshot to see the result."
+          : "Nothing matching that was found on the page.",
+        r !== "OK",
+      );
     }
     case "app_type": {
       const r = await js(`((selector, label, text) => {
@@ -319,7 +367,10 @@ async function tool(appId: string, name: string, args: Record<string, unknown>):
         el.dispatchEvent(new Event("change", { bubbles: true }));
         return "OK";
       })(${JSON.stringify(args.selector ?? "")}, ${JSON.stringify(args.label ?? "")}, ${JSON.stringify(String(args.text ?? ""))})`);
-      return reply(r === "OK" ? "Typed." : "No matching field was found.", r !== "OK");
+      return reply(
+        r === "OK" ? "Typed." : "No matching field was found.",
+        r !== "OK",
+      );
     }
   }
   return reply("Unknown tool.", true);
@@ -355,29 +406,34 @@ function checkAgent(id: AgentId): Promise<AgentInfo> {
   const pending = agentChecks.get(id);
   if (pending) return pending;
   const a = agents[id];
-  const task = a.probe().catch((e): Probe => ({
-    installed: true,
-    ready: false,
-    detail: String(e),
-    models: [],
-  })).then((p) => {
-    const info: AgentInfo = {
-      id: a.id,
-      label: a.label,
-      installed: p.installed,
-      ready: p.ready,
-      account: p.account,
-      detail: p.detail,
-      models: p.models,
-      approvals: a.approvals,
-      compact: !!a.compact,
-      help: a.help,
-    };
-    infos = [...infos.filter((item) => item.id !== id), info]
-      .sort((a, b) => agentIds.indexOf(a.id) - agentIds.indexOf(b.id));
-    emit();
-    return info;
-  }).finally(() => agentChecks.delete(id));
+  const task = a
+    .probe()
+    .catch((e): Probe => ({
+      installed: true,
+      ready: false,
+      detail: String(e),
+      models: [],
+    }))
+    .then((p) => {
+      const info: AgentInfo = {
+        id: a.id,
+        label: a.label,
+        installed: p.installed,
+        ready: p.ready,
+        account: p.account,
+        detail: p.detail,
+        models: p.models,
+        approvals: a.approvals,
+        compact: !!a.compact,
+        help: a.help,
+      };
+      infos = [...infos.filter((item) => item.id !== id), info].sort(
+        (a, b) => agentIds.indexOf(a.id) - agentIds.indexOf(b.id),
+      );
+      emit();
+      return info;
+    })
+    .finally(() => agentChecks.delete(id));
   agentChecks.set(id, task);
   return task;
 }
@@ -419,7 +475,10 @@ function turnLabel(status: string) {
 }
 const INSTRUCTIONS =
   "You are building an app inside mom-made for someone who is not a programmer. Work only in the specified app directory and follow AGENTS.md there. The desktop supervises the dev server. Do not start servers or deploy. Use React, Vite, Hono and Cloudflare bindings. Look at your work with the mom-made tools before saying you are done. Reply briefly in plain, friendly language. No subagents.";
-const WEB_DESIGN = readFileSync(join(base, "skills/web-design/SKILL.md"), "utf8").trim();
+const WEB_DESIGN = readFileSync(
+  join(base, "skills/web-design/SKILL.md"),
+  "utf8",
+).trim();
 function workspaceChatDirectory() {
   const cwd = join(store.root, "workspaces", "default", "chat");
   mkdirSync(cwd, { recursive: true });
@@ -469,20 +528,23 @@ function handler(appId: string, id: AgentId, turnId: string) {
         }
         break;
       case "done":
-        finish(
-          e.status === "failed"
-            ? "failed: " + (e.error ?? "")
-            : e.status,
-        );
+        finish(e.status === "failed" ? "failed: " + (e.error ?? "") : e.status);
         return;
     }
     emit();
   };
 }
-type SendOpts = { images?: string[]; feedbackId?: string; display?: string; expectedAgent?: AgentId };
+type SendOpts = {
+  images?: string[];
+  feedbackId?: string;
+  display?: string;
+  expectedAgent?: AgentId;
+};
 function turnAgent(expected?: AgentId) {
   if (expected && expected !== agentId)
-    throw Error("The active assistant changed. Review the new assistant and send again.");
+    throw Error(
+      "The active assistant changed. Review the new assistant and send again.",
+    );
   return agentId;
 }
 async function send(
@@ -500,7 +562,9 @@ async function send(
     throw Error("Wait for Pi to finish checking the local model.");
   const info = infos.find((i) => i.id === id);
   if (!info?.installed)
-    throw Error(`${agents[id].label} isn't installed yet. Open Settings for help.`);
+    throw Error(
+      `${agents[id].label} isn't installed yet. Open Settings for help.`,
+    );
   if (!info.ready)
     throw Error(`Connect ${agents[id].label} in Settings first.`);
   const route = resolveModel(info.models, modelDefaults[id], { model, effort });
@@ -530,23 +594,27 @@ async function send(
         images: opts.images ?? [],
         ...route,
         session: sessionOf(a, id),
-        instructions: a ? [
-          INSTRUCTIONS,
-          id === "pi-local"
-            ? "This is a text model. Verify the preview with app_page_text and app_console."
-            : "Use app_screenshot for visual verification.",
-          WEB_DESIGN,
-        ].join("\n\n") : "You are chatting with someone in mom-made. Help with their questions, ideas, and planning. No app is selected. If they want you to build or edit an app, tell them they can choose New App or open an app from the toolbar. Reply directly without using tools or modifying files.",
-        mcp: a ? {
-          command: process.execPath,
-          args: [join(base, "dist/mcp.cjs")],
-          env: {
-            ELECTRON_RUN_AS_NODE: "1",
-            MOM_SOCKET: bridge.path,
-            MOM_TOKEN: bridge.token,
-            MOM_APP: a.id,
-          },
-        } : undefined,
+        instructions: a
+          ? [
+              INSTRUCTIONS,
+              id === "pi-local"
+                ? "This is a text model. Verify the preview with app_page_text and app_console."
+                : "Use app_screenshot for visual verification.",
+              WEB_DESIGN,
+            ].join("\n\n")
+          : "You are chatting with someone in mom-made. Help with their questions, ideas, and planning. No app is selected. If they want you to build or edit an app, tell them they can choose New App or open an app from the toolbar. Reply directly without using tools or modifying files.",
+        mcp: a
+          ? {
+              command: process.execPath,
+              args: [join(base, "dist/mcp.cjs")],
+              env: {
+                ELECTRON_RUN_AS_NODE: "1",
+                MOM_SOCKET: bridge.path,
+                MOM_TOKEN: bridge.token,
+                MOM_APP: a.id,
+              },
+            }
+          : undefined,
       },
       handler(appId, id, turnId),
     )
@@ -555,7 +623,8 @@ async function send(
         finish("failed: " + (e instanceof Error ? e.message : String(e)));
     })
     .finally(() => {
-      if (busy?.turnId === turnId) finish("failed: The assistant stopped unexpectedly.");
+      if (busy?.turnId === turnId)
+        finish("failed: The assistant stopped unexpectedly.");
     });
 }
 async function interrupt() {
@@ -728,7 +797,9 @@ app.whenReady().then(async () => {
           if (c.type === "openApp") await appClosures.get(c.appId);
           const a = requireApp(c.appId);
           const status = supervisor.states[a.id]?.status;
-          const wake = c.type === "openApp" && (!a.open || !status || status === "stopped");
+          const wake =
+            c.type === "openApp" &&
+            (!a.open || !status || status === "stopped");
           if (wake && !a.open) {
             a.open = true;
             store.saveApp(a);
@@ -821,15 +892,19 @@ app.whenReady().then(async () => {
           else {
             const catalog = infos.find((a) => a.id === c.id)?.models ?? [];
             if (!catalog.some((m) => m.model === c.model))
-              throw Error("This model is unavailable. Refresh connections and try again.");
+              throw Error(
+                "This model is unavailable. Refresh connections and try again.",
+              );
             modelDefaults[c.id] = resolveModel(catalog, undefined, c);
           }
           store.set("modelDefaults", modelDefaults);
           break;
         }
         case "agentKey": {
-          if (busyAgent === "pi") throw Error("Wait for Pi to finish before changing its key.");
-          if (changingPiKey) throw Error("An OpenRouter key change is already in progress.");
+          if (busyAgent === "pi")
+            throw Error("Wait for Pi to finish before changing its key.");
+          if (changingPiKey)
+            throw Error("An OpenRouter key change is already in progress.");
           changingPiKey = true;
           try {
             await agentChecks.get("pi");
@@ -843,8 +918,13 @@ app.whenReady().then(async () => {
         }
         case "piLocalSettings": {
           if (busyAgent === "pi-local" || changingLocalModel)
-            throw Error("Wait for local Pi to finish before changing its settings.");
-          const settings = { ...c.settings, baseUrl: loopbackBaseUrl(c.settings.baseUrl) };
+            throw Error(
+              "Wait for local Pi to finish before changing its settings.",
+            );
+          const settings = {
+            ...c.settings,
+            baseUrl: loopbackBaseUrl(c.settings.baseUrl),
+          };
           changingLocalModel = true;
           try {
             await agentChecks.get("pi-local");
@@ -858,7 +938,13 @@ app.whenReady().then(async () => {
           break;
         }
         case "send":
-          await send(c.appId === WORKSPACE_CHAT_ID ? undefined : requireApp(c.appId), c.text, c.model, c.effort, { expectedAgent: c.agent });
+          await send(
+            c.appId === WORKSPACE_CHAT_ID ? undefined : requireApp(c.appId),
+            c.text,
+            c.model,
+            c.effort,
+            { expectedAgent: c.agent },
+          );
           break;
         case "interrupt":
           await interrupt();
@@ -870,14 +956,23 @@ app.whenReady().then(async () => {
           const sess = sessionOf(a, agentId);
           if (sess && ag.compact) {
             await ag.compact(a?.path ?? workspaceChatDirectory(), sess);
-            store.message("activity", "Tidied up the chat", a?.id ?? WORKSPACE_CHAT_ID, undefined, { kind: "note" });
+            store.message(
+              "activity",
+              "Tidied up the chat",
+              a?.id ?? WORKSPACE_CHAT_ID,
+              undefined,
+              { kind: "note" },
+            );
           }
           break;
         }
         case "answer":
           if (!busyAgent || !approval || approval.id !== c.id)
             throw Error("Approval is no longer pending");
-          agents[busyAgent].answer(c.id, c.accept ? (c.always ? "always" : "accept") : "decline");
+          agents[busyAgent].answer(
+            c.id,
+            c.accept ? (c.always ? "always" : "accept") : "decline",
+          );
           approval = undefined;
           break;
         case "recheck":
@@ -899,7 +994,8 @@ app.whenReady().then(async () => {
           break;
         case "openChatLink": {
           const url = new URL(c.url);
-          if (url.username || url.password) throw Error("This link includes sign-in information.");
+          if (url.username || url.password)
+            throw Error("This link includes sign-in information.");
           await shell.openExternal(url.href);
           break;
         }
@@ -921,7 +1017,13 @@ app.whenReady().then(async () => {
             delete chatSessions[agentId];
             store.set("chatSessions", chatSessions);
           }
-          store.message("activity", "New conversation", a?.id ?? WORKSPACE_CHAT_ID, undefined, { kind: "divider" });
+          store.message(
+            "activity",
+            "New conversation",
+            a?.id ?? WORKSPACE_CHAT_ID,
+            undefined,
+            { kind: "divider" },
+          );
           break;
         }
         case "rename": {
@@ -937,7 +1039,9 @@ app.whenReady().then(async () => {
         }
         case "markup": {
           if (turnAgent(c.agent) === "pi-local")
-            throw Error("Switch assistants to send visual markup. You can describe the change in local Pi chat.");
+            throw Error(
+              "Switch assistants to send visual markup. You can describe the change in local Pi chat.",
+            );
           const a = requireApp(c.appId);
           const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(c.image);
           if (!m) throw Error("That drawing could not be read.");
@@ -959,7 +1063,10 @@ app.whenReady().then(async () => {
           });
           const pins = c.marks
             .filter((k) => k.type === "pin" && k.points[0])
-            .map((k, i) => `pin ${i + 1} at ${Math.round((k.points[0][0] / Math.max(1, c.viewport.width)) * 100)}% across, ${Math.round((k.points[0][1] / Math.max(1, c.viewport.height)) * 100)}% down`);
+            .map(
+              (k, i) =>
+                `pin ${i + 1} at ${Math.round((k.points[0][0] / Math.max(1, c.viewport.width)) * 100)}% across, ${Math.round((k.points[0][1] / Math.max(1, c.viewport.height)) * 100)}% down`,
+            );
           const text = `The person marked up a screenshot of "${a.name}" and wrote: "${c.comment}"\n\nThe attached image is that screenshot with their drawing on top (circles, boxes, pins and scribbles show what they mean). Viewport ${c.viewport.width}x${c.viewport.height}.${pins.length ? " " + pins.join("; ") + "." : ""}\n\nMake the change. Then look at the running app with app_screenshot and tell them briefly what you changed.`;
           await send(a, text, c.model, c.effort, {
             images: [file],
@@ -999,20 +1106,34 @@ app.whenReady().then(async () => {
           };
           publishes.set(a.id, state);
           void publisher
-            .publish(a, (step) => {
-              state.step = step;
-              emit();
-            }, { dryRun: process.env.MOM_MADE_DRY_RUN === "1" })
+            .publish(
+              a,
+              (step) => {
+                state.step = step;
+                emit();
+              },
+              { dryRun: process.env.MOM_MADE_DRY_RUN === "1" },
+            )
             .then((r) => {
               state.status = "done";
               state.url = r.url;
               state.step = undefined;
-              store.deployment(a.id, true, r.url, r.dryRun ? "Dry run" : "Published");
+              store.deployment(
+                a.id,
+                true,
+                r.url,
+                r.dryRun ? "Dry run" : "Published",
+              );
             })
             .catch((e) => {
               state.status = "failed";
               state.error = String(e instanceof Error ? e.message : e);
-              store.deployment(a.id, false, undefined, state.error.slice(0, 300));
+              store.deployment(
+                a.id,
+                false,
+                undefined,
+                state.error.slice(0, 300),
+              );
             })
             .finally(() => {
               state.history = store.deployments(a.id);
@@ -1090,7 +1211,10 @@ app.whenReady().then(async () => {
       const dry = await publisher.publish(a, () => {}, { dryRun: true });
       const result = {
         dryRunPublish: dry.hash.length === 64,
-        activities: store.messages().filter((m) => m.role === "activity").map((m) => m.text),
+        activities: store
+          .messages()
+          .filter((m) => m.role === "activity")
+          .map((m) => m.text),
         targetIsolation: true,
         hotReload: true,
         appCount: store.apps().length,

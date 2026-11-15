@@ -66,11 +66,33 @@ test("workspace chat stays separate from app history and app commands", () => {
   try {
     store.message("user", "App conversation", "fixture-app");
     store.message("user", "Workspace question", WORKSPACE_CHAT_ID);
-    assert.deepEqual(store.messages(1, "fixture-app").map((m) => m.text), ["App conversation"]);
-    assert.deepEqual(store.messages(1, WORKSPACE_CHAT_ID).map((m) => m.text), ["Workspace question"]);
-    assert.equal(Command.safeParse({ type: "send", appId: WORKSPACE_CHAT_ID, text: "Hi", model: "", effort: "" }).success, true);
-    assert.equal(Command.safeParse({ type: "openApp", appId: WORKSPACE_CHAT_ID }).success, false);
-    assert.equal(Command.safeParse({ type: "openChatLink", url: "file:///etc/passwd" }).success, false);
+    assert.deepEqual(
+      store.messages(1, "fixture-app").map((m) => m.text),
+      ["App conversation"],
+    );
+    assert.deepEqual(
+      store.messages(1, WORKSPACE_CHAT_ID).map((m) => m.text),
+      ["Workspace question"],
+    );
+    assert.equal(
+      Command.safeParse({
+        type: "send",
+        appId: WORKSPACE_CHAT_ID,
+        text: "Hi",
+        model: "",
+        effort: "",
+      }).success,
+      true,
+    );
+    assert.equal(
+      Command.safeParse({ type: "openApp", appId: WORKSPACE_CHAT_ID }).success,
+      false,
+    );
+    assert.equal(
+      Command.safeParse({ type: "openChatLink", url: "file:///etc/passwd" })
+        .success,
+      false,
+    );
   } finally {
     store.close();
     rmSync(root, { recursive: true });
@@ -84,7 +106,9 @@ test("assistant Markdown formats text without loading images or unsafe links", (
     "[Docs](https://example.com) [Unsafe](file:///etc/passwd) ![Illustration](https://example.com/remote.png)",
     "<iframe src=https://example.com></iframe>",
   ].join("\n\n");
-  const html = renderToStaticMarkup(createElement(ChatMarkdown, { id: "fixture", text, openLink: () => {} }));
+  const html = renderToStaticMarkup(
+    createElement(ChatMarkdown, { id: "fixture", text, openLink: () => {} }),
+  );
   assert.match(html, /<h2>Heading<\/h2>/);
   assert.match(html, /<strong>Bold<\/strong>/);
   assert.match(html, /<code>code<\/code>/);
@@ -197,7 +221,12 @@ test("MCP shim speaks stdio MCP and forwards calls over the bridge", async () =>
   }));
   await b.listen();
   const p = spawn(process.execPath, [resolve("dist/mcp.cjs")], {
-    env: { ...process.env, MOM_SOCKET: b.path, MOM_TOKEN: b.token, MOM_APP: "app1" },
+    env: {
+      ...process.env,
+      MOM_SOCKET: b.path,
+      MOM_TOKEN: b.token,
+      MOM_APP: "app1",
+    },
   });
   const lines: any[] = [];
   let buf = "";
@@ -210,13 +239,23 @@ test("MCP shim speaks stdio MCP and forwards calls over the bridge", async () =>
     }
   });
   try {
-    p.stdin.write('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n');
+    p.stdin.write(
+      '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
+    );
     p.stdin.write('{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n');
-    p.stdin.write('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"app_logs","arguments":{}}}\n');
+    p.stdin.write(
+      '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"app_logs","arguments":{}}}\n',
+    );
     for (let i = 0; i < 60 && lines.length < 3; i++) await sleep(50);
-    assert.equal(lines.find((l) => l.id === 1).result.serverInfo.name, "mom-made");
+    assert.equal(
+      lines.find((l) => l.id === 1).result.serverInfo.name,
+      "mom-made",
+    );
     assert.ok(lines.find((l) => l.id === 2).result.tools.length >= 5);
-    assert.equal(lines.find((l) => l.id === 3).result.content[0].text, "app1:app_logs");
+    assert.equal(
+      lines.find((l) => l.id === 3).result.content[0].text,
+      "app1:app_logs",
+    );
   } finally {
     p.kill();
     b.close();
@@ -225,9 +264,21 @@ test("MCP shim speaks stdio MCP and forwards calls over the bridge", async () =>
 test("feedback, deployments and message migration persist", () => {
   const root = mkdtempSync(join(tmpdir(), "mom-fb-"));
   const s = new Store(root);
-  s.saveFeedback({ id: "f", appId: "a", comment: "c", image: "/x.png", status: "open", createdAt: "2026-01-01", marks: [], viewport: { width: 1, height: 1 } });
+  s.saveFeedback({
+    id: "f",
+    appId: "a",
+    comment: "c",
+    image: "/x.png",
+    status: "open",
+    createdAt: "2026-01-01",
+    marks: [],
+    viewport: { width: 1, height: 1 },
+  });
   s.deployment("a", true, "https://x.workers.dev", "Published");
-  s.message("activity", "Edited 2 files", "a", "t", { kind: "edit", detail: "a\nb" });
+  s.message("activity", "Edited 2 files", "a", "t", {
+    kind: "edit",
+    detail: "a\nb",
+  });
   s.close();
   const r = new Store(root);
   assert.equal(r.feedback()[0].status, "open");
@@ -248,7 +299,11 @@ const fakeInput = (root: string) => ({
   model: "",
   effort: "",
   instructions: "be nice",
-  mcp: { command: process.execPath, args: [join(root, "dist", "mcp.cjs")], env: {} },
+  mcp: {
+    command: process.execPath,
+    args: [join(root, "dist", "mcp.cjs")],
+    env: {},
+  },
 });
 test("Claude Code adapter maps stream-json into product events and handles failure", async () => {
   const { chmodSync } = await import("node:fs");
@@ -274,7 +329,10 @@ process.stdin.on("end", () => {
   process.env.MOM_MADE_CLAUDE = fake;
   try {
     const ev = await runAgent(new ClaudeAgent(), fakeInput(root));
-    assert.deepEqual(ev.map((e) => e.type), ["session", "textBreak", "text", "activity", "activity", "done"]);
+    assert.deepEqual(
+      ev.map((e) => e.type),
+      ["session", "textBreak", "text", "activity", "activity", "done"],
+    );
     assert.equal(ev[2].delta, "Hi hello");
     assert.equal(ev[3].text, "Edited 1 file");
     assert.equal(ev[3].detail, "src/a.tsx");
@@ -316,21 +374,38 @@ process.stdin.on("end", () => process.exit(0));`,
   try {
     const none = new PiAgent({ getKey: () => undefined });
     assert.equal((await none.probe()).ready, false);
-    const pi = new PiAgent({ getKey: () => "fixture-key" }, async (url, options) => {
-      assert.equal(url, "https://openrouter.ai/api/v1/key");
-      assert.deepEqual(options?.headers, { Authorization: "Bearer fixture-key" });
-      return new Response("{}");
-    });
+    const pi = new PiAgent(
+      { getKey: () => "fixture-key" },
+      async (url, options) => {
+        assert.equal(url, "https://openrouter.ai/api/v1/key");
+        assert.deepEqual(options?.headers, {
+          Authorization: "Bearer fixture-key",
+        });
+        return new Response("{}");
+      },
+    );
     const probe = await pi.probe();
     assert.equal(probe.ready, true);
-    assert.deepEqual(probe.models.map((m) => m.model), ["anthropic/claude-sonnet-4.5"]);
-    const rejected = new PiAgent({ getKey: () => "rejected-key" }, async () => new Response(null, { status: 401 }));
+    assert.deepEqual(
+      probe.models.map((m) => m.model),
+      ["anthropic/claude-sonnet-4.5"],
+    );
+    const rejected = new PiAgent(
+      { getKey: () => "rejected-key" },
+      async () => new Response(null, { status: 401 }),
+    );
     assert.match((await rejected.probe()).detail ?? "", /rejected this key/);
     const ev = await runAgent(pi, fakeInput(root));
     const types = ev.map((e) => e.type);
     assert.ok(types.includes("session") && types.includes("text"));
-    assert.equal(ev.find((e) => e.text === "Looked through the files")?.kind, "look");
-    assert.equal(ev.find((e) => e.text === "Edited 1 file")?.detail, "src/b.tsx");
+    assert.equal(
+      ev.find((e) => e.text === "Looked through the files")?.kind,
+      "look",
+    );
+    assert.equal(
+      ev.find((e) => e.text === "Edited 1 file")?.detail,
+      "src/b.tsx",
+    );
     assert.equal(ev.at(-1).status, "completed");
     const noKey = await runAgent(none, fakeInput(root));
     assert.equal(noKey.at(-1).status, "failed");
@@ -343,48 +418,106 @@ process.stdin.on("end", () => process.exit(0));`,
 test("model routing respects the assistant catalog and saved defaults", async () => {
   const { resolveModel } = await import("../src/core/model-routing");
   const models = [
-    { model: "balanced", displayName: "Balanced", isDefault: true, defaultReasoningEffort: "medium",
-      supportedReasoningEfforts: [{ reasoningEffort: "medium", description: "" }, { reasoningEffort: "high", description: "" }] },
-    { model: "fast", displayName: "Fast", isDefault: false, defaultReasoningEffort: "", supportedReasoningEfforts: [] },
+    {
+      model: "balanced",
+      displayName: "Balanced",
+      isDefault: true,
+      defaultReasoningEffort: "medium",
+      supportedReasoningEfforts: [
+        { reasoningEffort: "medium", description: "" },
+        { reasoningEffort: "high", description: "" },
+      ],
+    },
+    {
+      model: "fast",
+      displayName: "Fast",
+      isDefault: false,
+      defaultReasoningEffort: "",
+      supportedReasoningEfforts: [],
+    },
   ];
   const saved = { model: "fast", effort: "high" };
   assert.deepEqual(resolveModel(models, saved), { model: "fast", effort: "" });
-  assert.deepEqual(resolveModel(models, saved, { model: "balanced", effort: "high" }), { model: "balanced", effort: "high" });
-  assert.deepEqual(resolveModel(models, saved, { model: "another-provider", effort: "high" }), { model: "fast", effort: "" });
-  assert.deepEqual(resolveModel(models, { model: "retired", effort: "high" }), { model: "balanced", effort: "medium" });
+  assert.deepEqual(
+    resolveModel(models, saved, { model: "balanced", effort: "high" }),
+    { model: "balanced", effort: "high" },
+  );
+  assert.deepEqual(
+    resolveModel(models, saved, { model: "another-provider", effort: "high" }),
+    { model: "fast", effort: "" },
+  );
+  assert.deepEqual(resolveModel(models, { model: "retired", effort: "high" }), {
+    model: "balanced",
+    effort: "medium",
+  });
   assert.deepEqual(resolveModel([], saved), { model: "", effort: "" });
 });
 
 test("local Pi confines inference to loopback and keeps sessions separate", async () => {
   const { defaultPiLocalSettings } = await import("../src/core/contracts");
-  const { checkLocalPi, configureLocalPi, LOCAL_PI_PROVIDER, localPiDirectory, localPiSession, loopbackBaseUrl } =
-    await import("../src/core/agents/pi-local");
+  const {
+    checkLocalPi,
+    configureLocalPi,
+    LOCAL_PI_PROVIDER,
+    localPiDirectory,
+    localPiSession,
+    loopbackBaseUrl,
+  } = await import("../src/core/agents/pi-local");
   const root = mkdtempSync(join(tmpdir(), "mom-local-pi-"));
   try {
     const settings = defaultPiLocalSettings;
-    assert.equal(loopbackBaseUrl("http://localhost:8080/v1/"), settings.baseUrl);
-    assert.throws(() => loopbackBaseUrl("https://example.com/v1"), /local server URL/);
-    assert.throws(() => loopbackBaseUrl("http://localhost@example.com/v1"), /local server URL/);
+    assert.equal(
+      loopbackBaseUrl("http://localhost:8080/v1/"),
+      settings.baseUrl,
+    );
+    assert.throws(
+      () => loopbackBaseUrl("https://example.com/v1"),
+      /local server URL/,
+    );
+    assert.throws(
+      () => loopbackBaseUrl("http://localhost@example.com/v1"),
+      /local server URL/,
+    );
     const directory = localPiDirectory(root, settings);
     const session = join(directory, "sessions", "chat.jsonl");
     mkdirSync(join(directory, "sessions"), { recursive: true });
     writeFileSync(session, "");
-    assert.match(localPiSession(directory, session) ?? "", /\/sessions\/chat\.jsonl$/);
-    assert.equal(localPiSession(directory, join(root, "cloud.jsonl")), undefined);
-    assert.equal(localPiSession(localPiDirectory(root, { ...settings, model: "another-model" }), session), undefined);
+    assert.match(
+      localPiSession(directory, session) ?? "",
+      /\/sessions\/chat\.jsonl$/,
+    );
+    assert.equal(
+      localPiSession(directory, join(root, "cloud.jsonl")),
+      undefined,
+    );
+    assert.equal(
+      localPiSession(
+        localPiDirectory(root, { ...settings, model: "another-model" }),
+        session,
+      ),
+      undefined,
+    );
     configureLocalPi(directory, settings);
-    const config = JSON.parse(readFileSync(join(directory, "models.json"), "utf8"));
+    const config = JSON.parse(
+      readFileSync(join(directory, "models.json"), "utf8"),
+    );
     assert.equal(config.providers[LOCAL_PI_PROVIDER].baseUrl, settings.baseUrl);
-    assert.deepEqual(config.providers[LOCAL_PI_PROVIDER].models[0].input, ["text"]);
+    assert.deepEqual(config.providers[LOCAL_PI_PROVIDER].models[0].input, [
+      "text",
+    ]);
     const ok = await checkLocalPi(settings, async (url, options) => {
       assert.equal(url, settings.baseUrl + "/models");
       assert.equal(options?.redirect, "error");
       return Response.json({ data: [{ id: "flint", meta: { n_ctx: 65536 } }] });
     });
     assert.equal(ok, undefined);
-    const wrongModel = await checkLocalPi(settings, async () => Response.json({ data: [{ id: "other" }] }));
+    const wrongModel = await checkLocalPi(settings, async () =>
+      Response.json({ data: [{ id: "other" }] }),
+    );
     assert.match(wrongModel ?? "", /isn't listed/);
-    const wrongContext = await checkLocalPi(settings, async () => Response.json({ data: [{ id: "flint", meta: { n_ctx: 8192 } }] }));
+    const wrongContext = await checkLocalPi(settings, async () =>
+      Response.json({ data: [{ id: "flint", meta: { n_ctx: 8192 } }] }),
+    );
     assert.match(wrongContext ?? "", /Context tokens/);
   } finally {
     rmSync(root, { recursive: true, force: true });

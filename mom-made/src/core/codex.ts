@@ -1,4 +1,8 @@
-import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import {
+  spawn,
+  execFileSync,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -23,11 +27,15 @@ export function findCodex(): string | undefined {
       const p = join(nvm, v, "bin/codex");
       if (existsSync(p)) return p;
     }
-    const out = execFileSync(process.env.SHELL || "/bin/zsh", ["-lic", "command -v codex"], {
-      timeout: 5000,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    })
+    const out = execFileSync(
+      process.env.SHELL || "/bin/zsh",
+      ["-lic", "command -v codex"],
+      {
+        timeout: 5000,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    )
       .trim()
       .split("\n")
       .pop();

@@ -267,11 +267,13 @@ export class PiAgent implements Agent {
         ...piEnv(bin),
         ...env,
         ...(local ? { MOM_PI_TEXT_ONLY: "1" } : {}),
-        ...(t.mcp ? {
-          MOM_MCP_COMMAND: t.mcp.command,
-          MOM_MCP_ARGS: JSON.stringify(t.mcp.args),
-          MOM_MCP_ENV: JSON.stringify(t.mcp.env),
-        } : {}),
+        ...(t.mcp
+          ? {
+              MOM_MCP_COMMAND: t.mcp.command,
+              MOM_MCP_ARGS: JSON.stringify(t.mcp.args),
+              MOM_MCP_ENV: JSON.stringify(t.mcp.env),
+            }
+          : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });

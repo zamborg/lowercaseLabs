@@ -35,7 +35,13 @@ export type ModelChoice = z.infer<typeof ModelChoice>;
 export type ModelDefaults = Partial<Record<AgentId, ModelChoice>>;
 export type SettingsSection = "assistants" | "cloudflare" | "admin";
 export const WORKSPACE_CHAT_ID = "workspace-chat";
-export const CHAT_PANE = { initial: 380, min: 280, max: 900, previewMin: 360, divider: 9 };
+export const CHAT_PANE = {
+  initial: 380,
+  min: 280,
+  max: 900,
+  previewMin: 360,
+  divider: 9,
+};
 export type AgentInfo = {
   id: AgentId;
   label: string;
@@ -46,7 +52,12 @@ export type AgentInfo = {
   models: Model[];
   approvals: boolean;
   compact: boolean;
-  help: { install: string[]; loginHint?: string; needsKey?: boolean; note?: string };
+  help: {
+    install: string[];
+    loginHint?: string;
+    needsKey?: boolean;
+    note?: string;
+  };
 };
 export type Runtime = {
   status: "stopped" | "starting" | "ready" | "stopping" | "failed";
@@ -55,12 +66,7 @@ export type Runtime = {
   logs: string;
 };
 export type ActivityKind =
-  | "edit"
-  | "command"
-  | "look"
-  | "think"
-  | "note"
-  | "divider";
+  "edit" | "command" | "look" | "think" | "note" | "divider";
 export type Message = {
   id: string;
   role: "user" | "assistant" | "activity" | "error";
@@ -96,7 +102,10 @@ export type Publish = {
   log: string;
   history: { at: string; url?: string; ok: boolean; note: string }[];
 };
-export type Cloudflare = { state: "unknown" | "ready" | "login-required"; account?: string };
+export type Cloudflare = {
+  state: "unknown" | "ready" | "login-required";
+  account?: string;
+};
 export type Model = {
   model: string;
   displayName: string;
@@ -209,15 +218,38 @@ export const Command = z.discriminatedUnion("type", [
     type: z.enum(["agent", "login"]),
     id: AgentIdSchema,
   }),
-  z.object({ type: z.literal("modelDefault"), id: AgentIdSchema, ...ModelChoice.shape }),
-  z.object({ type: z.literal("agentKey"), key: z.string().trim().max(400).regex(/^[\x21-\x7e]*$/) }),
-  z.object({ type: z.literal("piLocalSettings"), settings: PiLocalSettingsSchema }),
+  z.object({
+    type: z.literal("modelDefault"),
+    id: AgentIdSchema,
+    ...ModelChoice.shape,
+  }),
+  z.object({
+    type: z.literal("agentKey"),
+    key: z
+      .string()
+      .trim()
+      .max(400)
+      .regex(/^[\x21-\x7e]*$/),
+  }),
+  z.object({
+    type: z.literal("piLocalSettings"),
+    settings: PiLocalSettingsSchema,
+  }),
   z.object({
     type: z.literal("open"),
     url: z.string().url().max(300),
   }),
-  z.object({ type: z.literal("openChatLink"), url: z.string().max(8192).pipe(z.url({ protocol: /^https?$/ })) }),
-  z.object({ type: z.literal("chatWidth"), width: z.number().int().min(CHAT_PANE.min).max(CHAT_PANE.max) }),
+  z.object({
+    type: z.literal("openChatLink"),
+    url: z
+      .string()
+      .max(8192)
+      .pipe(z.url({ protocol: /^https?$/ })),
+  }),
+  z.object({
+    type: z.literal("chatWidth"),
+    width: z.number().int().min(CHAT_PANE.min).max(CHAT_PANE.max),
+  }),
   z.object({
     type: z.literal("rename"),
     appId: z.string().uuid(),

@@ -12,7 +12,11 @@ export type AgentEvent =
       command?: string;
     }
   | { type: "session"; id: string }
-  | { type: "done"; status: "completed" | "interrupted" | "failed"; error?: string };
+  | {
+      type: "done";
+      status: "completed" | "interrupted" | "failed";
+      error?: string;
+    };
 export type Help = {
   install: string[];
   loginHint?: string;
