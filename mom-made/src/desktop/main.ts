@@ -479,6 +479,7 @@ const WEB_DESIGN = readFileSync(
   join(base, "skills/web-design/SKILL.md"),
   "utf8",
 ).trim();
+const AUTH = readFileSync(join(base, "skills/auth/SKILL.md"), "utf8").trim();
 function workspaceChatDirectory() {
   const cwd = join(store.root, "workspaces", "default", "chat");
   mkdirSync(cwd, { recursive: true });
@@ -601,6 +602,7 @@ async function send(
                 ? "This is a text model. Verify the preview with app_page_text and app_console."
                 : "Use app_screenshot for visual verification.",
               WEB_DESIGN,
+              AUTH,
             ].join("\n\n")
           : "You are chatting with someone in mom-made. Help with their questions, ideas, and planning. No app is selected. If they want you to build or edit an app, tell them they can choose New App or open an app from the toolbar. Reply directly without using tools or modifying files.",
         mcp: a

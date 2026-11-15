@@ -100,6 +100,7 @@ This is a small web app made inside mom-made, for someone who is not a programme
 - Durable data goes in the D1 binding DB. Change the schema only by ADDING a new numbered file in migrations/ (0002_*.sql, ...). Never edit an applied migration and never create tables inside request handlers.
 - Never put secrets in frontend code or commit them. If an API key is needed, say so and ask the person to supply it.
 - Keep dependencies to what is already installed unless truly necessary.
+- If the person wants the app private or wants sign-in, follow the "Sign-in and privacy" guidance you were given. Cloudflare Access is the easiest way to limit who can open an app, and the person turns it on in Cloudflare.
 - No subagents.
 
 ## Look at your work
