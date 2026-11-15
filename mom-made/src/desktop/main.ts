@@ -475,11 +475,9 @@ function turnLabel(status: string) {
 }
 const INSTRUCTIONS =
   "You are building an app inside mom-made for someone who is not a programmer. Work only in the specified app directory and follow AGENTS.md there. The desktop supervises the dev server. Do not start servers or deploy. Use React, Vite, Hono and Cloudflare bindings. Look at your work with the mom-made tools before saying you are done. Reply briefly in plain, friendly language. No subagents.";
-const WEB_DESIGN = readFileSync(
-  join(base, "skills/web-design/SKILL.md"),
-  "utf8",
-).trim();
-const AUTH = readFileSync(join(base, "skills/auth/SKILL.md"), "utf8").trim();
+const SKILLS = ["web-design", "everyday-apps", "data", "auth", "fixing"]
+  .map((n) => readFileSync(join(base, "skills", n, "SKILL.md"), "utf8").trim())
+  .join("\n\n");
 function workspaceChatDirectory() {
   const cwd = join(store.root, "workspaces", "default", "chat");
   mkdirSync(cwd, { recursive: true });
@@ -601,8 +599,7 @@ async function send(
               id === "pi-local"
                 ? "This is a text model. Verify the preview with app_page_text and app_console."
                 : "Use app_screenshot for visual verification.",
-              WEB_DESIGN,
-              AUTH,
+              SKILLS,
             ].join("\n\n")
           : "You are chatting with someone in mom-made. Help with their questions, ideas, and planning. No app is selected. If they want you to build or edit an app, tell them they can choose New App or open an app from the toolbar. Reply directly without using tools or modifying files.",
         mcp: a

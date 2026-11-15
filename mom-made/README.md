@@ -83,3 +83,7 @@ Install [Pi](https://pi.dev/docs/latest/quickstart) and a [llama.cpp release wit
 - [Implementation plan](IMPLEMENTATION.md)
 - [Implemented contracts and MCP boundary](CONTRACTS.md)
 - [Validation results and remaining work](VALIDATION.md)
+
+## Ideas for later
+- **Live apps view:** an admin page listing every app deployed to the user's Cloudflare account (URL, last deploy, requests and errors, D1 size), with actions to open, redeploy, roll back, or take an app offline, and a chat/agent entry point to manage them ("what's broken?", "turn that one off"). Built on the existing wrangler login and the deployments history already stored per app.
+- **Publish-sheet "Only these people" toggle** using Cloudflare Access (see `skills/auth`).
