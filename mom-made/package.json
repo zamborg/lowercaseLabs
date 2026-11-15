@@ -14,7 +14,8 @@
     "format": "prettier --write src tests scripts template",
     "spike:codex": "tsx scripts/codex-spike.ts",
     "dist": "npm run build && electron-builder --mac --arm64 --dir",
-    "dist:dmg": "npm run build && electron-builder --mac --arm64"
+    "dist:dmg": "npm run build && electron-builder --mac --arm64",
+    "dist:release": "bash scripts/package-release.sh"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "1.69.1",

@@ -55,6 +55,18 @@ Each assistant implements the same interface in `src/core/agents/`.
 
 Use `MOM_MADE_CODEX`, `MOM_MADE_CLAUDE`, or `MOM_MADE_PI` to point to a specific binary. To add another assistant, implement `Agent` in `src/core/agents/types.ts` and register it in `src/desktop/main.ts`.
 
+## Package for macOS
+
+`npm run dist:dmg` creates an Apple Silicon developer build for local testing. macOS may block a browser download of an ad hoc build with an “app is damaged” alert.
+
+For a shareable DMG, install a [Developer ID Application certificate](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/) with its private key in Keychain, then save [notarization credentials](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow) in a Keychain profile named `mom-made` using `xcrun notarytool store-credentials mom-made`.
+
+```sh
+APPLE_KEYCHAIN_PROFILE=mom-made npm run dist:release
+```
+
+Run this on macOS 14 or later. The command signs and notarizes the app and disk image, then writes the verified DMG to `release/distribution/`. Before sharing it, download the candidate in a browser and open it from Applications on a clean Mac or macOS user account. This exercises Gatekeeper with a browser-downloaded copy.
+
 ### Flint on Apple Silicon
 
 Recursive provides [Flint INT4 Q4_1](https://huggingface.co/RecursiveSI/flint-int4-gguf) for Apple Silicon with Metal. The weights are about 26 GB and the publisher specifies at least 48 GB of unified memory. Its [NVFP4 build](https://huggingface.co/RecursiveSI/flint-nvfp4-gguf) targets NVIDIA CUDA.
@@ -64,7 +76,7 @@ Install [Pi](https://pi.dev/docs/latest/quickstart) and a [llama.cpp release wit
 ## Not yet verified or done
 
 - Set `MOM_MADE_DRY_RUN=1` to build and check a deployment without publishing it. Pi with local Flint was verified live. Live turns with Claude Code and Pi + OpenRouter still need verification.
-- Skills management, secret entry, file attachments, Developer ID signing, notarization, and per-project dependency management are pending. Projects share the node modules bundled with mom-made.
+- Skills management, secret entry, file attachments, verification of the Developer ID release build, and per-project dependency management are pending. Projects share the node modules bundled with mom-made.
 - This is a trusted local developer tool, not a sandbox.
 
 - [Design](DESIGN.md)
