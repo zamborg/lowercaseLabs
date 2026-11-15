@@ -1,8 +1,26 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import { existsSync, readdirSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { AppRecord, Runtime } from "./contracts";
+let shimDir: string | undefined;
+/** Gives assistants a `node` command (the app's bundled runtime) when the Mac has none. */
+export function installNodeShim(dir: string, runtime: string) {
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, "node");
+  writeFileSync(
+    file,
+    `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${JSON.stringify(runtime)} "$@"\n`,
+  );
+  chmodSync(file, 0o755);
+  shimDir = dir;
+}
 export function localEnv() {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([k]) =>
@@ -18,7 +36,14 @@ export function localEnv() {
       ].includes(k),
     ),
   ) as NodeJS.ProcessEnv;
-  const extra = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
+  // The shim goes last so a real Node install always wins.
+  const extra = [
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    ...(shimDir ? [shimDir] : []),
+  ];
   const have = (env.PATH ?? "").split(":");
   env.PATH = [...have, ...extra.filter((p) => !have.includes(p))]
     .filter(Boolean)

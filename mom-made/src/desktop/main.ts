@@ -18,7 +18,7 @@ import { Publisher } from "../core/publish";
 import { staleNavigation, type ToolReply } from "../core/tools";
 import type { Publish } from "../core/contracts";
 import { Store } from "../core/store";
-import { Supervisor } from "../core/runtime";
+import { Supervisor, installNodeShim } from "../core/runtime";
 import { createProject } from "../core/template";
 import { resolveModel } from "../core/model-routing";
 import { CodexAgent } from "../core/agents/codex";
@@ -658,6 +658,7 @@ app.whenReady().then(async () => {
     return;
   }
   store = new Store(process.env.MOM_MADE_DATA || app.getPath("userData"));
+  installNodeShim(join(store.root, "bin"), process.execPath);
   bridge = new Bridge(tool);
   await bridge.listen();
   publisher = new Publisher(process.execPath, base, store.root);
