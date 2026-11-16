@@ -7,7 +7,7 @@ enum Spike {
 
     @MainActor static func run(_ engine: ParlorEngine) async -> Int32 {
         let model = ProcessInfo.processInfo.environment["SPIKE_MODEL"] ?? Defaults.languageModel
-        guard engine.library.installedDirectory(for: model) != nil else { out("model \(model) not installed"); return 1 }
+        guard engine.catalog.isInstalled(model) else { out("model \(model) not installed"); return 1 }
         let cases: [Case] = [
             .init(prompt: "What do I need to do today?", expectTool: "zass.briefing", argContains: nil),
             .init(prompt: "Give me my morning briefing.", expectTool: "zass.briefing", argContains: nil),

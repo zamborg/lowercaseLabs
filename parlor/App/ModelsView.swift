@@ -83,9 +83,7 @@ struct ModelsView: View {
     }
 
     private func usedBy(_ m: InstalledModel) -> String {
-        let served = m.format == .gguf ? ParlorEngine.ggufNames(m) : nil
-        let ggufName = served.map { $0.provider + "/" + $0.model }
-        let names = engine.agents.filter { $0.model == m.repo || $0.imageModel == m.repo || ($0.model == ggufName && ggufName != nil) }.map(\.name)
+        let names = engine.agents.filter { $0.model == m.repo || $0.imageModel == m.repo }.map(\.name)
         return names.isEmpty ? "Not used by any agent" : "Used by " + names.joined(separator: ", ")
     }
 
@@ -145,7 +143,7 @@ struct ModelsView: View {
     }
 
     @ViewBuilder private func action(repo: String, kind: ModelKind, bytes: Int64?) -> some View {
-        if engine.library.installedDirectory(for: repo) != nil {
+        if engine.catalog.isInstalled(repo) {
             Label("Installed", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
         } else if engine.library.downloads[repo] != nil {
             Text("Downloading…").font(.caption).foregroundStyle(.secondary)

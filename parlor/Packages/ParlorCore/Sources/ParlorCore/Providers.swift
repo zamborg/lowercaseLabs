@@ -488,6 +488,7 @@ public final class ProviderRouter: LanguageModelRuntime, @unchecked Sendable {
     public let inner: LanguageModelRuntime
     private let lock = NSLock()
     private var providers: [String: OpenAIProvider] = [:]
+    private var aliases: [String: String] = [:]
 
     public init(inner: LanguageModelRuntime) { self.inner = inner }
 
@@ -512,7 +513,12 @@ public final class ProviderRouter: LanguageModelRuntime, @unchecked Sendable {
         return (p, String(model[model.index(after: i)...]))
     }
 
-    public func generate(model: String, request: LLMRequest) -> AsyncThrowingStream<LLMEvent, Error> {
+    /// Names an agent may still use (a model repo) that really live on a host: `repo → host/model`.
+    public func setAliases(_ a: [String: String]) { lock.lock(); aliases = a; lock.unlock() }
+    private func resolved(_ m: String) -> String { lock.lock(); defer { lock.unlock() }; return aliases[m] ?? m }
+
+    public func generate(model requested: String, request: LLMRequest) -> AsyncThrowingStream<LLMEvent, Error> {
+        let model = resolved(requested)
         if let (p, name) = route(model) {
             guard p.config.enabled else {
                 return AsyncThrowingStream { $0.finish(throwing: ParlorError.message("Provider \(p.config.id) is off. Turn it on in System first.")) }

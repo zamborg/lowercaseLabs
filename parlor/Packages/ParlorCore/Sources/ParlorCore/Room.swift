@@ -139,7 +139,7 @@ public final class Room: Identifiable {
 
     private func makeInput(agent: Agent, tools: [ToolDef], names: [String: String]? = nil) -> TurnInput {
         let meta = deps.library.flatMap { lib in
-            lib.installedDirectory(for: agent.model).flatMap { ModelMetadata.load(dir: $0) }
+            lib.installed.first(where: { $0.repo == agent.model }).flatMap { ModelMetadata.load(dir: $0.directory) }
         }
         return TurnInput(
             agent: agent, conversationID: id, participants: config.participants, transcript: messages,

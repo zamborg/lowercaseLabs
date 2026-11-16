@@ -193,12 +193,12 @@ struct AgentEditorView: View {
     }
     private func label(for repo: String) -> String {
         let name = shortModelName(repo)
-        return engine.library.installedDirectory(for: repo) == nil ? "\(name) (not downloaded)" : name
+        return !engine.catalog.isInstalled(repo) ? "\(name) (not downloaded)" : name
     }
 
     // MARK: limits (settings scopes)
 
-    private var modelMeta: ModelMetadata? { engine.library.installedDirectory(for: draft.model).flatMap { ModelMetadata.load(dir: $0) } }
+    private var modelMeta: ModelMetadata? { engine.catalog.model(draft.model).flatMap { ModelMetadata.load(dir: $0.directory) } }
 
     @ViewBuilder private var overridesSection: some View {
         let m = engine.settings

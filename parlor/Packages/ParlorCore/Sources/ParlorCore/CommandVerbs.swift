@@ -236,12 +236,12 @@ extension CommandCenter {
         }
         add("models.delete", .act, destructive: true, "Delete an installed model from disk.", props: [("repo", "string", "Repo id")], required: ["repo"]) { a, _ in
             let repo = try a.string("repo")
-            guard self.engine.library.installedDirectory(for: repo) != nil else { throw CommandError("\(repo) is not installed.") }
+            guard self.engine.catalog.isInstalled(repo) else { throw CommandError("\(repo) is not installed.") }
             self.engine.library.delete(repo); return .object(["deleted": .string(repo)])
         }
         add("models.load", .act, "Load a language model into memory now.", props: [("repo", "string", "Repo id")], required: ["repo"]) { a, _ in
             let repo = try a.string("repo")
-            guard self.engine.library.installedDirectory(for: repo) != nil else { throw CommandError("\(repo) is not installed.") }
+            guard self.engine.catalog.isInstalled(repo) else { throw CommandError("\(repo) is not installed.") }
             try await self.engine.loadModel(repo); return .object(["loaded": .string(repo)])
         }
         add("models.unload", .act, "Unload language models from memory.") { _, _ in

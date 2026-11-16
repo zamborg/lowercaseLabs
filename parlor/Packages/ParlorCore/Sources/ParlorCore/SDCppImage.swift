@@ -78,14 +78,8 @@ public enum SDCppImage {
 
     /// `sd-cli` and the library it loads: bundled in the app, next to the CLI, or installed by the user.
     public static func binaryURL() -> URL? {
-        let fm = FileManager.default
-        let env = ProcessInfo.processInfo.environment
-        if let p = env["PARLOR_SD"], fm.isExecutableFile(atPath: p) { return URL(fileURLWithPath: p) }
-        var candidates = [Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/SD/sd-cli")]
-        if let exe = Bundle.main.executableURL?.deletingLastPathComponent() { candidates.append(exe.appendingPathComponent("sd-cli")) }
-        let home = fm.homeDirectoryForCurrentUser.path
-        for d in ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"] { candidates.append(URL(fileURLWithPath: d + "/sd-cli")) }
-        return candidates.first { fm.isExecutableFile(atPath: $0.path) }
+        if let p = ProcessInfo.processInfo.environment["PARLOR_SD"], FileManager.default.isExecutableFile(atPath: p) { return URL(fileURLWithPath: p) }
+        return EngineBinary.find("sd-cli")
     }
 
     /// The prompt as drawn: tag-style prompts get the quality tags in front unless they already carry them.

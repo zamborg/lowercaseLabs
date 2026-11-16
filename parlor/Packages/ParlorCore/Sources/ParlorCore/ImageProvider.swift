@@ -23,6 +23,12 @@ public actor ImageProvider: ToolProvider {
 
     public func setModel(_ repo: String?) { modelRepo = repo }
 
+    /// The image model used when an agent names none: Z-Image first. (Replaced by hosts in the gateway step.)
+    private var defaultImageRepo: String? {
+        let all = library.installed.filter { $0.kind == .image }
+        return (all.first { $0.format == .zImage } ?? all.first)?.repo
+    }
+
     /// Apply settings. A precision change restarts the worker on its next use; the rest takes effect immediately.
     public func configure(_ new: ParlorSettings.Image) {
         let precisionChanged = new.precision != cfg.precision
@@ -56,8 +62,8 @@ public actor ImageProvider: ToolProvider {
     public func stop() { shutdownNow() }
 
     private func resolveModel() -> (String, URL)? {
-        guard let repo = modelRepo ?? library.defaultImage?.repo,
-              let dir = library.installedDirectory(for: repo) else { return nil }
+        guard let repo = modelRepo ?? defaultImageRepo,
+              let dir = library.installed.first(where: { $0.repo == repo })?.directory else { return nil }
         return (repo, dir)
     }
 
@@ -86,13 +92,13 @@ public actor ImageProvider: ToolProvider {
         // Render time scales with pixel count: ~30 s at 512², ~70 s at 768² on an M1 Max.
         let (w, h) = cfg.size(shape: shape, detailed: detailed)
         let seed = arguments.objectValue?["seed"]?.intValue ?? Int.random(in: 0..<100_000)
-        guard let repo = modelRepo ?? library.defaultImage?.repo else {
+        guard let repo = modelRepo ?? defaultImageRepo else {
             return ToolOutput(text: "No image model is downloaded. Ask the user to download one in Models.", isError: true)
         }
-        guard let dir = library.installedDirectory(for: repo) else {
+        guard let dir = library.installed.first(where: { $0.repo == repo })?.directory else {
             return ToolOutput(text: "Image model \(repo) is not downloaded.", isError: true)
         }
-        if let m = library.installed.first(where: { $0.repo == repo }), m.format == .sdcpp, let file = m.file {
+        if let m = library.installed.first(where: { $0.repo == repo }), m.format == .sdCheckpoint, let file = m.file {
             return await generateSD(model: m, file: file, arguments: arguments, prompt: prompt, shape: shape, detailed: detailed, seed: seed)
         }
         idleTask?.cancel()

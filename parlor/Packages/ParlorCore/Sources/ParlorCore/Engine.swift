@@ -8,6 +8,10 @@ public final class ParlorEngine {
     public let library: ModelLibrary
     public let hub = ToolHub()
     public let supervisor = Supervisor()
+    public private(set) var engineList: [EngineManifest] = []
+    public private(set) var hostList: [HostInfo] = []
+    @ObservationIgnored public lazy var engineStore = NounStore<EngineManifest>(dir: home.enginesDir, layout: .folder("engine.json"))
+    @ObservationIgnored public lazy var hostStore = NounStore<HostSpec>(dir: home.hostsDir, layout: .file)
     private var servicesRegistered = false
     public private(set) var agents: [Agent] = []
     public private(set) var servers: [ServerStatus] = []
@@ -105,7 +109,7 @@ public final class ParlorEngine {
         await mlx?.setKeepAlive(minutes: settings.llm.keepLoadedMinutes)
         await mlx?.configure(budgetFraction: settings.memoryBudgetFraction, slots: settings.cacheSlotsPerModel)
         await image?.configure(settings.image)
-        router.configure(settings.providers, home: home)
+        reloadRunplane()
         await syncServer()
         await syncRuntimeAPI()
     }
@@ -155,37 +159,71 @@ public final class ParlorEngine {
         return out
     }
 
-    // MARK: llama.cpp (GGUF) models
+    // MARK: engines, hosts and the catalog
 
-    /// Provider id and model name an installed GGUF model is served as: `llama-<slug>/<slug>`.
-    public static func ggufNames(_ m: InstalledModel) -> (provider: String, model: String) {
-        let slug = Agent.slug(m.shortName)
-        return ("llama-" + slug, slug)
+    /// Everything that decides availability, as one value. Rebuilt from what is loaded; nothing else answers "is it there?".
+    public var catalog: Catalog {
+        var states: [String: ServiceState] = [:]
+        for h in hostList where h.spec.engine != "mlx" {
+            if let proc = router.provider(h.id)?.process { states[h.id] = proc.snapshot().state }
+        }
+        var dirs: [String: URL] = [:]
+        for e in engineList { dirs[e.id] = e.directory }
+        return Catalog(models: library.installed, engines: engineList, hosts: hostList, states: states, engineDirs: dirs)
     }
 
-    /// Give a GGUF model a provider that runs `llama-server` on it when first used. Keeps an entry the user has edited.
-    func registerGGUF(_ m: InstalledModel) {
-        guard m.format == .gguf, let file = m.file else { return }
-        let (id, name) = Self.ggufNames(m)
-        guard !settings.providers.contains(where: { $0.id == id }) else { return }
+    /// Reload engines and hosts from disk, recompute the auto hosts, and re-point the runtime at them.
+    public func reloadRunplane() {
+        var engines = engineStore.list()
+        for i in engines.indices { engines[i].directory = home.enginesDir.appendingPathComponent(engines[i].id) }
+        engineList = engines
+        hostList = HostRegistry.build(explicit: hostStore.list(), installed: library.installed, engines: engines)
+        let cat = catalog
+        var alias: [String: String] = [:]
+        for m in library.installed {
+            guard let h = cat.host(forModel: m.repo), let e = cat.engine(h.spec.engine), e.adapter == "http-openai" else { continue }
+            alias[m.repo] = h.id + "/" + h.id
+        }
+        router.setAliases(alias)
+        router.configure(settings.providers + derivedProviders(cat), home: home)
+    }
+
+    /// Providers for hosts that run on an http-openai engine. Derived on every load and never written to settings.
+    private func derivedProviders(_ cat: Catalog) -> [ProviderConfig] {
+        var out: [ProviderConfig] = []
+        let taken = Set(settings.providers.map(\.id))
         var used = Set(settings.providers.compactMap { URL(string: $0.baseURL)?.port })
         used.insert(11500)
-        var port = 8100
-        while used.contains(port) { port += 1 }
-        let path = m.directory.appendingPathComponent(file).path.replacingOccurrences(of: "'", with: "'\\''")
-        let cmd = "llama-server -m '\(path)' --alias \(name) --port \(port) --jinja -c 32768 -ngl 99"
-        let entry = ProviderConfig(id: id, baseURL: "http://127.0.0.1:\(port)/v1", models: [name],
-                                   service: .init(command: cmd, idleMinutes: 30, startupSeconds: 600))
-        updateSettings { $0.providers.append(entry) }
+        for h in cat.hosts.sorted(by: { $0.id < $1.id }) where !taken.contains(h.id) {
+            guard let e = cat.engine(h.spec.engine), e.adapter == "http-openai" else { continue }
+            if e.remote {
+                guard let url = h.spec.url, !url.isEmpty else { continue }
+                out.append(ProviderConfig(id: h.id, baseURL: url, keyRef: h.spec.keyRef, models: h.spec.models, locality: .remote, enabled: h.spec.enabled))
+                continue
+            }
+            guard h.spec.enabled, let launch = e.launch, let repo = h.spec.model, let m = cat.model(repo),
+                  let bin = cat.binary(for: e) ?? EngineBinary.find(launch.command, engineDir: e.directory) else { continue }
+            var port = 8100 + Int(Self.stableHash(h.id) % 800)
+            while used.contains(port) { port += 1 }
+            used.insert(port)
+            var values: [String: JSON] = ["host": .string(h.id), "port": .int(port), "model.dir": .string(m.directory.path)]
+            if let f = m.file { values["model.file"] = .string(m.directory.appendingPathComponent(f).path) }
+            for (k, v) in SchemaCheck.defaults(e.settings) { values["settings." + k] = v }
+            for (k, v) in h.spec.settings { values["settings." + k] = v }
+            let (args, missing) = ArgTemplate.expand(launch.args, values: values)
+            guard missing.isEmpty else { continue }
+            let cmd = ([bin.path] + args).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " ")
+            out.append(ProviderConfig(id: h.id, baseURL: "http://127.0.0.1:\(port)/v1", models: [h.id],
+                                      service: .init(command: cmd, idleMinutes: e.lifecycle.idleMinutes, startupSeconds: e.lifecycle.startupSeconds)))
+        }
+        return out
     }
 
-    func unregisterGGUF(_ m: InstalledModel) {
-        let id = Self.ggufNames(m).provider
-        updateSettings { $0.providers.removeAll { $0.id == id } }
+    static func stableHash(_ s: String) -> UInt64 {
+        var h: UInt64 = 14695981039346656037
+        for b in s.utf8 { h = (h ^ UInt64(b)) &* 1099511628211 }
+        return h
     }
-
-    /// Make sure every downloaded GGUF model has its provider (covers files placed by hand and settings edits).
-    func syncGGUFProviders() { for m in library.installed where m.format == .gguf { registerGGUF(m) } }
 
     public func setProviderEnabled(_ id: String, _ on: Bool) {
         updateSettings { if let i = $0.providers.firstIndex(where: { $0.id == id }) { $0.providers[i].enabled = on } }
@@ -222,7 +260,7 @@ public final class ParlorEngine {
         if router.route(name) != nil { return true }
         guard mlx != nil else { return true }
         let repo = name.hasPrefix("mlx/") ? String(name.dropFirst(4)) : name
-        return library.installedDirectory(for: repo) != nil
+        return catalog.isInstalled(repo)
     }
 
     /// Start, stop or move the `parlor` server to match settings.
@@ -326,9 +364,9 @@ public final class ParlorEngine {
         deps.image = img
         settings = ParlorSettings.load(home.settingsFile)
         if !FileManager.default.fileExists(atPath: home.settingsFile.path) { settings.save(home.settingsFile) }
-        library.onGGUFInstalled = { [weak self] m in Task { @MainActor in self?.registerGGUF(m) } }
-        library.onGGUFRemoved = { [weak self] m in Task { @MainActor in self?.unregisterGGUF(m) } }
-        syncGGUFProviders()
+        EngineSeeds.seed(home: home)
+        library.onChange = { [weak self] in Task { @MainActor in self?.reloadRunplane() } }
+        reloadRunplane()
         await applySettings()
         let provider = CommandProvider(center: commands)
         await hub.setTierRequirements(commands.tiers())
@@ -490,16 +528,20 @@ public final class ParlorEngine {
 
     /// `preferred` if it is installed (or nothing can be checked), else the first installed language model, else `preferred`.
     func availableModel(_ preferred: String) -> String {
-        guard mlx != nil, library.installedDirectory(for: preferred) == nil else { return preferred }
+        guard mlx != nil, !catalog.isInstalled(preferred) else { return preferred }
         return library.installed(kind: .language).map(\.repo).sorted().first ?? preferred
     }
 
-    /// Why an agent's model cannot answer right now, if so.
+    /// Why an agent's model cannot answer right now, if so. Decided by the catalog, through `LegacyRef` for V2 names.
     public func modelProblem(for a: Agent) -> String? {
-        if let (p, _) = router.route(a.model) { return p.config.enabled ? nil : "Provider \(p.config.id) is off." }
         guard mlx != nil else { return nil }
-        let repo = a.model.hasPrefix("mlx/") ? String(a.model.dropFirst(4)) : a.model
-        return library.installedDirectory(for: repo) == nil ? "\(repo.split(separator: "/").last.map(String.init) ?? repo) is not downloaded." : nil
+        let cat = catalog
+        if let (p, _) = router.route(a.model), cat.host(p.config.id) == nil { return p.config.enabled ? nil : "Provider \(p.config.id) is off." }
+        guard let h = LegacyRef.host(for: a.model, catalog: cat) else {
+            let repo = a.model.hasPrefix("mlx/") ? String(a.model.dropFirst(4)) : a.model
+            return "\(repo.split(separator: "/").last.map(String.init) ?? repo) is not downloaded."
+        }
+        return cat.problem(host: h.id)
     }
 
     public func delete(_ id: String) {

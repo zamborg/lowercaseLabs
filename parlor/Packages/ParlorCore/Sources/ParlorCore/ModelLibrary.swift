@@ -4,16 +4,29 @@ import Observation
 
 public enum ModelKind: String, Codable, Sendable, CaseIterable { case language, image }
 
-/// `mlx`: safetensors run in-process. `gguf`: a llama.cpp model, served through an auto-registered provider.
-/// `sdcpp`: a single-file Stable Diffusion (SDXL-family) checkpoint, drawn by stable-diffusion.cpp.
-public enum ModelFormat: String, Codable, Sendable { case mlx, gguf, sdcpp }
+/// Decided at download and never guessed later. `mlx-lm`: MLX safetensors language model. `gguf`: llama.cpp weights.
+/// `sd-checkpoint`: a single-file Stable Diffusion (SDXL-family) checkpoint. `z-image`: a Z-Image MLX folder.
+public enum ModelFormat: String, Codable, Sendable {
+    case mlxLM = "mlx-lm", gguf, sdCheckpoint = "sd-checkpoint", zImage = "z-image"
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        switch raw {
+        case "mlx", "mlx-lm": self = .mlxLM          // V2 markers; an image model is promoted to z-image on load
+        case "sdcpp", "sd-checkpoint": self = .sdCheckpoint
+        case "gguf": self = .gguf
+        case "z-image": self = .zImage
+        default: throw DecodingError.dataCorruptedError(in: try decoder.singleValueContainer(), debugDescription: "unknown model format \(raw)")
+        }
+    }
+}
 
 public struct InstalledModel: Identifiable, Hashable, Sendable {
     public var repo: String
     public var kind: ModelKind
     public var bytes: Int64
     public var directory: URL
-    public var format: ModelFormat = .mlx
+    public var format: ModelFormat = .mlxLM
     /// The `.gguf` file inside `directory` (GGUF models only).
     public var file: String? = nil
     public var id: String { repo }
@@ -78,10 +91,9 @@ public final class ModelLibrary: @unchecked Sendable {
     public private(set) var installed: [InstalledModel] = []
     public private(set) var downloads: [String: DownloadState] = [:]
     private var tasks: [String: Task<Void, Never>] = [:]
-    /// Called when a GGUF model finishes downloading, so the engine can register a llama.cpp provider for it.
-    @ObservationIgnored public var onGGUFInstalled: (@Sendable (InstalledModel) -> Void)?
-    /// Called just before a GGUF model is deleted from disk.
-    @ObservationIgnored public var onGGUFRemoved: (@Sendable (InstalledModel) -> Void)?
+
+    /// Called after the installed list changes (a download finished, a model was deleted). One generic notice.
+    @ObservationIgnored public var onChange: (@Sendable () -> Void)?
 
     public init(home: ParlorHome) {
         self.home = home
@@ -97,12 +109,6 @@ public final class ModelLibrary: @unchecked Sendable {
 
     private func marker(_ dir: URL) -> URL { dir.appendingPathComponent(".parlor-model.json") }
 
-    /// Directory of a fully downloaded model, if present.
-    public func installedDirectory(for repo: String) -> URL? {
-        let dir = directory(for: repo)
-        return FileManager.default.fileExists(atPath: marker(dir).path) && Self.hasWeights(dir) ? dir : nil
-    }
-
     public func refresh() {
         let fm = FileManager.default
         var found: [InstalledModel] = []
@@ -112,11 +118,14 @@ public final class ModelLibrary: @unchecked Sendable {
             for dir in names where fm.fileExists(atPath: marker(dir).path) && Self.hasWeights(dir) {
                 guard let d = try? Data(contentsOf: marker(dir)),
                       let m = try? JSONDecoder().decode(Marker.self, from: d) else { continue }
+                var format = m.format ?? .mlxLM
+                if m.kind == .image, format == .mlxLM { format = .zImage }
                 found.append(InstalledModel(repo: m.repo, kind: m.kind, bytes: Self.size(of: dir), directory: dir,
-                                            format: m.format ?? .mlx, file: m.file))
+                                            format: format, file: m.file))
             }
         }
         installed = found.sorted { $0.repo < $1.repo }
+        onChange?()
     }
 
     struct Marker: Codable { var repo: String; var kind: ModelKind; var format: ModelFormat? = nil; var file: String? = nil }
@@ -136,17 +145,7 @@ public final class ModelLibrary: @unchecked Sendable {
         return total
     }
 
-    /// Models an agent can pick for a kind. GGUF language models are served by their own provider and are not listed here;
-    /// image models include stable-diffusion.cpp checkpoints.
-    public func installed(kind: ModelKind) -> [InstalledModel] {
-        installed.filter { $0.kind == kind && ($0.format == .mlx || (kind == .image && $0.format == .sdcpp)) }
-    }
-
-    /// The image model used when an agent names none: the built-in (MLX) one first.
-    public var defaultImage: InstalledModel? {
-        let all = installed(kind: .image)
-        return all.first { $0.format == .mlx } ?? all.first
-    }
+    public func installed(kind: ModelKind) -> [InstalledModel] { installed.filter { $0.kind == kind } }
 
     public func fit(bytes: Int64?) -> ModelFit {
         guard let bytes else { return .unknown }
@@ -228,7 +227,7 @@ public final class ModelLibrary: @unchecked Sendable {
     }
 
     /// stable-diffusion.cpp's CLI, bundled with the app or installed by the user.
-    static var sdBinaryPath: String? { SDCppImage.binaryURL()?.path }
+    static var sdBinaryPath: String? { EngineBinary.find("sd-cli")?.path }
 
     /// The GGUF file (or all shards of a split file) to download: a 4-bit K-quant when offered, else the smallest.
     /// Vision projectors (`mmproj`) are never the model.
@@ -247,11 +246,7 @@ public final class ModelLibrary: @unchecked Sendable {
     }
 
     /// Where llama.cpp's server is installed, if anywhere (the app starts it through a login shell, so PATH locations count).
-    static var llamaServerPath: String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"]
-            .map { $0 + "/llama-server" }.first { FileManager.default.isExecutableFile(atPath: $0) }
-    }
+    static var llamaServerPath: String? { EngineBinary.find("llama-server")?.path }
     private struct TreeEntry: Decodable { var type: String; var path: String; var size: Int64? }
 
     /// Parlor loads safetensors weights (MLX conversions) in-process and GGUF through llama.cpp; the image worker runs Z-Image only.
@@ -317,12 +312,11 @@ public final class ModelLibrary: @unchecked Sendable {
                             if let total = $0.totalBytes, total > 0 { $0.bytesPerSecond = f * Double(total) / elapsed }
                         }
                     })
-                let format: ModelFormat? = !ggufFiles.isEmpty ? .gguf : (checkpoint != nil ? .sdcpp : nil)
+                let format: ModelFormat = !ggufFiles.isEmpty ? .gguf : (checkpoint != nil ? .sdCheckpoint : (kind == .image ? .zImage : .mlxLM))
                 let marker = Marker(repo: repo, kind: kind, format: format, file: ggufFiles.first ?? checkpoint)
                 if checkpoint != nil { SDCppImage.Config.writeDefault(in: dir, file: checkpoint!) }
                 try JSONEncoder().encode(marker).write(to: dir.appendingPathComponent(".parlor-model.json"))
                 self?.finish(repo, nil)
-                if !ggufFiles.isEmpty, let m = self?.installed.first(where: { $0.repo == repo }) { self?.onGGUFInstalled?(m) }
             } catch is CancellationError {
                 self?.finish(repo, .paused)
             } catch {
@@ -346,7 +340,6 @@ public final class ModelLibrary: @unchecked Sendable {
     }
 
     public func delete(_ repo: String) {
-        if let m = installed.first(where: { $0.repo == repo }), m.format == .gguf { onGGUFRemoved?(m) }
         try? FileManager.default.removeItem(at: directory(for: repo))
         refresh()
     }

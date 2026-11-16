@@ -95,7 +95,7 @@ struct ChatView: View {
     }
 
     private var modelChip: some View {
-        let installed = engine.library.installedDirectory(for: agent.model) != nil
+        let installed = engine.modelProblem(for: agent) == nil
         return Button { route = .models } label: {
             HStack(spacing: 5) {
                 Circle().fill(installed ? (engine.loadedModel == agent.model ? Color.green : Color.secondary) : Color.orange).frame(width: 7, height: 7)
@@ -156,7 +156,7 @@ struct ChatView: View {
         VStack(spacing: 8) {
             AvatarView(agent: agent, size: 56)
             Text("This is the start of your chat with \(agent.name).").foregroundStyle(.secondary)
-            if engine.library.installedDirectory(for: agent.model) == nil {
+            if engine.modelProblem(for: agent) != nil {
                 Text("Download \(shortModelName(agent.model)) to begin.").font(.callout)
                 Button("Open Models") { route = .models }.buttonStyle(.borderedProminent)
             }

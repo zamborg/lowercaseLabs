@@ -82,7 +82,7 @@ public actor MLXRuntime: LanguageModelRuntime {
 
     private func ensureLoaded(_ id: String) async throws -> Resident {
         if var r = residents[id] { r.lastUsed = Date(); residents[id] = r; return r }
-        guard let dir = library.installedDirectory(for: id) else { throw ParlorError.modelNotInstalled(id) }
+        guard let dir = library.installed.first(where: { $0.repo == id })?.directory else { throw ParlorError.modelNotInstalled(id) }
         let bytes = library.installed(kind: .language).first { $0.repo == id }?.bytes ?? 0
         makeRoom(for: bytes)
         let c: ModelContainer

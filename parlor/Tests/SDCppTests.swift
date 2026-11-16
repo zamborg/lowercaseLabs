@@ -70,14 +70,14 @@ final class SDCppTests: XCTestCase {
             let dir = home.modelsDir.appendingPathComponent(repo)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try Data(count: 4).write(to: dir.appendingPathComponent(file))
-            try JSONEncoder().encode(ModelLibrary.Marker(repo: repo, kind: .image, format: format, file: format == .sdcpp ? file : nil))
+            try JSONEncoder().encode(ModelLibrary.Marker(repo: repo, kind: .image, format: format, file: format == .sdCheckpoint ? file : nil))
                 .write(to: dir.appendingPathComponent(".parlor-model.json"))
         }
-        try install("Aaa/sdxl-model", format: .sdcpp, file: "m.safetensors")
+        try install("Aaa/sdxl-model", format: .sdCheckpoint, file: "m.safetensors")
         try install("mlx-community/Z-Image-Turbo", format: nil, file: "w.safetensors")
         let lib = ModelLibrary(home: home)
         XCTAssertEqual(lib.installed(kind: .image).count, 2)
-        XCTAssertEqual(lib.defaultImage?.repo, "mlx-community/Z-Image-Turbo", "the built-in model stays the default")
-        XCTAssertEqual(lib.installed.first { $0.repo == "Aaa/sdxl-model" }?.format, .sdcpp)
+        XCTAssertEqual(lib.installed.first { $0.repo == "mlx-community/Z-Image-Turbo" }?.format, .zImage, "an MLX image model is Z-Image")
+        XCTAssertEqual(lib.installed.first { $0.repo == "Aaa/sdxl-model" }?.format, .sdCheckpoint)
     }
 }
