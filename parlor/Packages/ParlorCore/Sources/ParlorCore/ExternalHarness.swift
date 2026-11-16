@@ -258,11 +258,10 @@ public final class ExternalHarness: Harness, @unchecked Sendable {
             return try? JSONDecoder().decode(JSON.self, from: d)
         }
         let s = input.settings
-        var settings: [String: JSON] = [
-            "top_p": .double(s.topP), "context": .int(s.contextTokens), "compact_at": .double(s.compactAt), "keep_recent": .int(s.keepRecent),
+        let settings: [String: JSON] = [
+            "context": .int(s.contextTokens), "compact_at": .double(s.compactAt), "keep_recent": .int(s.keepRecent),
             "summary_tokens": .int(s.summaryTokens), "max_steps": .int(s.maxSteps),
             "tool_result_chars": .int(s.toolResultChars), "tool_timeout": .int(s.toolTimeoutSeconds)]
-        if let m = s.maxReplyTokens { settings["max_reply_tokens"] = .int(m) }
         var hosts: [String: JSON] = [:]
         for (need, ref) in a.hosts where !ref.isEmpty {
             hosts[need] = .object(["model": .string(ref), "baseURL": .string(input.gatewayURL)])

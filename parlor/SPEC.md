@@ -77,7 +77,7 @@ as a form in the agent editor), `templates` (starting agents), `actions` (button
 `composer|message|settings`, `needs`, `hint`, `args`). Creating or changing a harness always asks the user.
 
 Seeded: `chat` (the default) and `character`, with `parlor_harness.py` (the helper) beside them, managed by the marker
-`parlor-harnesses-v2`; copy one to make your own.
+`parlor-harnesses-v3`; copy one to make your own.
 
 ### 2.5 Agent: `agents/<id>/agent.json`
 
@@ -169,7 +169,10 @@ JSON lines over the harness's stdin and stdout; stderr goes to the log.
 
 App to harness:
 - `turn.start`: `version: 2`, `turn`, `conversation`, `agent`, `hosts` (need to `{model, baseURL}`, the gateway), `config`,
-  `participants`, `transcript`, `tools`, `settings`, `memory`, `summary`, `lastPromptTokens`, `action`.
+  `participants`, `transcript`, `tools`, `settings`, `memory`, `summary`, `lastPromptTokens`, `action`. `settings` holds
+  loop knobs only (`context`, `compact_at`, `keep_recent`, `summary_tokens`, `max_steps`, `tool_result_chars`, `tool_timeout`).
+  Sampling is decided once, in the gateway: the request (a harness sends a key only when the agent's `config` sets it), then
+  the host's `defaults`, then the machine's LLM settings, then the engine's default.
 - `tool.result`: `turn`, `callID`, `text`, `isError`.
 - `turn.cancel`: `turn`.
 

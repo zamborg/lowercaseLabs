@@ -3,7 +3,7 @@ import Foundation
 /// The Python that ships with parlor: the harness helper and the two harnesses built on it. Written to
 /// `~/parlor/harnesses/` with the managed marker, so an edited copy is never overwritten.
 enum HarnessPython {
-    static let marker = "parlor-harnesses-v2"
+    static let marker = "parlor-harnesses-v3"
 
     static let header = "# \(marker): managed by parlor. Copy this file to make your own; edits here are overwritten.\n"
 
@@ -115,7 +115,7 @@ enum HarnessPython {
 
         # -- settings --
         def opt(self, key, default=None):
-            """A harness setting: the agent's config, else the machine's loop settings, else default."""
+            """A loop setting: the agent's config, else the machine's loop settings (context, compaction, steps), else default. Sampling is not here: send a key only when the agent's config sets it."""
             v = self.config.get(key)
             if v is None:
                 v = self.settings.get(key)
@@ -417,9 +417,9 @@ enum HarnessPython {
 
 
     def sampling(t):
-        return dict(temperature=t.config.get("temperature"), top_p=t.opt("top_p"),
+        return dict(temperature=t.config.get("temperature"), top_p=t.config.get("top_p"),
                     repetition_penalty=t.config.get("repetition_penalty"),
-                    max_tokens=(t.opt("max_reply_tokens") or None), thinking=bool(t.config.get("thinking")))
+                    max_tokens=(t.config.get("max_reply_tokens") or None), thinking=bool(t.config.get("thinking")))
 
 
     def compact_if_needed(t, summary):

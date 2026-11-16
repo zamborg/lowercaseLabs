@@ -184,6 +184,9 @@ public final class GatewayRoutes {
             default: extra[k] = v
             }
         }
+        // Still silent: the machine's LLM settings (Tuning), then the engine's own default.
+        if maxTokens == nil, honoured.contains("max_tokens") { maxTokens = engine.settings.llm.maxReplyTokens }
+        if extra["repetition_penalty"] == nil, honoured.contains("repetition_penalty"), let rp = engine.settings.llm.repetitionPenalty { extra["repetition_penalty"] = .double(rp) }
         let priority: LLMPriority = { switch req.headers["x-parlor-priority"]?.lowercased() { case "room": return .room; case "background": return .background; default: return .user } }()
         let stream = o["stream"] == .bool(true)
         let includeUsage = o["stream_options"]?.objectValue?["include_usage"] == .bool(true)

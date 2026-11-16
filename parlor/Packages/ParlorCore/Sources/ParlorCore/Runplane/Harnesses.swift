@@ -274,7 +274,7 @@ public enum HarnessSeeds {
         func put(_ url: URL, _ text: String, marked: Bool = true) {
             try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let current = try? String(contentsOf: url, encoding: .utf8)
-            if current == nil || (current!.contains(HarnessPython.marker) && current != text) || (marked == false && current != text && current!.contains("parlor-harnesses-v1")) {
+            if current == nil || (current!.contains("parlor-harnesses-") && current != text) || (marked == false && current != text && current!.contains("parlor-harnesses-v1")) {
                 try? text.write(to: url, atomically: true, encoding: .utf8)
             }
         }

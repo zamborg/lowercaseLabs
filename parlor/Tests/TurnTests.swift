@@ -53,22 +53,20 @@ final class TurnTests: XCTestCase {
         await engine.shutdown()
     }
 
-    func testSettingsResolutionPrecedenceAndClamp() {
+    func testLoopSettingsResolutionPrecedenceAndClamp() {
         var machine = ParlorSettings()
-        machine.llm.topP = 0.95; machine.loop.maxSteps = 8; machine.llm.maxReplyTokens = 2048
-        var agent = Agent(id: "r", name: "R", config: ["context": .int(32768), "temperature": .double(0.9)])
-        // Nothing overridden: machine values, V1 agent values, no model.
+        machine.loop.maxSteps = 8
+        var agent = Agent(id: "r", name: "R", config: ["context": .int(32768), "compact_at": .double(0.5)])
+        // Agent config beats the machine's loop settings.
         var r = ResolvedSettings.resolve(agent: agent, model: nil, machine: machine)
-        XCTAssertEqual(r.topP, 0.95); XCTAssertEqual(r.maxSteps, 8); XCTAssertEqual(r.maxReplyTokens, 2048)
-        XCTAssertEqual(r.temperature, 0.9); XCTAssertEqual(r.contextTokens, 32768)
-        // Model defaults beat the machine; the agent beats the model; the model's max context clamps.
-        var meta = ModelMetadata(); meta.topP = 0.8; meta.maxContext = 8192
+        XCTAssertEqual(r.maxSteps, 8); XCTAssertEqual(r.contextTokens, 32768); XCTAssertEqual(r.compactAt, 0.5)
+        // The model's max context clamps.
+        var meta = ModelMetadata(); meta.maxContext = 8192
         r = ResolvedSettings.resolve(agent: agent, model: meta, machine: machine)
-        XCTAssertEqual(r.topP, 0.8); XCTAssertEqual(r.contextTokens, 8192)
-        agent.config["top_p"] = .double(0.5); agent.config["max_steps"] = .int(3); agent.config["max_reply_tokens"] = .int(0)
+        XCTAssertEqual(r.contextTokens, 8192)
+        agent.config["max_steps"] = .int(3)
         r = ResolvedSettings.resolve(agent: agent, model: meta, machine: machine)
-        XCTAssertEqual(r.topP, 0.5); XCTAssertEqual(r.llm.topP, 0.5)
-        XCTAssertEqual(r.maxSteps, 3); XCTAssertNil(r.maxReplyTokens, "0 means no cap")
+        XCTAssertEqual(r.maxSteps, 3)
     }
 
     func testModelMetadataReadsV1AndExtendedFiles() throws {
@@ -80,7 +78,7 @@ final class TurnTests: XCTestCase {
         try #"{"kind":"language","repo":"a/b","defaults":{"top_p":0.7,"context":4096},"capabilities":{"tools":false,"maxContext":8192}}"#
             .write(to: dir.appendingPathComponent(".parlor-model.json"), atomically: true, encoding: .utf8)
         let m = try XCTUnwrap(ModelMetadata.load(dir: dir))
-        XCTAssertEqual(m.topP, 0.7); XCTAssertEqual(m.context, 4096); XCTAssertEqual(m.supportsTools, false); XCTAssertEqual(m.maxContext, 8192)
+        XCTAssertEqual(m.context, 4096); XCTAssertEqual(m.supportsTools, false); XCTAssertEqual(m.maxContext, 8192)
     }
 
     func testLogLinesWithoutSpeakerLoadAndUnknownKeysSurviveRewrite() throws {
