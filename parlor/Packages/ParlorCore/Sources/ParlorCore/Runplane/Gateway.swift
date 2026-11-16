@@ -50,13 +50,6 @@ public final class GatewayRoutes {
             }
             if e.remote, let ms = h.spec.models, !ms.isEmpty { items += ms.map { entry(h.id + "/" + $0) } } else { items.append(entry(h.id)) }
         }
-        // Providers still configured by hand (V2 settings).
-        let hostIDs = Set(cat.hosts.map(\.id))
-        for p in engine.router.all where p.config.enabled && !hostIDs.contains(p.config.id) {
-            for m in (p.config.models ?? engine.providerModelCache[p.config.id]?.map { String($0.dropFirst(p.config.id.count + 1)) } ?? []) where caller.mayUse(host: p.config.id) {
-                items.append(.object(["id": .string(p.config.id + "/" + m), "object": .string("model"), "created": .int(0), "owned_by": .string(p.config.id)]))
-            }
-        }
         return .init(status: 200, body: OpenAIWire.encode(.object(["object": .string("list"), "data": .array(items)])))
     }
 
@@ -64,7 +57,7 @@ public final class GatewayRoutes {
 
     struct ChatTarget { var route: String; var host: HostInfo?; var engine: EngineManifest? }
 
-    /// A host id, `<host>/<model>` on a remote host, or a V2 name (a repo, `provider/model`).
+    /// A host id, `<host>/<model>` on a remote host, or a model repo.
     func resolveChat(_ model: String) -> ChatTarget? {
         let cat = engine.catalog
         if let h = cat.host(model), let e = cat.engine(h.spec.engine), e.capabilities.contains("chat") {
@@ -72,7 +65,7 @@ public final class GatewayRoutes {
             case "inprocess-mlx": return h.spec.model.map { ChatTarget(route: $0, host: h, engine: e) }
             default:
                 if e.remote {
-                    let first = h.spec.models?.first ?? engine.providerModelCache[h.id]?.first.map { String($0.dropFirst(h.id.count + 1)) }
+                    let first = h.spec.models?.first
                     return first.map { ChatTarget(route: h.id + "/" + $0, host: h, engine: e) }
                 }
                 return ChatTarget(route: h.id + "/" + h.id, host: h, engine: e)

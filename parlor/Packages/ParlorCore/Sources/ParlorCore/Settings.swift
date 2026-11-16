@@ -14,7 +14,6 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
     /// The one loopback server: `/v1/*` (chat, images, models) and `/mcp` (control verbs), with the same tokens.
     public var gateway = Gateway()
     /// Model providers besides the built-in MLX one.
-    public var providers: [ProviderConfig] = []
     /// Access tokens: names and hashes only; the secret is shown once when it is made.
     public var tokens: [APIToken] = []
     /// Module name → manifest hash the user approved.
@@ -34,24 +33,22 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case llm, image, loop, memoryBudgetFraction, cacheSlotsPerModel, gateway, providers, tokens, moduleApprovals
-        case parlorServer   // V2 name of `gateway`, read but never written
+        case llm, image, loop, memoryBudgetFraction, cacheSlotsPerModel, gateway, tokens, moduleApprovals
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(llm, forKey: .llm); try c.encode(image, forKey: .image); try c.encode(loop, forKey: .loop)
         try c.encode(memoryBudgetFraction, forKey: .memoryBudgetFraction); try c.encode(cacheSlotsPerModel, forKey: .cacheSlotsPerModel)
-        try c.encode(gateway, forKey: .gateway); try c.encode(providers, forKey: .providers)
+        try c.encode(gateway, forKey: .gateway)
         try c.encode(tokens, forKey: .tokens); try c.encode(moduleApprovals, forKey: .moduleApprovals)
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        providers = try c.decodeIfPresent([ProviderConfig].self, forKey: .providers) ?? providers
         memoryBudgetFraction = try c.decodeIfPresent(Double.self, forKey: .memoryBudgetFraction) ?? memoryBudgetFraction
         cacheSlotsPerModel = try c.decodeIfPresent(Int.self, forKey: .cacheSlotsPerModel) ?? cacheSlotsPerModel
-        gateway = try c.decodeIfPresent(Gateway.self, forKey: .gateway) ?? c.decodeIfPresent(Gateway.self, forKey: .parlorServer) ?? gateway
+        gateway = try c.decodeIfPresent(Gateway.self, forKey: .gateway) ?? gateway
         tokens = try c.decodeIfPresent([APIToken].self, forKey: .tokens) ?? tokens
         moduleApprovals = try c.decodeIfPresent([String: String].self, forKey: .moduleApprovals) ?? moduleApprovals
         llm = try c.decodeIfPresent(LLM.self, forKey: .llm) ?? llm

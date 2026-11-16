@@ -89,7 +89,7 @@ flags live in the host's `settings`/`defaults` (the Tuning screen edits them and
 Besides Z-Image, the Library (Models, Image tab) downloads a single-file Stable Diffusion checkpoint (SDXL, Illustrious, Pony and
 similar) from a repo such as `Ine007/waiNSFWIllustrious_v140`, and draws with it through stable-diffusion.cpp's `sd-cli`
 (bundled in the app, fetched by `scripts/fetch-sd.sh`; or put `sd-cli` in `~/.local/bin`). One `sd-cli` run per image, so nothing stays in
-memory. Sampling is the host's `settings` (older `parlor-image.json` files beside the weights are still read): V-prediction checkpoints (a name with `vpred` or `v-pred`) get
+memory. Sampling is the host's `settings` (`parlor-image.json` beside the weights holds the checkpoint's sampler, steps, size and prompt tags): V-prediction checkpoints (a name with `vpred` or `v-pred`) get
 `prediction: v`; defaults are Euler a, 28 steps (20 for `detail: fast`), CFG 6, CLIP skip 2, 832×1216 portrait, with quality
 tags added to the prompt and a negative prompt. Set an agent's `image_model:` to the repo id. The character harness writes
 Danbooru-style tags for these models automatically. Gated repos need `hf auth login` and access granted on the model page.

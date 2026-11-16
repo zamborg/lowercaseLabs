@@ -46,7 +46,7 @@ public struct Agent: Identifiable, Hashable, Sendable {
 
     // MARK: hosts
 
-    /// The chat host id (V2 called this `model`).
+    /// The chat host id.
     public var model: String {
         get { hosts["chat"] ?? "" }
         set { if newValue.isEmpty { hosts["chat"] = nil } else { hosts["chat"] = newValue } }

@@ -12,7 +12,7 @@ public enum ModelFormat: String, Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
         switch raw {
-        case "mlx", "mlx-lm": self = .mlxLM          // V2 markers; an image model is promoted to z-image on load
+        case "mlx", "mlx-lm": self = .mlxLM         
         case "sdcpp", "sd-checkpoint": self = .sdCheckpoint
         case "gguf": self = .gguf
         case "z-image": self = .zImage

@@ -44,7 +44,7 @@ modules/<name>/module.json  a small tool server you or a model wrote
 media/YYYY-MM/  models/<org>/<name>/  workspaces/<agent>/  logs/
 ```
 
-A fresh start moves old state to `old-v2-<date>/` and writes `.parlor-v3`.
+There is no migration: a home made by an earlier version is not read. Start with an empty folder.
 
 ### 2.1 Nouns
 
@@ -94,7 +94,7 @@ machine `settings`). Unknown keys survive an edit.
 
 ### 2.7 Settings, mounts, modules
 
-`settings.json` is tolerant: unknown keys survive, bad values fall back. `mcp.json` is the Claude Desktop format with
+`settings.json` is tolerant: unknown keys survive, bad values fall back. Hosts are never listed there; they are files. `mcp.json` is the Claude Desktop format with
 optional `lifecycle` and `idleMinutes`. A module is a folder with `module.json` and a program; it runs only after the user
 approves it and re-asks when the manifest changes. See `modules/CLAUDE.md`.
 

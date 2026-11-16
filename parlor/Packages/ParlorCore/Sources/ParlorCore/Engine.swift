@@ -144,24 +144,10 @@ public final class ParlorEngine {
             "PARLOR_WORKSPACE": externalHarness.workspace(for: agent.id).path]
     }
 
-    /// Models providers answered with on their last test, for pickers (`provider/model`).
-    public internal(set) var providerModelCache: [String: [String]] = [:]
-
-    /// Every provider model an agent could use, configured or learned from a test.
-    public var providerModelChoices: [String] {
-        var out: [String] = []
-        for c in settings.providers where c.enabled && c.problem == nil {
-            let names = (c.models?.isEmpty == false) ? c.models!.map { c.id + "/" + $0 } : (providerModelCache[c.id] ?? [])
-            out += names
-        }
-        return out
-    }
-
     // MARK: lifecycle
 
     public func start() async {
         try? home.ensure()
-        freshStartIfNeeded()
         settings = ParlorSettings.load(home.settingsFile)
         if !FileManager.default.fileExists(atPath: home.settingsFile.path) { settings.save(home.settingsFile) }
         EngineSeeds.seed(home: home)
@@ -222,28 +208,6 @@ public final class ParlorEngine {
             }
         }
         try? "seeded\n".write(to: home.seededMarker, atomically: true, encoding: .utf8)
-    }
-
-    /// V3 starts clean: the V2 state moves aside (never deleted) and a marker says so. A home that already has the marker,
-    /// or that has nothing yet, is left alone.
-    func freshStartIfNeeded() {
-        let fm = FileManager.default
-        guard !fm.fileExists(atPath: home.v3Marker.path) else { return }
-        let v2 = ["agents", "chats", "memory", "workspaces", "harnesses", ".git", "settings.json"]
-        // V2 agents were `agents/<id>.md` files; that is the signal. Anything else is already V3-shaped.
-        let hasV2 = ((try? fm.contentsOfDirectory(atPath: home.agentsDir.path)) ?? []).contains { $0.hasSuffix(".md") }
-        if hasV2 {
-            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd-HHmmss"
-            let dest = home.root.appendingPathComponent("old-v2-" + f.string(from: Date()))
-            try? fm.createDirectory(at: dest, withIntermediateDirectories: true)
-            for name in v2 where fm.fileExists(atPath: home.root.appendingPathComponent(name).path) {
-                try? fm.moveItem(at: home.root.appendingPathComponent(name), to: dest.appendingPathComponent(name))
-            }
-            // The seeding marker described the old agents: starter agents are made again.
-            try? fm.removeItem(at: home.seededMarker)
-        }
-        try? home.ensure()
-        try? "v3\n".write(to: home.v3Marker, atomically: true, encoding: .utf8)
     }
 
     // MARK: file changes

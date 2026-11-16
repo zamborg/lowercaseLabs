@@ -30,16 +30,14 @@ extension ParlorEngine {
             alias[m.repo] = h.id + "/" + h.id
         }
         router.setAliases(alias)
-        router.configure(settings.providers + derivedProviders(cat), home: home)
+        router.configure(derivedProviders(cat), home: home)
     }
 
     /// Providers for hosts that run on an http-openai engine. Derived on every load and never written to settings.
     func derivedProviders(_ cat: Catalog) -> [ProviderConfig] {
         var out: [ProviderConfig] = []
-        let taken = Set(settings.providers.map(\.id))
-        var used = Set(settings.providers.compactMap { URL(string: $0.baseURL)?.port })
-        used.insert(11500)
-        for h in cat.hosts.sorted(by: { $0.id < $1.id }) where !taken.contains(h.id) {
+        var used: Set<Int> = [11500]
+        for h in cat.hosts.sorted(by: { $0.id < $1.id }) {
             guard let e = cat.engine(h.spec.engine), e.adapter == "http-openai" else { continue }
             if e.remote {
                 guard let url = h.spec.url, !url.isEmpty else { continue }
@@ -70,7 +68,7 @@ extension ParlorEngine {
         return h
     }
 
-    /// Whether a name could be served: an enabled provider's, an installed MLX model, or anything under a substitute runtime.
+    /// Whether a name could be served: an installed MLX model, or anything under a substitute runtime.
     func runtimeKnowsModel(_ name: String) -> Bool {
         if router.route(name) != nil { return true }
         guard mlx != nil else { return true }

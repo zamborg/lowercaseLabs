@@ -25,7 +25,7 @@ public struct ChatMessage: Identifiable, Codable, Hashable, Sendable {
     /// Paths relative to the parlor home, e.g. `media/2026-11/abc.png`.
     public var images: [String]?
     public var createdAt: Date
-    /// Who said it: an agent id or `"user"`. Absent on V1 lines; see `speaker(inChatOf:)`.
+    /// Who said it: an agent id or `"user"`. Absent on older lines; see `speaker(inChatOf:)`.
     public var speaker: String?
     /// Keys this version does not know, kept so rewriting the log never drops them.
     public var extra: [String: JSON]?
@@ -40,7 +40,7 @@ public struct ChatMessage: Identifiable, Codable, Hashable, Sendable {
         self.seconds = seconds; self.images = images; self.createdAt = createdAt; self.speaker = speaker
     }
 
-    /// The speaker, defaulting V1 lines: a user line is the user, anything else is the chat's agent.
+    /// The speaker, defaulting lines without one: a user line is the user, anything else is the chat's agent.
     public func speaker(inChatOf agentID: String) -> String {
         speaker ?? (role == .user ? "user" : agentID)
     }

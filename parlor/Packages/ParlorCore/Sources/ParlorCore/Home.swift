@@ -34,7 +34,6 @@ public struct ParlorHome: Sendable {
     public var mcpConfig: URL { root.appendingPathComponent("mcp.json") }
     public var settingsFile: URL { root.appendingPathComponent("settings.json") }
     /// Present once the starter agents have been created (or an existing home was adopted).
-    public var v3Marker: URL { root.appendingPathComponent(".parlor-v3") }
     public var seededMarker: URL { root.appendingPathComponent(".parlor-seeded") }
 
     public func chatDir(for agentID: String) -> URL { chatsDir.appendingPathComponent(agentID) }

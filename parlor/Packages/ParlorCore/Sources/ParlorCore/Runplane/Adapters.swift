@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// One entry of `settings.json → providers` (SPEC §5).
+/// How the `http-openai` adapter reaches one host: a URL, and optionally the command that serves it. Derived from hosts and engines, never written.
 public struct ProviderConfig: Codable, Equatable, Sendable, Identifiable {
     public enum Locality: String, Codable, Sendable { case local, remote }
 

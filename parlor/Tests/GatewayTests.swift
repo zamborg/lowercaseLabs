@@ -20,8 +20,12 @@ final class GatewayTests: XCTestCase {
     @MainActor
     private func engine(_ llm: LanguageModelRuntime = DemoRuntime(), install: Bool = false) async throws -> ParlorEngine {
         let home = tempHome(); try home.ensure()
-        try #"{"gateway":{"enabled":true,"port":0},"providers":[{"id":"fake","baseURL":"http://127.0.0.1:1/v1","models":["a"]},{"id":"other","baseURL":"http://127.0.0.1:1/v1","models":["b"]}]}"#
-            .write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        try #"{"gateway":{"enabled":true,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: home.hostsDir, withIntermediateDirectories: true)
+        for (id, m) in [("fake", "a"), ("other", "b")] {
+            try #"{"id":"\#(id)","engine":"openai-remote","url":"http://127.0.0.1:1/v1","models":["\#(m)"]}"#
+                .write(to: home.hostsDir.appendingPathComponent(id + ".json"), atomically: true, encoding: .utf8)
+        }
         if install {
             let dir = home.modelsDir.appendingPathComponent("Aaa/sdxl-model")
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

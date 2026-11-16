@@ -63,7 +63,7 @@ public actor ImageProvider: ToolProvider {
         self.home = home; self.library = library; self.catalog = catalog; self.hostFor = hostFor
     }
 
-    /// Apply the V2 image knobs. They are the base for a Z-Image host's settings until Tuning owns them.
+    /// Apply the image knobs. They are the base for a Z-Image host's settings until Tuning owns them.
     public func configure(_ new: ParlorSettings.Image) {
         let precisionChanged = new.precision != cfg.precision
         cfg = new

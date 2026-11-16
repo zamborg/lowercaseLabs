@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// One conversation: a chat folder with a log, a summary and a scheduler. A V1 chat is the one-to-one case
+/// One conversation: a chat folder with a log, a summary and a scheduler. A one-to-one chat is the simple case
 /// (one agent, the user); a room has several agents and another scheduler.
 @Observable @MainActor
 public final class Room: Identifiable {

@@ -46,7 +46,6 @@ final class GGUFTests: XCTestCase {
         XCTAssertEqual(host.id, "flint-q4-gguf")
         XCTAssertEqual(host.spec.engine, "llama.cpp")
         XCTAssertEqual(engine.catalog.status(host: host.id), .ready)
-        XCTAssertTrue(engine.settings.providers.isEmpty, "derived state is never stored as settings")
         let p = try XCTUnwrap(engine.router.provider("flint-q4-gguf"))
         XCTAssertTrue(p.config.service!.command.contains(#"'\''"#), "quotes in the path are escaped for the shell")
         XCTAssertTrue(p.config.service!.command.contains("'--port'"))

@@ -154,14 +154,8 @@ final class ProviderTests: XCTestCase {
         XCTAssertTrue(fake.disconnected, "cancelling the request closes the connection")
     }
 
-    func testProviderConfigParsingAndProblems() throws {
-        let json = #"{"providers":[{"id":"llama","baseURL":"http://127.0.0.1:8081/v1","models":["qwen"],"service":{"command":"llama-server -m x.gguf --port 8081"}},{"id":"cloud","baseURL":"https://api.example.com/v1","locality":"remote","keyRef":"cloud-key"},{"id":"mlx","baseURL":"http://x/v1"}]}"#
-        let s = try JSONDecoder().decode(ParlorSettings.self, from: Data(json.utf8))
-        XCTAssertEqual(s.providers.count, 3)
-        XCTAssertTrue(s.providers[0].enabled, "local providers start on")
-        XCTAssertEqual(s.providers[0].service?.idleMinutes, 30)
-        XCTAssertFalse(s.providers[1].enabled, "remote providers start off")
-        XCTAssertNotNil(s.providers[2].problem, "mlx is reserved")
+    func testSettingsDefaultsAndKeyNames() throws {
+        let s = try JSONDecoder().decode(ParlorSettings.self, from: Data("{}".utf8))
         XCTAssertEqual(s.gateway.enabled, true)
         XCTAssertEqual(s.gateway.port, 11501)
         XCTAssertEqual(KeyStore.envName("my-key"), "PARLOR_KEY_MY_KEY")
@@ -217,9 +211,11 @@ final class ProviderTests: XCTestCase {
     // MARK: runtime API
 
     @MainActor
-    private func engine(_ llm: LanguageModelRuntime = DemoRuntime(), providers: String = "") async throws -> (ParlorEngine, String) {
+    private func engine(_ llm: LanguageModelRuntime = DemoRuntime(), hosts: [String: String] = [:]) async throws -> (ParlorEngine, String) {
         let home = tempHome(); try home.ensure()
-        try #"{"gateway":{"enabled":true,"port":0}\#(providers)}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        try #"{"gateway":{"enabled":true,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: home.hostsDir, withIntermediateDirectories: true)
+        for (id, json) in hosts { try json.write(to: home.hostsDir.appendingPathComponent(id + ".json"), atomically: true, encoding: .utf8) }
         let e = ParlorEngine(home: home, runtime: llm)
         await e.start()
         let secret = try XCTUnwrap(e.createToken(name: "api-test", tier: .none))
@@ -238,7 +234,7 @@ final class ProviderTests: XCTestCase {
 
     @MainActor
     func testRuntimeAPISchema() async throws {
-        let (e, secret) = try await engine(providers: #","providers":[{"id":"fake","baseURL":"http://127.0.0.1:1/v1","models":["fake-a"]}]"#)
+        let (e, secret) = try await engine(hosts: ["fake": #"{"id":"fake","engine":"openai-remote","url":"http://127.0.0.1:1/v1","models":["fake-a"]}"#])
         XCTAssertGreaterThan(e.endpoint.port, 0)
         func json(_ d: Data) -> [String: Any] { (try? JSONSerialization.jsonObject(with: d) as? [String: Any]) ?? [:] }
 
@@ -251,7 +247,7 @@ final class ProviderTests: XCTestCase {
         (s, d) = try await http(e, "GET", "/v1/models", token: secret)
         XCTAssertEqual(s, 200)
         let ids = (json(d)["data"] as? [[String: Any]])?.compactMap { $0["id"] as? String } ?? []
-        XCTAssertEqual(ids, ["fake/fake-a"], "models are listed as provider/model")
+        XCTAssertEqual(ids, ["fake/fake-a"], "remote host models are listed as host/model")
         XCTAssertEqual(json(d)["object"] as? String, "list")
 
         let chat: [String: Any] = ["model": "anything", "messages": [["role": "user", "content": "hello api"]]]

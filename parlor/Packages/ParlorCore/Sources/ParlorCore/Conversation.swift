@@ -20,7 +20,7 @@ public struct SchedulerSpec: Codable, Hashable, Sendable {
     }
 }
 
-/// `chats/<id>/conversation.json`. Absent means the V1 case: one agent and the user.
+/// `chats/<id>/conversation.json`. Absent means one agent and the user.
 public struct ConversationConfig: Codable, Hashable, Sendable {
     public var version = 1
     public var title: String?
@@ -167,6 +167,6 @@ extension ConversationConfig {
         try enc.encode(self).write(to: dir.appendingPathComponent("conversation.json"), options: .atomic)
     }
 
-    /// A folder is a room when its file names more than the single V1 agent or a non-default scheduler.
+    /// A folder is a room when its file names more than a single agent or a non-default scheduler.
     var isRoom: Bool { agentIDs.count != 1 || scheduler.kind != "userDriven" }
 }
