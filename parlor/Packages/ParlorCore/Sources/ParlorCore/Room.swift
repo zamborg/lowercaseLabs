@@ -115,7 +115,6 @@ public final class Room: Identifiable {
         currentSpeaker = agent.id
         speakingID = agent.id
         let tools = await deps.hub.tools(for: agent)
-        await deps.image?.setModel(agent.imageModel)
         do {
             activity = "Thinking"
             let input = makeInput(agent: agent, tools: tools, names: names)

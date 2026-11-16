@@ -74,7 +74,7 @@ final class HarnessTests: XCTestCase {
 
     private func setup(tier: Tier = .none, tools: [String] = ["echo.*"]) async throws -> (ParlorEngine, Room, Agent) {
         let home = tempHome(); try home.ensure()
-        try #"{"parlorServer":{"enabled":true,"port":0},"runtimeAPI":{"enabled":false,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        try #"{"gateway":{"enabled":true,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
         let path = home.root.appendingPathComponent("fake_harness.py")
         try Self.script.write(to: path, atomically: true, encoding: .utf8)
         let e = ParlorEngine(home: home, runtime: DemoRuntime())
@@ -118,7 +118,7 @@ final class HarnessTests: XCTestCase {
         XCTAssertEqual(room.messages.last?.text, "env ok=True cwd=mabel agent=mabel tier=read tools=1")
         XCTAssertTrue(FileManager.default.fileExists(atPath: e.home.root.appendingPathComponent("workspaces/mabel").path))
         XCTAssertTrue(ServiceLog.tail(home: e.home, service: "harness:mabel", lines: 5).contains("harness booted"), "stderr goes to logs/harness-mabel.log")
-        XCTAssertTrue(e.runtimeAPI.isRunning, "launching a harness starts the runtime API")
+        XCTAssertTrue(e.endpoint.isRunning, "launching a harness starts the gateway")
         // The process is a service in the dashboard.
         await e.refreshServices()
         XCTAssertEqual(e.services.first { $0.id == "harness:mabel" }?.state, .running)

@@ -5,7 +5,7 @@ import XCTest
 final class MemoryHistoryTests: XCTestCase {
     private func engine() async throws -> ParlorEngine {
         let home = tempHome(); try home.ensure()
-        try #"{"parlorServer":{"enabled":false,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        try #"{"gateway":{"enabled":false,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
         let e = ParlorEngine(home: home, runtime: DemoRuntime())
         await e.start()
         for a in e.agents { var x = a; x.model = "demo"; x.tools = ["parlor.*"]; e.save(x) }
@@ -62,7 +62,7 @@ final class MemoryHistoryTests: XCTestCase {
 
     func testExternalHarnessReceivesMemory() async throws {
         let home = tempHome(); try home.ensure()
-        try #"{"parlorServer":{"enabled":false,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        try #"{"gateway":{"enabled":false,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
         let path = home.root.appendingPathComponent("h.py")
         try HarnessTests.script.write(to: path, atomically: true, encoding: .utf8)
         let e = ParlorEngine(home: home, runtime: DemoRuntime())
@@ -205,7 +205,7 @@ final class TriggerTests: XCTestCase {
 
     func testClockAndFileTriggersStartTheRoom() async throws {
         let home = tempHome(); try home.ensure()
-        try #"{"parlorServer":{"enabled":false,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        try #"{"gateway":{"enabled":false,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
         let e = ParlorEngine(home: home, runtime: roomLLM())
         await e.start()
         for a in e.agents { var x = a; x.model = "scripted"; x.tools = []; e.save(x) }

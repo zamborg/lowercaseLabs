@@ -32,13 +32,12 @@ public final class ParlorEngine {
     private var watcher: FolderWatcher?
     @ObservationIgnored lazy var triggers = TriggerScheduler(engine: self)
     private var reloadTask: Task<Void, Never>?
-    private let mlx: MLXRuntime?
+    let mlx: MLXRuntime?
     /// Sends `provider/model` names to their provider and everything else to MLX.
     public let router: ProviderRouter
-    /// The OpenAI-compatible endpoint (SPEC §4) on 127.0.0.1.
-    public private(set) var runtimeAPI: RuntimeAPIEndpoint!
-    public private(set) var runtimeError: String?
-    private var runtimeForHarness = false
+    /// The routes the gateway serves under `/v1` (the one server also serves `/mcp`).
+    public private(set) var gateway: GatewayRoutes!
+    private var gatewayForHarness = false
     /// Runs agents that have a `harness:` command.
     public let externalHarness: ExternalHarness
     private var harnessTokens: [String: String] = [:]
@@ -47,7 +46,8 @@ public final class ParlorEngine {
     /// Who the next write is credited to in history. The command gate sets it for the length of a verb.
     var actor = "ui"
     public var memory: MemoryStore { MemoryStore(home: home) }
-    private let queue = LLMQueue()
+    /// One queue per host.
+    let queues = HostQueues()
     /// Generations waiting behind the one running.
     public private(set) var queueDepth = 0
     public private(set) var image: ImageProvider?
@@ -77,14 +77,14 @@ public final class ParlorEngine {
         let envBox = EnvBox()
         let external = ExternalHarness(home: home) { agent in await envBox.provider?(agent) ?? [:] }
         self.externalHarness = external
-        self.deps = RoomDeps(home: home, hub: hub, llm: QueuedRuntime(inner: router, queue: queue),
+        self.deps = RoomDeps(home: home, hub: hub, llm: QueuedRuntime(inner: router, queues: queues, key: { router.queueKey($0) }),
                              harness: HarnessRouter(builtIn: harness, external: external), library: lib)
         envBox.provider = { [weak self] agent in await self?.harnessEnvironment(agent) ?? [:] }
         self.mcp = MCPManager(hub: hub, home: home)
         deps.agentLookup = { [weak self] id in self?.agent(id) }
         self.commands = CommandCenter(engine: self)
         self.endpoint = ParlorMCPEndpoint(engine: self)
-        self.runtimeAPI = RuntimeAPIEndpoint(engine: self)
+        self.gateway = GatewayRoutes(engine: self)
     }
 
     public var runtime: LanguageModelRuntime { deps.llm }
@@ -111,36 +111,26 @@ public final class ParlorEngine {
         await image?.configure(settings.image)
         reloadRunplane()
         await syncServer()
-        await syncRuntimeAPI()
     }
 
-    /// Start, stop or move the runtime API to match settings. A launched harness keeps it up.
-    private func syncRuntimeAPI() async {
-        let want = settings.runtimeAPI
-        if !want.enabled && !runtimeForHarness { runtimeAPI.stop(); runtimeError = nil; return }
-        if runtimeAPI.isRunning, want.port == 0 || runtimeAPI.port == want.port { return }
-        do { try await runtimeAPI.start(port: want.port); runtimeError = nil }
-        catch { runtimeAPI.stop(); runtimeError = error.localizedDescription }
-    }
-
-    /// Bring the runtime API up for a harness, on the configured port or any free one.
-    func ensureRuntimeAPI() async {
-        if runtimeAPI.isRunning { return }
-        runtimeForHarness = true
-        if (try? await runtimeAPI.start(port: settings.runtimeAPI.port)) == nil {
-            do { try await runtimeAPI.start(port: 0); runtimeError = nil } catch { runtimeError = error.localizedDescription }
-        } else { runtimeError = nil }
+    /// Bring the gateway up for a harness even when it is switched off, on the configured port or any free one.
+    func ensureGateway() async {
+        if endpoint.isRunning { return }
+        gatewayForHarness = true
+        if (try? await endpoint.start(port: settings.gateway.port)) == nil {
+            do { try await endpoint.start(port: 0); serverError = nil } catch { serverError = error.localizedDescription }
+        } else { serverError = nil }
     }
 
     /// What a launched harness gets in its environment (SPEC §2.5). One secret serves both servers, at the agent's tier.
     func harnessEnvironment(_ agent: Agent) async -> [String: String] {
-        await ensureRuntimeAPI()
+        await ensureGateway()
         let key = agent.id + ":" + agent.tier.rawValue
         if harnessTokens[key] == nil { harnessTokens[key] = endpoint.issueEphemeral(name: "harness:" + agent.id, tier: agent.tier) }
         let token = harnessTokens[key]!
-        let parlorPort = endpoint.isRunning ? endpoint.port : settings.parlorServer.port
+        let parlorPort = endpoint.isRunning ? endpoint.port : settings.gateway.port
         return [
-            "OPENAI_BASE_URL": "http://127.0.0.1:\(runtimeAPI.port)/v1", "OPENAI_API_KEY": token,
+            "OPENAI_BASE_URL": "http://127.0.0.1:\(parlorPort)/v1", "OPENAI_API_KEY": token,
             "PARLOR_MCP_URL": "http://127.0.0.1:\(parlorPort)/mcp", "PARLOR_URL": "http://127.0.0.1:\(parlorPort)/mcp",
             "PARLOR_TOKEN": token, "PARLOR_AGENT": agent.id, "PARLOR_HOME": home.root.path,
             "PARLOR_WORKSPACE": externalHarness.workspace(for: agent.id).path]
@@ -263,10 +253,19 @@ public final class ParlorEngine {
         return catalog.isInstalled(repo)
     }
 
+    /// The image host an agent draws with: its `image_model` through the catalog, else the first usable image host (Z-Image first).
+    func defaultImageHost(for agentID: String?) -> String? {
+        let cat = catalog
+        if let id = agentID, let a = agent(id), let m = a.imageModel, !m.isEmpty,
+           let h = LegacyRef.host(for: m, catalog: cat), cat.capabilities(of: h).contains("image") { return h.id }
+        let hs = cat.hosts(capability: "image").filter { cat.status(host: $0.id).usable }
+        return (hs.first { $0.spec.engine == "z-image" } ?? hs.first)?.id
+    }
+
     /// Start, stop or move the `parlor` server to match settings.
     private func syncServer() async {
-        let want = settings.parlorServer
-        if !want.enabled { endpoint.stop(); serverError = nil; return }
+        let want = settings.gateway
+        if !want.enabled && !gatewayForHarness { endpoint.stop(); serverError = nil; return }
         if endpoint.isRunning, want.port == 0 || endpoint.port == want.port { return }
         do { try await endpoint.start(port: want.port); serverError = nil }
         catch { endpoint.stop(); serverError = error.localizedDescription }
@@ -359,7 +358,9 @@ public final class ParlorEngine {
         history.setup()
         reloadAgents()
         if selection == nil { selection = agents.first?.id }
-        let img = ImageProvider(home: home, library: library)
+        let img = ImageProvider(home: home, library: library,
+                                catalog: { [weak self] in await MainActor.run { self?.catalog ?? Catalog(models: [], engines: [], hosts: []) } },
+                                hostFor: { [weak self] agent in await self?.defaultImageHost(for: agent) })
         image = img
         deps.image = img
         settings = ParlorSettings.load(home.settingsFile)
@@ -394,7 +395,6 @@ public final class ParlorEngine {
         triggers.stop()
         history.flush()
         endpoint.stop()
-        runtimeAPI.stop()
         externalHarness.stopAll()
         router.stopAll()
         await mcp.stopAll()
@@ -608,7 +608,7 @@ public final class ParlorEngine {
 
     public func refreshLoaded() async {
         loadedModel = await deps.llm.loadedModel()
-        queueDepth = await queue.depth
+        queueDepth = await queues.depth
         if let image { imageWorkerState = await image.stateDescription() }
     }
 
@@ -667,7 +667,7 @@ public final class ParlorEngine {
         var loaded: [String] = []
         if let mlx { loaded = await mlx.loadedModels() } else if let m = await deps.llm.loadedModel() { loaded = [m] }
         let bytes = await mlx?.residentBytes()
-        let depth = await queue.depth
+        let depth = await queues.depth
         let info = ServiceInfo(
             id: "llm", kind: "language model", title: "Language models",
             detail: loaded.isEmpty ? "loads on the first message" : loaded.map { $0.split(separator: "/").last.map(String.init) ?? $0 }.joined(separator: ", "),
@@ -717,38 +717,18 @@ public final class ParlorEngine {
     }
 
     private func serverEntries() -> [ServiceEntry] {
-        let ps = settings.parlorServer
-        let psState: ServiceState = !ps.enabled ? .stopped : (serverError.map { .failed($0) } ?? (endpoint.isRunning ? .running : .starting))
+        let ps = settings.gateway
+        let psState: ServiceState = !ps.enabled && !endpoint.isRunning ? .stopped : (serverError.map { .failed($0) } ?? (endpoint.isRunning ? .running : .starting))
         let server = ServiceEntry(
             info: ServiceInfo(
-                id: "parlorServer", kind: "server", title: "Parlor server",
-                detail: ps.enabled ? "http://127.0.0.1:\(ps.port)/mcp · \(settings.tokens.count) token\(settings.tokens.count == 1 ? "" : "s")" : "off",
+                id: "gateway", kind: "server", title: "Gateway",
+                detail: endpoint.isRunning ? "http://127.0.0.1:\(endpoint.port) · /v1 (OpenAI) and /mcp · \(settings.tokens.count) token\(settings.tokens.count == 1 ? "" : "s")" : (ps.enabled ? "starting" : "off"),
                 state: psState, memoryBytes: nil, lastUsed: nil, queueDepth: nil, lifecycle: "always", restarts: 0,
-                canStart: !ps.enabled, canStop: ps.enabled, canRestart: ps.enabled, logURL: nil),
-            start: { [weak self] in guard let self else { return }; self.updateSettings { $0.parlorServer.enabled = true }; await self.syncServer() },
-            stop: { [weak self] in guard let self else { return }; self.updateSettings { $0.parlorServer.enabled = false }; await self.syncServer() },
+                canStart: !endpoint.isRunning, canStop: endpoint.isRunning, canRestart: endpoint.isRunning, logURL: nil),
+            start: { [weak self] in guard let self else { return }; self.updateSettings { $0.gateway.enabled = true }; await self.syncServer() },
+            stop: { [weak self] in guard let self else { return }; self.updateSettings { $0.gateway.enabled = false }; self.gatewayForHarness = false; await self.syncServer() },
             restart: { [weak self] in guard let self else { return }; self.endpoint.stop(); await self.syncServer() })
-        let ra = settings.runtimeAPI
-        let raState: ServiceState = runtimeAPI.isRunning ? .running : (runtimeError.map { .failed($0) } ?? .stopped)
-        let api = ServiceEntry(
-            info: ServiceInfo(
-                id: "runtimeAPI", kind: "server", title: "Runtime API",
-                detail: runtimeAPI.isRunning ? "http://127.0.0.1:\(runtimeAPI.port)/v1 · OpenAI-compatible" : (ra.enabled ? "starting" : "off · starts with an external harness"),
-                state: raState, memoryBytes: nil, lastUsed: nil, queueDepth: nil, lifecycle: "always", restarts: 0,
-                canStart: !runtimeAPI.isRunning, canStop: runtimeAPI.isRunning, canRestart: runtimeAPI.isRunning, logURL: nil),
-            start: { [weak self] in
-                guard let self else { return }
-                self.updateSettings { $0.runtimeAPI.enabled = true }; self.runtimeAPI.stop(); await self.syncRuntimeAPI()
-            },
-            stop: { [weak self] in
-                guard let self else { return }
-                self.updateSettings { $0.runtimeAPI.enabled = false }; self.runtimeForHarness = false; self.runtimeAPI.stop()
-            },
-            restart: { [weak self] in
-                guard let self else { return }
-                self.runtimeAPI.stop(); await self.syncRuntimeAPI(); if !self.runtimeAPI.isRunning { await self.ensureRuntimeAPI() }
-            })
-        return [server, api]
+        return [server]
     }
 
     /// Providers that run a server process (llama.cpp and friends).

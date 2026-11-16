@@ -150,9 +150,9 @@ public final class ParlorMCPEndpoint {
     public func stop() { server?.stop(); server = nil }
 
     /// A token for a process the app launches. Not stored; it dies with the app.
-    public func issueEphemeral(name: String, tier: Tier) -> String {
+    public func issueEphemeral(name: String, tier: Tier, hosts: [String]? = nil) -> String {
         let secret = "plt_eph_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        ephemeral[secret] = .token(name, tier)
+        ephemeral[secret] = .token(name, tier, hosts: hosts)
         return secret
     }
 
@@ -163,19 +163,22 @@ public final class ParlorMCPEndpoint {
         if let c = ephemeral[bearer] { return c }
         let h = APIToken.hash(bearer)
         guard let t = engine.settings.tokens.first(where: { $0.hash == h }), !t.isExpired else { return nil }
-        return .token(t.name, t.tier)
+        return .token(t.name, t.tier, hosts: t.hosts)
     }
 
     func handle(_ req: LoopbackServer.Request) async -> LoopbackServer.Response {
         // A browser page must not be able to drive the app: refuse any foreign Origin or Host.
         if let o = req.headers["origin"], !o.isEmpty, !(o.contains("://127.0.0.1") || o.contains("://localhost")) { return .init(status: 403) }
         if let h = req.headers["host"], !(h.hasPrefix("127.0.0.1") || h.hasPrefix("localhost") || h.hasPrefix("[::1]")) { return .init(status: 403) }
+        let auth = req.headers["authorization"] ?? ""
+        let who = auth.lowercased().hasPrefix("bearer ") ? caller(for: String(auth.dropFirst(7)).trimmingCharacters(in: .whitespaces)) : nil
+        if req.path.hasPrefix("/v1/") {
+            guard let who else { return GatewayRoutes.error(401, "Invalid or missing API key. Send Authorization: Bearer <token>.", code: "invalid_api_key") }
+            return await engine.gateway.handle(req, caller: who)
+        }
         guard req.path == "/mcp" || req.path.hasPrefix("/mcp?") else { return .init(status: 404) }
         guard req.method == "POST" else { return .init(status: 405) }
-        let auth = req.headers["authorization"] ?? ""
-        guard auth.lowercased().hasPrefix("bearer "), let caller = caller(for: String(auth.dropFirst(7)).trimmingCharacters(in: .whitespaces)) else {
-            return .init(status: 401)
-        }
+        guard let caller = who else { return .init(status: 401) }
         guard let msg = try? JSONDecoder().decode(JSON.self, from: req.body), let obj = msg.objectValue else { return .init(status: 400) }
         let method = obj["method"]?.stringValue ?? ""
         let id = obj["id"]

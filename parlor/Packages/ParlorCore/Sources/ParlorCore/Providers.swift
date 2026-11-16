@@ -275,6 +275,8 @@ public final class OpenAIProvider: LanguageModelRuntime, @unchecked Sendable {
                         "messages": .array(OpenAIWire.messages(req.messages)),
                         "temperature": .double(req.temperature), "top_p": .double(req.tuning.settings.topP)]
                     if let m = req.maxTokens { body["max_tokens"] = .int(m) }
+                    for (k, v) in req.sampling { body[k] = v }
+                    if let rp = req.sampling["repetition_penalty"] { body["repeat_penalty"] = rp }   // llama-server's name for it
                     if !req.tools.isEmpty { body["tools"] = .array(OpenAIWire.toolSpecs(req.tools)) }
                     if config.locality == .local { body["chat_template_kwargs"] = .object(["enable_thinking": .bool(req.thinking)]) }
                     let started = Date()
@@ -374,10 +376,10 @@ public final class ProviderProcess: @unchecked Sendable {
         self.config = config; self.service = service; self.home = home
     }
 
-    public struct Snapshot: Sendable { public var state: ServiceState; public var pid: Int32?; public var lastUsed: Date?; public var external: Bool; public var restarts: Int }
+    public struct Snapshot: Sendable { public var state: ServiceState; public var pid: Int32?; public var lastUsed: Date?; public var external: Bool; public var restarts: Int; public var active: Int }
     public func snapshot() -> Snapshot {
         lock.lock(); defer { lock.unlock() }
-        return Snapshot(state: _state, pid: proc?.pid, lastUsed: _lastUsed, external: external, restarts: _restarts)
+        return Snapshot(state: _state, pid: proc?.pid, lastUsed: _lastUsed, external: external, restarts: _restarts, active: active)
     }
 
     func touch() { lock.lock(); _lastUsed = Date(); lock.unlock() }
@@ -507,6 +509,9 @@ public final class ProviderRouter: LanguageModelRuntime, @unchecked Sendable {
     public func provider(_ id: String) -> OpenAIProvider? { lock.lock(); defer { lock.unlock() }; return providers[id] }
 
     /// The provider a qualified model name belongs to, and the model name it understands.
+    /// Which queue a model belongs to: its provider's, or `mlx` for in-process models.
+    public func queueKey(_ model: String) -> String { route(resolved(model))?.provider.config.id ?? "mlx" }
+
     public func route(_ model: String) -> (provider: OpenAIProvider, model: String)? {
         guard let i = model.firstIndex(of: "/") else { return nil }
         guard let p = provider(String(model[..<i])) else { return nil }

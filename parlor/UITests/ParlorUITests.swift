@@ -110,7 +110,7 @@ final class ParlorUITests: XCTestCase {
         XCTAssertTrue(test.waitForExistence(timeout: 5), "provider listed with a Test button")
         test.click()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Failed'")).firstMatch.waitForExistence(timeout: 10), "unreachable provider reports failure")
-        XCTAssertTrue(app.staticTexts["Runtime API"].exists, "runtime API is a service")
+        XCTAssertTrue(app.staticTexts["Gateway"].exists, "gateway is a service")
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.lifetime = .keepAlways; add(shot)
     }
 
@@ -152,7 +152,7 @@ final class ParlorUITests: XCTestCase {
 
     /// A token made in System drives the running app over HTTP, and a module needs the user's approval.
     func testTokenDrivesAppAndModuleApproval() throws {
-        try #"{"parlorServer":{"enabled":true,"port":11877}}"#.write(to: home.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
+        try #"{"gateway":{"enabled":true,"port":11877}}"#.write(to: home.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
         let dir = home.appendingPathComponent("modules/quiet")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try #"{"name":"quiet","description":"Does nothing.","command":"python3","args":["server.py"]}"#.write(to: dir.appendingPathComponent("module.json"), atomically: true, encoding: .utf8)

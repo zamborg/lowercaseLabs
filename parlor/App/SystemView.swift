@@ -182,9 +182,9 @@ struct SystemView: View {
             Text("The Parlor server lets Claude Code or a script on this Mac drive the app: read and change agents, talk in rooms, start services. It only listens on 127.0.0.1 and needs a token. A token's tier limits what it may do; deleting anything always asks you first.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
-                Toggle("Parlor server", isOn: Binding(get: { engine.settings.parlorServer.enabled }, set: { v in engine.updateSettings { $0.parlorServer.enabled = v } }))
+                Toggle("Parlor server", isOn: Binding(get: { engine.settings.gateway.enabled }, set: { v in engine.updateSettings { $0.gateway.enabled = v } }))
                     .accessibilityIdentifier("server-toggle")
-                Text("http://127.0.0.1:\(engine.settings.parlorServer.port)/mcp").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                Text("http://127.0.0.1:\(engine.settings.gateway.port)/mcp").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
                 Spacer()
                 Button("New Token…") { newName = ""; newTier = .act; newSecret = nil; showNewToken = true }.controlSize(.small).accessibilityIdentifier("new-token")
             }
@@ -210,7 +210,7 @@ struct SystemView: View {
                 Text("It is shown once. Parlor keeps only a hash of it.").font(.caption).foregroundStyle(.secondary)
                 Text(secret).font(.system(.callout, design: .monospaced)).textSelection(.enabled).padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                 Text("Add it to Claude Code:").font(.caption).foregroundStyle(.secondary)
-                let cmd = "claude mcp add --transport http parlor http://127.0.0.1:\(engine.settings.parlorServer.port)/mcp --header \"Authorization: Bearer \(secret)\""
+                let cmd = "claude mcp add --transport http parlor http://127.0.0.1:\(engine.settings.gateway.port)/mcp --header \"Authorization: Bearer \(secret)\""
                 Text(cmd).font(.system(.caption, design: .monospaced)).textSelection(.enabled).padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                 HStack {
                     Button("Copy Token") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(secret, forType: .string) }

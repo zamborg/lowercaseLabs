@@ -11,10 +11,8 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
     public var memoryBudgetFraction = 0.6
     /// Prompt-cache slots kept per resident model; a request reuses the slot sharing the longest prefix.
     public var cacheSlotsPerModel = 4
-    /// The app-hosted `parlor` MCP server that outside clients (Claude Code) and launched modules talk to.
-    public var parlorServer = ParlorServer()
-    /// OpenAI-compatible endpoint other tools (and external harnesses) use to reach the local models.
-    public var runtimeAPI = RuntimeAPI()
+    /// The one loopback server: `/v1/*` (chat, images, models) and `/mcp` (control verbs), with the same tokens.
+    public var gateway = Gateway()
     /// Model providers besides the built-in MLX one.
     public var providers: [ProviderConfig] = []
     /// Access tokens: names and hashes only; the secret is shown once when it is made.
@@ -24,7 +22,7 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
 
     public init() {}
 
-    public struct ParlorServer: Codable, Equatable, Sendable {
+    public struct Gateway: Codable, Equatable, Sendable {
         public var enabled = true
         public var port = 11501
         public init() {}
@@ -35,25 +33,25 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
         }
     }
 
-    public struct RuntimeAPI: Codable, Equatable, Sendable {
-        /// Off by default. Launching an external harness starts it for that harness regardless.
-        public var enabled = false
-        public var port = 11500
-        public init() {}
-        public init(from decoder: Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? enabled
-            port = try c.decodeIfPresent(Int.self, forKey: .port) ?? port
-        }
+    enum CodingKeys: String, CodingKey {
+        case llm, image, loop, memoryBudgetFraction, cacheSlotsPerModel, gateway, providers, tokens, moduleApprovals
+        case parlorServer   // V2 name of `gateway`, read but never written
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(llm, forKey: .llm); try c.encode(image, forKey: .image); try c.encode(loop, forKey: .loop)
+        try c.encode(memoryBudgetFraction, forKey: .memoryBudgetFraction); try c.encode(cacheSlotsPerModel, forKey: .cacheSlotsPerModel)
+        try c.encode(gateway, forKey: .gateway); try c.encode(providers, forKey: .providers)
+        try c.encode(tokens, forKey: .tokens); try c.encode(moduleApprovals, forKey: .moduleApprovals)
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        runtimeAPI = try c.decodeIfPresent(RuntimeAPI.self, forKey: .runtimeAPI) ?? runtimeAPI
         providers = try c.decodeIfPresent([ProviderConfig].self, forKey: .providers) ?? providers
         memoryBudgetFraction = try c.decodeIfPresent(Double.self, forKey: .memoryBudgetFraction) ?? memoryBudgetFraction
         cacheSlotsPerModel = try c.decodeIfPresent(Int.self, forKey: .cacheSlotsPerModel) ?? cacheSlotsPerModel
-        parlorServer = try c.decodeIfPresent(ParlorServer.self, forKey: .parlorServer) ?? parlorServer
+        gateway = try c.decodeIfPresent(Gateway.self, forKey: .gateway) ?? c.decodeIfPresent(Gateway.self, forKey: .parlorServer) ?? gateway
         tokens = try c.decodeIfPresent([APIToken].self, forKey: .tokens) ?? tokens
         moduleApprovals = try c.decodeIfPresent([String: String].self, forKey: .moduleApprovals) ?? moduleApprovals
         llm = try c.decodeIfPresent(LLM.self, forKey: .llm) ?? llm

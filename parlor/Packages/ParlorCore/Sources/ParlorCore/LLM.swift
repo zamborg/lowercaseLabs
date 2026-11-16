@@ -46,10 +46,12 @@ public struct LLMRequest: Sendable {
     public var thinking: Bool
     public var tuning: LLMTuning
     public var priority: LLMPriority
+    /// Sampling parameters beyond temperature/top_p (`min_p`, `top_k`, `repetition_penalty`) the engine honours.
+    public var sampling: [String: JSON] = [:]
 
-    public init(messages: [LLMMessage], tools: [ToolDef] = [], temperature: Double = 0.6, maxTokens: Int? = nil, thinking: Bool = false, tuning: LLMTuning = LLMTuning(), priority: LLMPriority = .user) {
+    public init(messages: [LLMMessage], tools: [ToolDef] = [], temperature: Double = 0.6, maxTokens: Int? = nil, thinking: Bool = false, tuning: LLMTuning = LLMTuning(), priority: LLMPriority = .user, sampling: [String: JSON] = [:]) {
         self.messages = messages; self.tools = tools; self.temperature = temperature
-        self.maxTokens = maxTokens; self.thinking = thinking; self.tuning = tuning; self.priority = priority
+        self.maxTokens = maxTokens; self.thinking = thinking; self.tuning = tuning; self.priority = priority; self.sampling = sampling
     }
 }
 

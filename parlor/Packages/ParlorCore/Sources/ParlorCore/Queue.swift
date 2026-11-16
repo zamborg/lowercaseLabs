@@ -74,12 +74,37 @@ public actor LLMQueue {
     }
 }
 
-/// Puts a queue in front of any runtime, so chats, rooms, summaries and outside clients share one line.
+/// One queue per host, so a slow image or a big model on one host never holds up another. Each queue orders by
+/// priority (`X-Parlor-Priority`: user, room, background).
+public actor HostQueues {
+    private var queues: [String: LLMQueue] = [:]
+    private let single: LLMQueue?
+    public init() { single = nil }
+    /// Everything shares one queue (tests and simple setups).
+    public init(single: LLMQueue) { self.single = single }
+
+    public func queue(_ key: String) -> LLMQueue {
+        if let single { return single }
+        if let q = queues[key] { return q }
+        let q = LLMQueue(); queues[key] = q; return q
+    }
+    public var depth: Int { get async {
+        var n = await single?.depth ?? 0
+        for q in queues.values { n += await q.depth }
+        return n
+    } }
+}
+
+/// Puts the host queues in front of any runtime, so chats, rooms, summaries and outside clients share each host's line.
 public final class QueuedRuntime: LanguageModelRuntime, @unchecked Sendable {
     public let inner: LanguageModelRuntime
-    public let queue: LLMQueue
+    public let queues: HostQueues
+    private let key: @Sendable (String) -> String
 
-    public init(inner: LanguageModelRuntime, queue: LLMQueue = LLMQueue()) { self.inner = inner; self.queue = queue }
+    public init(inner: LanguageModelRuntime, queues: HostQueues = HostQueues(), key: @escaping @Sendable (String) -> String = { _ in "mlx" }) {
+        self.inner = inner; self.queues = queues; self.key = key
+    }
+    public convenience init(inner: LanguageModelRuntime, queue: LLMQueue) { self.init(inner: inner, queues: HostQueues(single: queue)) }
 
     public func loadedModel() async -> String? { await inner.loadedModel() }
     public func unload() async { await inner.unload() }
@@ -87,6 +112,7 @@ public final class QueuedRuntime: LanguageModelRuntime, @unchecked Sendable {
     public func generate(model: String, request: LLMRequest) -> AsyncThrowingStream<LLMEvent, Error> {
         AsyncThrowingStream { cont in
             let task = Task {
+                let queue = await queues.queue(key(model))
                 let ticket: LLMQueue.Ticket
                 do { ticket = try await queue.acquire(model: model, priority: request.priority) }
                 catch { cont.finish(throwing: error); return }

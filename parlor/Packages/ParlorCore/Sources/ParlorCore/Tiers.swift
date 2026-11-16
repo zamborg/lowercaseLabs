@@ -15,12 +15,16 @@ public struct Caller: Sendable {
     public var kind: Kind
     public var name: String
     public var tier: Tier
+    /// Hosts this caller may use through the gateway; nil means all of them.
+    public var hosts: [String]? = nil
 
     /// The person at the keyboard (the app or the CLI): everything, with no extra prompt.
     public static let local = Caller(kind: .local, name: "local", tier: .configure)
     public static let ui = Caller(kind: .ui, name: "app", tier: .configure)
     public static func agent(_ a: Agent) -> Caller { Caller(kind: .agent, name: a.id, tier: a.tier) }
-    public static func token(_ name: String, _ tier: Tier) -> Caller { Caller(kind: .token, name: name, tier: tier) }
+    public static func token(_ name: String, _ tier: Tier, hosts: [String]? = nil) -> Caller { Caller(kind: .token, name: name, tier: tier, hosts: hosts) }
+
+    public func mayUse(host id: String) -> Bool { hosts?.contains(id) ?? true }
 
     /// A person is not watching a call made by an agent or a token, so destructive verbs ask.
     public var mustConfirmDestructive: Bool { kind == .agent || kind == .token }
@@ -32,6 +36,8 @@ public struct APIToken: Codable, Equatable, Sendable, Identifiable {
     public var hash: String
     public var created: Date
     public var expires: Date?
+    /// Hosts the token may use; nil means all.
+    public var hosts: [String]? = nil
     public var id: String { name }
 
     public var isExpired: Bool { expires.map { $0 < Date() } ?? false }

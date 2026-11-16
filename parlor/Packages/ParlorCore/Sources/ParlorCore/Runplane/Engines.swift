@@ -120,7 +120,7 @@ public enum EngineSeeds {
         "mlx": """
         { "managed": "\(marker)", "version": 1, "id": "mlx", "title": "MLX (in the app)",
           "capabilities": ["chat"], "formats": ["mlx-lm"], "adapter": "inprocess-mlx",
-          "params": ["temperature", "top_p", "min_p", "top_k", "repetition_penalty", "max_tokens"],
+          "params": ["temperature", "top_p", "repetition_penalty", "max_tokens"],
           "settings": { "type": "object", "properties": {
               "context": { "type": "integer", "minimum": 512, "description": "caps the context window; blank uses the model's own" } } } }
         """,

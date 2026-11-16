@@ -23,7 +23,7 @@ enum Seeds {
     - Everything under agents/, memory/, mcp.json, settings.json, modules/*/module.json and chats/*/conversation.json is
       versioned in `.git` here (System → History restores it). Models, media, logs, workspaces and chat logs are not.
     - Agent front matter `group: <name>` picks the sidebar section (default Assistants or Characters).
-    - `settings.json` machine settings, access tokens (hashes only), module approvals, `providers` and `runtimeAPI`.
+    - `settings.json` machine settings, access tokens (hashes only), module approvals, `providers` and `gateway`.
     - `logs/` one log per service (`mcp-<name>.log`, `image.log`, `module-<name>.log`), rotated at 1 MB.
 
     ## Agent file
@@ -63,8 +63,8 @@ enum Seeds {
     (`llama-<name>`, model `llama-<name>/<name>`).
     `service` is optional: parlor starts it on the first request and stops it when idle. Agents use a provider's model as
     `model: llama/qwen3-4b`. A provider with `"locality": "remote"` starts disabled; `keyRef` names a Keychain item for its API key.
-    `"runtimeAPI": {"enabled": true, "port": 11500}` serves every model at `http://127.0.0.1:11500/v1` (OpenAI-compatible,
-    token required) for other tools.
+    `"gateway": {"enabled": true, "port": 11501}` serves every host at `http://127.0.0.1:11501/v1` (OpenAI-compatible chat and
+    images) and `/mcp`, token required, for other tools.
 
     ## Rules
     - One chat per agent. Do not create extra chat folders.

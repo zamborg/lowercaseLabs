@@ -130,7 +130,7 @@ public actor MLXRuntime: LanguageModelRuntime {
 
         var params = GenerateParameters(maxTokens: request.maxTokens, temperature: Float(request.temperature))
         params.topP = Float(t.topP)
-        if let rp = t.repetitionPenalty, rp > 1 { params.repetitionPenalty = Float(rp) }
+        if let rp = request.sampling["repetition_penalty"].flatMap({ j -> Double? in if case .double(let d) = j { return d }; if case .int(let i) = j { return Double(i) }; return nil }) ?? t.repetitionPenalty, rp > 1 { params.repetitionPenalty = Float(rp) }
         params.prefill.stepSize = max(32, t.prefillStepSize)
         if !reuse {
             if let bits = t.kvBits, [4, 8].contains(bits) {

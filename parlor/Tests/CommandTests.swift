@@ -6,7 +6,7 @@ final class CommandTests: XCTestCase {
     private func engine(_ llm: LanguageModelRuntime = DemoRuntime()) async throws -> ParlorEngine {
         let home = tempHome()
         try home.ensure()
-        try #"{"parlorServer":{"enabled":true,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        try #"{"gateway":{"enabled":true,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
         let e = ParlorEngine(home: home, runtime: llm)
         await e.start()
         for a in e.agents { var x = a; x.model = "demo"; e.save(x) }

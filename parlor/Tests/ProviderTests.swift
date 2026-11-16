@@ -162,8 +162,8 @@ final class ProviderTests: XCTestCase {
         XCTAssertEqual(s.providers[0].service?.idleMinutes, 30)
         XCTAssertFalse(s.providers[1].enabled, "remote providers start off")
         XCTAssertNotNil(s.providers[2].problem, "mlx is reserved")
-        XCTAssertEqual(s.runtimeAPI.enabled, false)
-        XCTAssertEqual(s.runtimeAPI.port, 11500)
+        XCTAssertEqual(s.gateway.enabled, true)
+        XCTAssertEqual(s.gateway.port, 11501)
         XCTAssertEqual(KeyStore.envName("my-key"), "PARLOR_KEY_MY_KEY")
     }
 
@@ -219,7 +219,7 @@ final class ProviderTests: XCTestCase {
     @MainActor
     private func engine(_ llm: LanguageModelRuntime = DemoRuntime(), providers: String = "") async throws -> (ParlorEngine, String) {
         let home = tempHome(); try home.ensure()
-        try #"{"parlorServer":{"enabled":true,"port":0},"runtimeAPI":{"enabled":true,"port":0}\#(providers)}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        try #"{"gateway":{"enabled":true,"port":0}\#(providers)}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
         let e = ParlorEngine(home: home, runtime: llm)
         await e.start()
         let secret = try XCTUnwrap(e.createToken(name: "api-test", tier: .none))
@@ -228,7 +228,7 @@ final class ProviderTests: XCTestCase {
 
     @MainActor
     private func http(_ e: ParlorEngine, _ method: String, _ path: String, token: String?, body: [String: Any]? = nil) async throws -> (Int, Data) {
-        var req = URLRequest(url: URL(string: "http://127.0.0.1:\(e.runtimeAPI.port)\(path)")!)
+        var req = URLRequest(url: URL(string: "http://127.0.0.1:\(e.endpoint.port)\(path)")!)
         req.httpMethod = method
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body) }
@@ -239,7 +239,7 @@ final class ProviderTests: XCTestCase {
     @MainActor
     func testRuntimeAPISchema() async throws {
         let (e, secret) = try await engine(providers: #","providers":[{"id":"fake","baseURL":"http://127.0.0.1:1/v1","models":["fake-a"]}]"#)
-        XCTAssertGreaterThan(e.runtimeAPI.port, 0)
+        XCTAssertGreaterThan(e.endpoint.port, 0)
         func json(_ d: Data) -> [String: Any] { (try? JSONSerialization.jsonObject(with: d) as? [String: Any]) ?? [:] }
 
         // Auth and shape errors are OpenAI-shaped.

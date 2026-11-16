@@ -340,7 +340,7 @@ extension CommandCenter {
                 self.engine.updateSettings { $0 = s }
             } else {
                 let keep = self.engine.settings
-                self.engine.updateSettings { $0 = ParlorSettings(); $0.tokens = keep.tokens; $0.moduleApprovals = keep.moduleApprovals; $0.parlorServer = keep.parlorServer }
+                self.engine.updateSettings { $0 = ParlorSettings(); $0.tokens = keep.tokens; $0.moduleApprovals = keep.moduleApprovals; $0.gateway = keep.gateway }
             }
             return self.engine.settings.publicJSON
         }
@@ -454,8 +454,8 @@ struct SettingSpec {
         "loop.toolTimeoutSeconds": .int(1...86_400, \.loop.toolTimeoutSeconds),
         "loop.keepRecent": .int(0...200, \.loop.keepRecent),
         "loop.summaryTokens": .int(64...8192, \.loop.summaryTokens),
-        "parlorServer.enabled": .bool(\.parlorServer.enabled),
-        "parlorServer.port": .int(1024...65535, \.parlorServer.port),
+        "gateway.enabled": .bool(\.gateway.enabled),
+        "gateway.port": .int(1024...65535, \.gateway.port),
     ]
 }
 

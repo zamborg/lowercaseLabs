@@ -148,7 +148,7 @@ final class ModuleTests: XCTestCase {
     private func makeEngine() async throws -> ParlorEngine {
         let home = tempHome()
         try home.ensure()
-        try #"{"parlorServer":{"enabled":true,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        try #"{"gateway":{"enabled":true,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
         let e = ParlorEngine(home: home, runtime: DemoRuntime())
         return e
     }
