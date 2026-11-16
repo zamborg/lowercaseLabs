@@ -400,6 +400,11 @@ extension CommandCenter {
         }
     }
 
+    /// Approvals and tokens are the user's: an agent or token never grants them to itself.
+    func requireUser(_ c: Caller, _ verb: String) throws {
+        guard c.kind == .ui || c.kind == .local else { throw CommandError("parlor.\(verb) is for the person at the app; ask the user to do it in System.") }
+    }
+
     // MARK: tools
 
     private func toolState(_ t: ToolInfo, _ statuses: [ServerStatus]) -> String {
@@ -474,6 +479,24 @@ extension CommandCenter {
             if touchesCode { self.approveSeen(id) }
             self.engine.reloadTools()
             return .object(self.engine.toolStore.raw(id) ?? [:])
+        }
+        add("tools.approve", .configure, "The user lets a tool run what its tool.json says. Only the person at the app can do this.", props: [("id", "string", "Tool id")], required: ["id"]) { a, c in
+            try self.requireUser(c, "tools.approve")
+            let id = try a.string("id")
+            guard self.engine.toolList.contains(where: { $0.id == id && $0.spec != nil }) else { throw CommandError("No loadable tool \"\(id)\".") }
+            self.engine.approveTool(id)
+            return .object(["approved": .string(id)])
+        }
+        add("tools.revoke", .configure, "Take a tool's approval back; it stops.", props: [("id", "string", "Tool id")], required: ["id"]) { a, c in
+            try self.requireUser(c, "tools.revoke")
+            self.engine.revokeTool(try a.string("id"))
+            return .object(["revoked": .string(try a.string("id"))])
+        }
+        add("tools.values", .configure, "Set the values of a tool's settings form and restart it.", props: [("id", "string", "Tool id"), ("values", "object", "Setting values")], required: ["id", "values"]) { a, _ in
+            let id = try a.string("id")
+            guard self.engine.toolStore.raw(id) != nil else { throw CommandError("No tool \"\(id)\".") }
+            self.engine.setToolValues(id, a.raw["values"]?.objectValue ?? [:])
+            return .object(["id": .string(id)])
         }
         add("tools.delete", .configure, destructive: true, "Delete a tool's folder. Agents that listed its tools simply lose them.", props: [("id", "string", "Tool id")], required: ["id"]) { a, _ in
             let id = try a.string("id")

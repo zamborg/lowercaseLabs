@@ -25,7 +25,7 @@ struct ToolsSection: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tools-section")
         .confirmationDialog("Remove \(pendingDelete ?? "")?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
-            Button("Remove Tool", role: .destructive) { if let id = pendingDelete { engine.deleteTool(id) }; pendingDelete = nil }
+            Button("Remove Tool", role: .destructive) { if let id = pendingDelete { Task { _ = await runVerb(engine, "tools.delete", ["id": .string(id)]) } }; pendingDelete = nil }
         } message: { Text("Its folder is deleted and it stops running. Agents that listed its tools simply lose them.") }
     }
 
@@ -56,12 +56,12 @@ struct ToolsSection: View {
                 if let spec = t.spec {
                     if t.approved {
                         if !t.fields.isEmpty { Button("Settings") { editing = editing == t.id ? nil : t.id }.controlSize(.small) }
-                        Button("Restart") { engine.restartServer(t.id) }.controlSize(.small)
-                        Toggle("Enabled", isOn: Binding(get: { spec.enabled }, set: { engine.setTool(t.id, enabled: $0) }))
+                        Button("Restart") { Task { _ = await runVerb(engine, "services.restart", ["id": .string("tool:" + t.id)]) } }.controlSize(.small)
+                        Toggle("Enabled", isOn: Binding(get: { spec.enabled }, set: { v in Task { _ = await runVerb(engine, "tools.enable", ["id": .string(t.id), "enabled": .bool(v)]) } }))
                             .toggleStyle(.switch).labelsHidden().help(spec.enabled ? "Turn off" : "Turn on")
-                        Button("Revoke") { engine.revokeTool(t.id) }.controlSize(.small).accessibilityIdentifier("revoke-\(t.id)")
+                        Button("Revoke") { Task { _ = await runVerb(engine, "tools.revoke", ["id": .string(t.id)]) } }.controlSize(.small).accessibilityIdentifier("revoke-\(t.id)")
                     } else {
-                        Button("Approve") { engine.approveTool(t.id) }.controlSize(.small).buttonStyle(.borderedProminent).accessibilityIdentifier("approve-\(t.id)")
+                        Button("Approve") { Task { _ = await runVerb(engine, "tools.approve", ["id": .string(t.id)]) } }.controlSize(.small).buttonStyle(.borderedProminent).accessibilityIdentifier("approve-\(t.id)")
                     }
                 }
                 Button { NSWorkspace.shared.activateFileViewerSelecting([t.dir]) } label: { Image(systemName: "folder") }.buttonStyle(.borderless).help("Show in Finder")
@@ -122,7 +122,7 @@ struct ToolSettingsForm: View {
                     }
                 }
             }
-            Button("Save and Restart") { engine.setToolValues(tool.id, values) }.controlSize(.small)
+            Button("Save and Restart") { Task { _ = await runVerb(engine, "tools.values", ["id": .string(tool.id), "values": .object(values)]) } }.controlSize(.small)
         }
         .onAppear { values = tool.effectiveValues }
     }

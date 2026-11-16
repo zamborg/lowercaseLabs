@@ -168,4 +168,19 @@ final class CommandTests: XCTestCase {
         XCTAssertEqual(status, 401)
         await e.shutdown()
     }
+
+    /// The UI changes things only by calling verbs. These engine mutators duplicate a verb, so none of them appears in App/.
+    /// (Settings bindings use `updateSettings`, the user's own preference store, which `settings.set` and `settings.reset` also use.)
+    func testTheAppOnlyMutatesThroughVerbs() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("App")
+        let banned = ["save", "create", "delete", "duplicate", "createRoom", "deleteRoom", "createToken", "revokeToken", "resetSettings",
+                      "startService", "stopService", "restartService", "approveTool", "revokeTool", "setToolValues", "setTool",
+                      "deleteTool", "restartServer", "reloadTools", "writeAgent"]
+        var offenders: [String] = []
+        for case let u as URL in FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)! where u.pathExtension == "swift" {
+            let text = try String(contentsOf: u, encoding: .utf8)
+            for name in banned where text.contains("engine." + name + "(") { offenders.append("\(u.lastPathComponent): engine.\(name)(") }
+        }
+        XCTAssertEqual(offenders, [])
+    }
 }

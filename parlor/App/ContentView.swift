@@ -35,8 +35,8 @@ struct EmptyDetail: View {
         } description: {
             Text("Create an agent to start a chat.")
         } actions: {
-            Button("New Assistant") { let a = engine.create(harness: "chat", template: engine.harnessList.first { $0.id == "chat" }?.templates.first { $0.id == "assistant" }); route = .agent(a.id) }
-            Button("New Character") { let a = engine.create(harness: "character", template: engine.harnessList.first { $0.id == "character" }?.templates.first { $0.id == "character" }); route = .agent(a.id) }
+            Button("New Assistant") { Task { if let id = await engine.newAgent(harness: "chat", template: "assistant") { route = .agent(id) } } }
+            Button("New Character") { Task { if let id = await engine.newAgent(harness: "character", template: "character") { route = .agent(id) } } }
         }
     }
 }
@@ -70,7 +70,7 @@ struct SidebarView: View {
                         .contextMenu {
                             Button("Reveal Folder in Finder") { NSWorkspace.shared.activateFileViewerSelecting([engine.home.chatDir(for: c.id)]) }
                             Divider()
-                            Button("Delete Room", role: .destructive) { engine.deleteRoom(c.id); if route == .room(c.id) { route = nil } }
+                            Button("Delete Room", role: .destructive) { Task { _ = await runVerb(engine, "conversations.delete", ["id": .string(c.id)]); if route == .room(c.id) { route = nil } } }
                         }
                     }
                 }
@@ -88,7 +88,7 @@ struct SidebarView: View {
                 Menu {
                     ForEach(engine.harnessList, id: \.id) { h in
                         ForEach(h.templates) { t in
-                            Button("New \(t.title)") { let a = engine.create(harness: h.id, template: t); route = .agent(a.id) }
+                            Button("New \(t.title)") { Task { if let id = await engine.newAgent(harness: h.id, template: t.id) { route = .agent(id) } } }
                                 .help(t.description)
                         }
                     }
@@ -129,12 +129,12 @@ struct SidebarView: View {
         }
         .tag(Route.agent(a.id))
         .contextMenu {
-            Button("Duplicate") { engine.duplicate(a.id) }
+            Button("Duplicate") { Task { _ = await runVerb(engine, "agents.duplicate", ["id": .string(a.id)]) } }
             Button("Reveal File in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([engine.home.agentsDir.appendingPathComponent(a.id)])
             }
             Divider()
-            Button("Delete Agent and Chat", role: .destructive) { engine.delete(a.id) }
+            Button("Delete Agent and Chat", role: .destructive) { Task { _ = await runVerb(engine, "agents.delete", ["id": .string(a.id)]) } }
         }
     }
 

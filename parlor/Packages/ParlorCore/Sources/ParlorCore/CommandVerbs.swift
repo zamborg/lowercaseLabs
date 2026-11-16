@@ -163,6 +163,24 @@ extension CommandCenter {
             let id = self.engine.createRoom(title: a.optString("title") ?? "Room", agents: ids, scheduler: SchedulerSpec(kind: kind, maxTurns: a.optInt("max_turns")))
             return .object(["id": .string(id)])
         }
+        add("conversations.delete", .act, destructive: true, "Delete a room and its log.", props: [("id", "string", "Room id")], required: ["id"]) { a, _ in
+            let id = try a.string("id")
+            guard self.engine.conversations.contains(where: { $0.id == id }) else { throw CommandError("No room \"\(id)\". Use conversations.list.") }
+            self.engine.deleteRoom(id)
+            return .object(["deleted": .string(id)])
+        }
+        add("tokens.create", .configure, "Make an access token for outside clients. The secret is returned once. Only the person at the app can do this.",
+            props: [("name", "string", "Token name"), ("tier", "string", "none, read, act or configure")], required: ["name", "tier"]) { a, c in
+            try self.requireUser(c, "tokens.create")
+            guard let tier = Tier(rawValue: try a.string("tier")) else { throw CommandError("tier is one of " + Tier.allCases.map(\.rawValue).joined(separator: ", ") + ".") }
+            guard let secret = self.engine.createToken(name: try a.string("name"), tier: tier) else { throw CommandError("A token needs a name that is not already taken.") }
+            return .object(["secret": .string(secret)])
+        }
+        add("tokens.revoke", .configure, "Delete an access token.", props: [("name", "string", "Token name")], required: ["name"]) { a, c in
+            try self.requireUser(c, "tokens.revoke")
+            self.engine.revokeToken(try a.string("name"))
+            return .object(["revoked": .string(try a.string("name"))])
+        }
         add("conversations.post", .act, "Say something in a conversation; the agents answer. With wait=true the call returns after they finish.",
             props: idProp + [("text", "string", "Message"), ("wait", "boolean", "Wait for the replies")], required: ["id", "text"]) { a, c in
             let id = try a.string("id"), text = try a.string("text")

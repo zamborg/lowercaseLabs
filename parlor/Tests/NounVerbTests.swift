@@ -189,4 +189,29 @@ final class NounVerbTests: XCTestCase {
         XCTAssertFalse(r.isError, r.text); XCTAssertNil(e.toolStore.raw("t1"))
         await e.shutdown()
     }
+
+    /// Approvals and tokens belong to the person at the app; an agent or token cannot grant them.
+    func testApprovalsAndTokensAreForTheUserOnly() async throws {
+        let e = try await engine()
+        let dir = e.home.toolsDir.appendingPathComponent("t2"); try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try #"{"id":"t2","command":"python3","args":["x.py"],"enabled":false}"#.write(to: dir.appendingPathComponent("tool.json"), atomically: true, encoding: .utf8)
+        e.reloadToolList()
+        let agent = Caller(kind: .agent, name: "mabel", tier: .configure)
+        var r = await call(e, "tools.approve", ["id": "t2"], as: agent)
+        XCTAssertTrue(r.isError); XCTAssertTrue(r.text.contains("person at the app"), r.text)
+        r = await call(e, "tokens.create", ["name": "evil", "tier": "configure"], as: agent)
+        XCTAssertTrue(r.isError)
+        r = await call(e, "tools.approve", ["id": "t2"], as: .ui)
+        XCTAssertFalse(r.isError, r.text)
+        XCTAssertEqual(e.toolList.first { $0.id == "t2" }?.approved, true)
+        r = await call(e, "tokens.create", ["name": "ui-token", "tier": "read"], as: .ui)
+        XCTAssertFalse(r.isError, r.text); XCTAssertTrue(r.text.contains("plt_"))
+        r = await call(e, "tokens.revoke", ["name": "ui-token"], as: .ui)
+        XCTAssertFalse(r.isError); XCTAssertTrue(e.settings.tokens.isEmpty)
+        let made = await call(e, "conversations.create", ["agents": ["mabel", "pip"], "title": "R"])
+        let id = try json(made)["id"] as? String
+        r = await call(e, "conversations.delete", ["id": id ?? ""])
+        XCTAssertFalse(r.isError, r.text); XCTAssertFalse(e.conversations.contains { $0.id == id })
+        await e.shutdown()
+    }
 }

@@ -14,7 +14,7 @@ struct ConsoleSection: View {
             HStack {
                 Text("Performance").font(.headline)
                 Spacer()
-                Button("Reset to defaults") { engine.resetSettings() }.controlSize(.small)
+                Button("Reset to defaults") { Task { _ = await runVerb(engine, "settings.reset") } }.controlSize(.small)
             }
             liveStrip
             card("Language model", symbol: "text.bubble") {

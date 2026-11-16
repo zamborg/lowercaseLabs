@@ -189,9 +189,12 @@ struct NewRoomSheet: View {
                     if kind != "userDriven" { spec.maxTurns = turns }
                     let ordered = engine.agents.map(\.id).filter { chosen.contains($0) }
                     let names = ordered.compactMap { engine.agent($0)?.name }
-                    let id = engine.createRoom(title: title.isEmpty ? names.joined(separator: " & ") : title, agents: ordered, scheduler: spec)
-                    route = .room(id)
-                    dismiss()
+                    Task {
+                        var args: [String: JSON] = ["title": .string(title.isEmpty ? names.joined(separator: " & ") : title), "agents": .strings(ordered), "scheduler": .string(spec.kind)]
+                        if let t = spec.maxTurns { args["max_turns"] = .int(t) }
+                        if case .success(let j) = await runVerbJSON(engine, "conversations.create", args), let id = j.objectValue?["id"]?.stringValue { route = .room(id) }
+                        dismiss()
+                    }
                 }
                 .buttonStyle(.borderedProminent).disabled(chosen.count < 2)
                 .accessibilityIdentifier("create-room")

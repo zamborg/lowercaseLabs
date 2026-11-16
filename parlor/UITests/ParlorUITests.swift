@@ -119,8 +119,11 @@ final class ParlorUITests: XCTestCase {
         let tabs = app.radioButtons["Hosts"]
         XCTAssertTrue(tabs.waitForExistence(timeout: 15), "Library has a Hosts tab")
         tabs.click()
+        let row = app.descendants(matching: .any)["host-nowhere"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "host listed")
+        row.click()
         let test = app.buttons["test-host-nowhere"]
-        XCTAssertTrue(test.waitForExistence(timeout: 10), "host listed with a Test button")
+        XCTAssertTrue(test.waitForExistence(timeout: 10), "a selected host offers Test")
         test.click()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value CONTAINS 'reachable'")).firstMatch.waitForExistence(timeout: 15), "unreachable host reports it")
         XCTAssertTrue(app.buttons["add-host"].exists)

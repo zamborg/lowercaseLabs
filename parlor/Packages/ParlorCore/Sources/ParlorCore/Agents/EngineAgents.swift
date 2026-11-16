@@ -95,6 +95,13 @@ extension ParlorEngine {
         reloadAgents()
     }
 
+    /// An agent in the shape `agents.read` returns (agent.json keys and persona, no memory), for the UI to diff into a patch.
+    public func agentJSON(_ a: Agent) -> JSON {
+        var o = (try? JSONDecoder().decode(JSON.self, from: JSONEncoder().encode(AgentRecord(a))))?.objectValue ?? [:]
+        o["id"] = .string(a.id); o["persona"] = .string(a.persona); o["memory"] = nil
+        return .object(o)
+    }
+
     public func save(_ a: Agent) {
         write(a)
         reloadAgents()

@@ -137,6 +137,9 @@ are refused). The UI, the in-process `parlor` provider, the HTTP server and the 
 | `tools.list`, `tools.read`, `tools.validate` | read | System, Tools |
 | `tools.create`, `tools.update`, `tools.enable` | configure | `create` always asks the user (a tool runs code); `update` asks when it changes what runs |
 | `tools.delete` | destructive | Remove tool |
+| `tools.approve`, `tools.revoke`, `tools.values` | configure | System > Tools; `approve` and `revoke` only for the person at the app, never an agent or token |
+| `tokens.create`, `tokens.revoke` | configure | System > Access; the person at the app only |
+| `conversations.delete` | act, asks | Delete Room |
 | `services.start`, `services.stop`, `services.restart` | act | Restart server |
 | `settings.get` | read | Performance |
 | `settings.set`, `settings.reset` | configure | Performance fields, Reset to defaults |

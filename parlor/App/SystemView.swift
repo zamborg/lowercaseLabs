@@ -59,9 +59,9 @@ struct SystemView: View {
     }
 
     @ViewBuilder private func controls(_ s: ServiceInfo) -> some View {
-        if s.canStart { Button("Start") { engine.startService(s.id) }.controlSize(.small).accessibilityIdentifier("start-\(s.id)") }
-        if s.canStop { Button(s.id == "llm" ? "Unload" : "Stop") { engine.stopService(s.id) }.controlSize(.small).accessibilityIdentifier("stop-\(s.id)") }
-        if s.canRestart { Button("Restart") { engine.restartService(s.id) }.controlSize(.small).accessibilityIdentifier("restart-\(s.id)") }
+        if s.canStart { Button("Start") { Task { _ = await runVerb(engine, "services.start", ["id": .string(s.id)]) } }.controlSize(.small).accessibilityIdentifier("start-\(s.id)") }
+        if s.canStop { Button(s.id == "llm" ? "Unload" : "Stop") { Task { _ = await runVerb(engine, "services.stop", ["id": .string(s.id)]) } }.controlSize(.small).accessibilityIdentifier("stop-\(s.id)") }
+        if s.canRestart { Button("Restart") { Task { _ = await runVerb(engine, "services.restart", ["id": .string(s.id)]) } }.controlSize(.small).accessibilityIdentifier("restart-\(s.id)") }
         if let log = s.logURL {
             Button { NSWorkspace.shared.open(log) } label: { Image(systemName: "doc.text") }
                 .buttonStyle(.borderless).help("Open log").accessibilityIdentifier("log-\(s.id)")
@@ -108,7 +108,7 @@ struct SystemView: View {
                     Text(t.tier.rawValue).font(.caption).padding(.horizontal, 7).padding(.vertical, 1).background(.quaternary, in: Capsule())
                     Text("created \(t.created.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Button("Revoke", role: .destructive) { engine.revokeToken(t.name) }.controlSize(.small)
+                    Button("Revoke", role: .destructive) { Task { _ = await runVerb(engine, "tokens.revoke", ["name": .string(t.name)]) } }.controlSize(.small)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
             }
@@ -142,7 +142,7 @@ struct SystemView: View {
                 HStack {
                     Button("Cancel") { showNewToken = false }
                     Spacer()
-                    Button("Create") { newSecret = engine.createToken(name: newName, tier: newTier) }
+                    Button("Create") { Task { if case .success(let j) = await runVerbJSON(engine, "tokens.create", ["name": .string(newName), "tier": .string(newTier.rawValue)]) { newSecret = j.objectValue?["secret"]?.stringValue } } }
                         .keyboardShortcut(.defaultAction).disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
                         .accessibilityIdentifier("create-token")
                 }

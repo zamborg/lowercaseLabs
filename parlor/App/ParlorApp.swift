@@ -31,9 +31,9 @@ struct ParlorApp: App {
         .defaultSize(width: 1180, height: 760)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Assistant") { let a = engine.create(harness: "chat", template: engine.harnessList.first { $0.id == "chat" }?.templates.first { $0.id == "assistant" }); route = .agent(a.id) }
+                Button("New Assistant") { Task { if let id = await engine.newAgent(harness: "chat", template: "assistant") { route = .agent(id) } } }
                     .keyboardShortcut("n")
-                Button("New Character") { let a = engine.create(harness: "character", template: engine.harnessList.first { $0.id == "character" }?.templates.first { $0.id == "character" }); route = .agent(a.id) }
+                Button("New Character") { Task { if let id = await engine.newAgent(harness: "character", template: "character") { route = .agent(id) } } }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
             }
             CommandGroup(after: .appInfo) {

@@ -39,7 +39,7 @@ struct AgentEditorView: View {
             try? await Task.sleep(nanoseconds: 350_000_000)
             if Task.isCancelled { return }
             lastSaved = a
-            engine.save(a)
+            await engine.saveAgent(a)
         }
     }
 
@@ -63,7 +63,7 @@ struct AgentEditorView: View {
     private func flushSave() {
         guard loaded else { return }
         saveTask?.cancel()
-        if draft != lastSaved { lastSaved = draft; engine.save(draft) }
+        if draft != lastSaved { let d = draft; lastSaved = d; Task { await engine.saveAgent(d) } }
     }
 
     // MARK: form
@@ -277,7 +277,7 @@ struct AgentEditorView: View {
                 Button("Reveal in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([engine.home.agentsDir.appendingPathComponent(agentID)])
                 }
-                Button("Duplicate") { engine.duplicate(agentID) }
+                Button("Duplicate") { Task { _ = await runVerb(engine, "agents.duplicate", ["id": .string(agentID)]) } }
             }
             Text("This file is the agent. Editing it elsewhere, including from Claude Code, updates this page live.")
                 .font(.caption).foregroundStyle(.secondary)
