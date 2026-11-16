@@ -47,7 +47,7 @@ public actor ImageProvider: ToolProvider {
         var conn: MCPServerConnection
         var key: String
         var model: String
-        var idleTask: Task<Void, Never>?
+        let idle = IdleTimer()
         var active = 0
     }
     private var workers: [String: Worker] = [:]
@@ -210,7 +210,7 @@ public actor ImageProvider: ToolProvider {
         let i = effective(host)
         let (w, h) = (req.width.flatMap { a in req.height.map { (a, $0) } }) ?? i.size(shape: req.shape, detailed: req.detailed)
         let conn = try await ensureWorker(host: host, engine: engine, cat: cat)
-        workers[host.id]?.idleTask?.cancel()
+        workers[host.id]?.idle.cancel()
         workers[host.id]?.active += 1
         defer { workers[host.id]?.active -= 1; scheduleIdle(host.id, engine: engine) }
         var a: [String: JSON] = ["prompt": .string(req.prompt), "width": .int(w), "height": .int(h), "seed": .int(seed)]
@@ -265,25 +265,21 @@ public actor ImageProvider: ToolProvider {
     private func workerExited(_ host: String, _ dead: MCPServerConnection, _ code: Int32) {
         guard workers[host]?.conn === dead else { return }
         lastError = "Image worker exited with status \(code). \(ServiceLog.tail(home: home, service: "image", lines: 3))"
-        workers[host]?.idleTask?.cancel()
+        workers[host]?.idle.cancel()
         workers[host] = nil
     }
 
     private func scheduleIdle(_ host: String, engine: EngineManifest) {
-        workers[host]?.idleTask?.cancel()
         let secs = cfg.idleSeconds > 0 || engine.lifecycle.idleMinutes == 0 ? Double(cfg.idleSeconds) : Double(engine.lifecycle.idleMinutes * 60)
-        guard secs > 0 else { return }
-        workers[host]?.idleTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(secs * 1_000_000_000))
-            if !Task.isCancelled { await self?.stopIfIdle(host) }
-        }
+        guard secs > 0 else { workers[host]?.idle.cancel(); return }
+        workers[host]?.idle.arm(after: secs) { [weak self] in await self?.stopIfIdle(host) }
     }
 
     private func stopIfIdle(_ host: String) { if (workers[host]?.active ?? 1) == 0 { stopWorker(host) } }
 
     private func stopWorker(_ host: String) {
         guard let w = workers[host] else { return }
-        w.idleTask?.cancel()
+        w.idle.cancel()
         Task { await w.conn.stop() }
         workers[host] = nil
     }

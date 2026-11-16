@@ -6,7 +6,11 @@ public struct OpenAIEndpoint: Codable, Equatable, Sendable, Identifiable {
 
     /// A command the app runs on demand to serve the provider (a llama.cpp server, say).
     public struct Service: Codable, Equatable, Sendable {
+        /// A shell line (a user-written command). Ignored when `program` is set.
         public var command: String
+        /// An executable and its literal arguments, run directly without a shell (engines name `requires.binary`).
+        public var program: String?
+        public var args: [String]?
         /// Stop after this many idle minutes. 0 keeps it running.
         public var idleMinutes: Int = 30
         /// How long to wait for the server to answer `GET <baseURL>/models` after launch.
@@ -15,9 +19,15 @@ public struct OpenAIEndpoint: Codable, Equatable, Sendable, Identifiable {
         public init(command: String, idleMinutes: Int = 30, startupSeconds: Int = 180, env: [String: String]? = nil) {
             self.command = command; self.idleMinutes = idleMinutes; self.startupSeconds = startupSeconds; self.env = env
         }
+        public init(program: String, args: [String], idleMinutes: Int = 30, startupSeconds: Int = 180, env: [String: String]? = nil) {
+            self.command = ([program] + args).joined(separator: " "); self.program = program; self.args = args
+            self.idleMinutes = idleMinutes; self.startupSeconds = startupSeconds; self.env = env
+        }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
-            command = try c.decode(String.self, forKey: .command)
+            command = try c.decodeIfPresent(String.self, forKey: .command) ?? ""
+            program = try c.decodeIfPresent(String.self, forKey: .program)
+            args = try c.decodeIfPresent([String].self, forKey: .args)
             idleMinutes = try c.decodeIfPresent(Int.self, forKey: .idleMinutes) ?? 30
             startupSeconds = try c.decodeIfPresent(Int.self, forKey: .startupSeconds) ?? 180
             env = try c.decodeIfPresent([String: String].self, forKey: .env)
@@ -55,6 +65,23 @@ public struct OpenAIEndpoint: Codable, Equatable, Sendable, Identifiable {
         service = try c.decodeIfPresent(Service.self, forKey: .service)
     }
 
+    /// What the Supervisor runs for this endpoint: the program directly when the engine gave one, else a shell line.
+    func serviceSpec(_ svc: Service) -> ManagedService.Spec {
+        let base = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
+        let launch: Launch
+        if let program = svc.program {
+            launch = Launch(executable: URL(fileURLWithPath: program), arguments: svc.args ?? [], environment: svc.env ?? [:], cwd: URL(fileURLWithPath: program).deletingLastPathComponent())
+        } else {
+            launch = Launch.shell(svc.command, environment: svc.env ?? [:], cwd: nil)
+        }
+        var spec = ManagedService.Spec(id: "host:" + id, launch: launch, healthURL: URL(string: base + "/models"),
+                                       idleSeconds: svc.idleMinutes > 0 ? TimeInterval(svc.idleMinutes * 60) : nil,
+                                       startupSeconds: svc.startupSeconds, banner: svc.program ?? svc.command)
+        let ref = keyRef
+        spec.headers = { ref.flatMap { KeyStore.get($0) }.map { ["Authorization": "Bearer \($0)"] } ?? [:] }
+        return spec
+    }
+
     /// Why this entry cannot work, if so.
     public var problem: String? {
         if id.isEmpty || id == "mlx" || id.contains("/") || id.contains(":") { return "id must be a short name without / or : (and not \"mlx\")" }
@@ -70,7 +97,7 @@ public struct OpenAIEndpoint: Codable, Equatable, Sendable, Identifiable {
 /// A server that speaks OpenAI chat completions: llama.cpp's `llama-server`, LM Studio, Ollama, a hosted API.
 public final class OpenAIClient: LanguageModelRuntime, @unchecked Sendable {
     public let config: OpenAIEndpoint
-    public let process: HostProcess?
+    public let process: ManagedService?
     private let session: URLSession
 
     public init(config: OpenAIEndpoint, home: ParlorHome) {
@@ -79,7 +106,7 @@ public final class OpenAIClient: LanguageModelRuntime, @unchecked Sendable {
         cfg.timeoutIntervalForRequest = 900     // long prompts take a while before the first byte
         cfg.timeoutIntervalForResource = 24 * 3600
         self.session = URLSession(configuration: cfg)
-        self.process = config.service.map { HostProcess(config: config, service: $0, home: home) }
+        self.process = config.service.map { ManagedService(spec: config.serviceSpec($0), home: home) }
     }
 
     private var base: String { config.baseURL.hasSuffix("/") ? String(config.baseURL.dropLast()) : config.baseURL }
@@ -210,138 +237,6 @@ public final class OpenAIClient: LanguageModelRuntime, @unchecked Sendable {
     }
 }
 
-// MARK: - a provider's server process
-
-/// Runs a provider's `service` command on demand, waits until it answers, stops it when idle.
-public final class HostProcess: @unchecked Sendable {
-    public let config: OpenAIEndpoint
-    let service: OpenAIEndpoint.Service
-    let home: ParlorHome
-    private let lock = NSLock()
-    private var proc: ManagedProcess?
-    private var starting: Task<Void, Error>?
-    private var _state: ServiceState = .stopped
-    private var _lastUsed: Date?
-    private var active = 0
-    private var idleTask: Task<Void, Never>?
-    private var external = false
-    private var _restarts = 0
-    /// Tests shorten the idle window below one minute.
-    var idleSecondsOverride: TimeInterval?
-
-    public var serviceID: String { "host:" + config.id }
-
-    init(config: OpenAIEndpoint, service: OpenAIEndpoint.Service, home: ParlorHome) {
-        self.config = config; self.service = service; self.home = home
-    }
-
-    public struct Snapshot: Sendable { public var state: ServiceState; public var pid: Int32?; public var lastUsed: Date?; public var external: Bool; public var restarts: Int; public var active: Int }
-    public func snapshot() -> Snapshot {
-        lock.lock(); defer { lock.unlock() }
-        return Snapshot(state: _state, pid: proc?.pid, lastUsed: _lastUsed, external: external, restarts: _restarts, active: active)
-    }
-
-    func touch() { lock.lock(); _lastUsed = Date(); lock.unlock() }
-    func begin() { lock.lock(); active += 1; _lastUsed = Date(); lock.unlock() }
-    func end() { lock.lock(); active -= 1; _lastUsed = Date(); lock.unlock(); scheduleIdle() }
-
-    private var healthURL: URL { URL(string: (config.baseURL.hasSuffix("/") ? String(config.baseURL.dropLast()) : config.baseURL) + "/models")! }
-
-    private func answers() async -> Bool {
-        var r = URLRequest(url: healthURL); r.timeoutInterval = 1.5
-        if let ref = config.keyRef, let key = KeyStore.get(ref) { r.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
-        guard let (_, resp) = try? await URLSession.shared.data(for: r) else { return false }
-        return (resp as? HTTPURLResponse)?.statusCode == 200
-    }
-
-    public func ensureRunning() async throws {
-        lock.lock()
-        if _state == .running || _state == .idle, proc?.isRunning == true || external { _lastUsed = Date(); lock.unlock(); return }
-        if let s = starting { lock.unlock(); try await s.value; return }
-        let t = Task { try await self.launch() }
-        starting = t
-        if case .failed = _state { _restarts += 1 }
-        _state = .starting
-        lock.unlock()
-        do { try await t.value } catch { lock.lock(); starting = nil; lock.unlock(); throw error }
-        lock.lock(); starting = nil; lock.unlock()
-    }
-
-    private func launch() async throws {
-        // Something already answers at the base URL (the user started it themselves): use it, don't own it.
-        if await answers() {
-            lock.lock(); external = true; _state = .running; _lastUsed = Date(); lock.unlock()
-            return
-        }
-        let log = ServiceLog.open(home: home, service: serviceID, banner: "starting: \(service.command)")
-        let launch = Launch.shell(service.command, environment: service.env ?? [:], cwd: home.root)
-        let p: ManagedProcess
-        do {
-            p = try Supervisor.spawn(launch, streams: Streams(stdout: log, stderr: log)) { [weak self] proc, status in
-                guard let self else { return }
-                self.lock.lock()
-                let wasStopping = self._state == .stopped
-                if self.proc === proc {
-                    self.proc = nil
-                    if !wasStopping { self._state = .failed("exited with status \(status)") }
-                }
-                self.lock.unlock()
-                try? log?.write(contentsOf: Data("--- exited \(status)\n".utf8))
-            }
-        } catch {
-            lock.lock(); _state = .failed(error.localizedDescription); lock.unlock()
-            throw ParlorError.message("Could not start \(config.id): \(error.localizedDescription)")
-        }
-        lock.lock(); proc = p; external = false; lock.unlock()
-        let deadline = Date().addingTimeInterval(TimeInterval(max(5, service.startupSeconds)))
-        while Date() < deadline {
-            if !p.isRunning {
-                let tail = ServiceLog.tail(home: home, service: serviceID, lines: 6)
-                lock.lock(); _state = .failed("exited with status \(p.terminationStatus)"); lock.unlock()
-                throw ParlorError.message("\(config.id) exited while starting (status \(p.terminationStatus)).\n\(tail)")
-            }
-            if await answers() {
-                lock.lock(); _state = .running; _lastUsed = Date(); lock.unlock()
-                scheduleIdle()
-                return
-            }
-            try await Task.sleep(nanoseconds: 400_000_000)
-        }
-        stop()
-        throw ParlorError.message("\(config.id) did not answer within \(service.startupSeconds)s. See logs/host-\(config.id).log")
-    }
-
-    private func scheduleIdle() {
-        guard service.idleMinutes > 0 || idleSecondsOverride != nil else { return }
-        lock.lock(); idleTask?.cancel()
-        let limit = idleSecondsOverride ?? TimeInterval(service.idleMinutes * 60)
-        idleTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(min(limit, 30) * 1_000_000_000))
-                guard let self, !Task.isCancelled else { return }
-                self.lock.lock()
-                let idle = self.active == 0 && Date().timeIntervalSince(self._lastUsed ?? .distantPast) >= limit
-                self.lock.unlock()
-                if idle { self.stop(); return }
-            }
-        }
-        lock.unlock()
-    }
-
-    /// Stop the server, if the app started it.
-    public func stop() {
-        lock.lock()
-        idleTask?.cancel(); idleTask = nil
-        let p = proc
-        let wasExternal = external
-        _state = .stopped; external = false
-        lock.unlock()
-        guard !wasExternal, let p, p.isRunning else { return }
-        p.terminate(grace: 3)
-    }
-}
-
-
 // MARK: - the adapter
 
 /// `http-openai`: a server that speaks OpenAI chat completions. Local hosts get a port and the command from their
@@ -391,9 +286,8 @@ public final class OpenAIAdapter: Adapter, @unchecked Sendable {
             for (k, v) in h.spec.settings { values["settings." + k] = v }
             let (args, missing) = ArgTemplate.expand(launch.args, values: values)
             guard missing.isEmpty else { continue }
-            let cmd = ([bin.path] + args).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " ")
             out.append(OpenAIEndpoint(id: h.id, baseURL: "http://127.0.0.1:\(port)/v1", models: [h.id],
-                                      service: .init(command: cmd, idleMinutes: e.lifecycle.idleMinutes, startupSeconds: e.lifecycle.startupSeconds)))
+                                      service: .init(program: bin.path, args: args, idleMinutes: e.lifecycle.idleMinutes, startupSeconds: e.lifecycle.startupSeconds)))
         }
         return out
     }

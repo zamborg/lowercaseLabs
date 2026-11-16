@@ -47,6 +47,48 @@ final class SupervisorTests: XCTestCase {
         do { try await sup.control("nope", .stop); XCTFail("unknown id") } catch { XCTAssertTrue("\(error)".contains("No service")) }
     }
 
+    /// One crash policy for every service: three restarts with growing delays, then `failed`; old crashes age out.
+    func testRestartPolicyBacksOffThenFails() {
+        let policy = RestartPolicy(delays: [1, 5, 30], window: 600)
+        var crashes: [Date] = []
+        let t0 = Date()
+        XCTAssertEqual(policy.decide(crashes: &crashes, now: t0), .restart(after: 1))
+        XCTAssertEqual(policy.decide(crashes: &crashes, now: t0.addingTimeInterval(2)), .restart(after: 5))
+        XCTAssertEqual(policy.decide(crashes: &crashes, now: t0.addingTimeInterval(8)), .restart(after: 30))
+        XCTAssertEqual(policy.decide(crashes: &crashes, now: t0.addingTimeInterval(40)), .fail)
+        // Ten quiet minutes later the slate is clean.
+        XCTAssertEqual(policy.decide(crashes: &crashes, now: t0.addingTimeInterval(1000)), .restart(after: 1))
+    }
+
+    func testIdleTimerFiresOnceAndRearmingDelaysIt() async throws {
+        let t = IdleTimer()
+        let fired = Counter()
+        t.arm(after: 0.2) { fired.enter() }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        t.arm(after: 0.3) { fired.enter() }          // re-armed: the first never fires
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(fired.total, 0)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(fired.total, 1)
+    }
+
+    /// A service built from a program and arguments runs without a shell, then stops when idle.
+    func testManagedServiceRunsAProgramDirectlyAndStopsIdle() async throws {
+        let home = tempHome(); try home.ensure()
+        let svc = ManagedService(spec: ManagedService.Spec(
+            id: "host:direct", launch: Launch(executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["30"]), idleSeconds: 1, startupSeconds: 5), home: home)
+        XCTAssertEqual(svc.snapshot().state, .stopped)
+        try await svc.ensureRunning()
+        XCTAssertEqual(svc.snapshot().state, .running)
+        let pid = try XCTUnwrap(svc.snapshot().pid)
+        svc.begin(); svc.end()
+        let deadline = Date().addingTimeInterval(10)
+        while svc.snapshot().state != .stopped, Date() < deadline { try await Task.sleep(nanoseconds: 200_000_000) }
+        XCTAssertEqual(svc.snapshot().state, .stopped, "stops when idle")
+        XCTAssertNotEqual(kill(pid, 0), 0, "the process is gone")
+        svc.stop()
+    }
+
     /// Gate: a killed llama-server shows `failed`, then restarts on the next message.
     func testKilledProviderServerFailsThenRestartsOnNextUse() async throws {
         let home = tempHome(); try home.ensure()

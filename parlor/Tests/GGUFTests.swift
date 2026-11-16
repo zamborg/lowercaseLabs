@@ -47,8 +47,10 @@ final class GGUFTests: XCTestCase {
         XCTAssertEqual(host.spec.engine, "llama.cpp")
         XCTAssertEqual(engine.catalog.status(host: host.id), .ready)
         let p = try XCTUnwrap(engine.openAIAdapter.client("flint-q4-gguf"))
-        XCTAssertTrue(p.config.service!.command.contains(#"'\''"#), "quotes in the path are escaped for the shell")
-        XCTAssertTrue(p.config.service!.command.contains("'--port'"))
+        let svc = try XCTUnwrap(p.config.service)
+        XCTAssertNotNil(svc.program, "a known binary runs directly, not through a shell")
+        XCTAssertTrue(svc.args?.contains("--port") == true)
+        XCTAssertTrue(svc.args?.contains { $0.hasSuffix("flint it's.gguf") } == true, "a path with a quote in it stays one argument")
         XCTAssertNil(engine.catalog.problem(host: host.id))
         await engine.shutdown()
     }

@@ -84,7 +84,7 @@ final class ServiceTests: XCTestCase {
     func testCrashRestartsWithBackoffThenFails() async throws {
         try write(["flaky": fake("crash")])
         let hub = ToolHub(), m = MCPManager(hub: hub, home: home)
-        await m.setBackoff([0.1, 0.1, 0.1])
+        await m.setRestartDelays([0.1, 0.1, 0.1])
         await m.reload()
         let failed = await wait(20) { if case .failed? = await self.state(m, "flaky") { return true }; return false }
         XCTAssertTrue(failed, "gives up after three crashes")

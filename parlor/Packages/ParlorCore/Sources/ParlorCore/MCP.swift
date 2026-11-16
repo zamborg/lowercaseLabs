@@ -270,7 +270,7 @@ public struct MCPServiceState: Sendable, Equatable {
 }
 
 /// Keeps the hub in sync with `mcp.json` and supervises each server: lifecycle (always or on demand with an
-/// idle stop), restart on crash with backoff (1 s, 5 s, 30 s; `failed` after three crashes in ten minutes),
+/// idle stop), restart on crash by the shared `RestartPolicy` (1 s, 5 s, 30 s; `failed` after three crashes in ten minutes),
 /// and a log per server in `logs/`.
 public actor MCPManager {
     struct Entry {
@@ -281,7 +281,7 @@ public actor MCPManager {
         var crashes: [Date] = []
         var restarts = 0
         var manuallyStopped = false
-        var idleTask: Task<Void, Never>?
+        let idle = IdleTimer()
         var starting: Task<MCPServerConnection, Error>?
     }
 
@@ -291,9 +291,8 @@ public actor MCPManager {
     /// Approved modules, supplied by the engine; they run under the same supervision as `mcp.json` servers.
     private var moduleProvider: (@Sendable () async -> [String: MCPServerConfig])?
     private var moduleNames: Set<String> = []
-    /// Backoff before restart n (1-based); a variable so tests can shrink it.
-    public var backoff: [TimeInterval] = [1, 5, 30]
-    public var crashWindow: TimeInterval = 600
+    /// What to do after a crash; the one policy every service uses. Tests shrink the delays.
+    public var policy = RestartPolicy()
     /// Seconds per `idleMinutes` unit; tests shrink it.
     public var idleUnit: TimeInterval = 60
 
@@ -302,7 +301,7 @@ public actor MCPManager {
     public func setModuleProvider(_ p: @escaping @Sendable () async -> [String: MCPServerConfig]) { moduleProvider = p }
     func logName(_ id: String) -> String { moduleNames.contains(id) ? "module:\(id)" : "mcp:\(id)" }
 
-    public func setBackoff(_ b: [TimeInterval]) { backoff = b }
+    public func setRestartDelays(_ d: [TimeInterval]) { policy.delays = d }
     public func setIdleUnit(_ u: TimeInterval) { idleUnit = u }
 
     // MARK: configuration
@@ -380,7 +379,7 @@ public actor MCPManager {
     }
 
     private func teardown(_ id: String) async {
-        entries[id]?.idleTask?.cancel(); entries[id]?.idleTask = nil
+        entries[id]?.idle.cancel()
         entries[id]?.starting?.cancel(); entries[id]?.starting = nil
         if let c = entries[id]?.conn { await c.stop() }
         entries[id]?.conn = nil
@@ -476,12 +475,8 @@ public actor MCPManager {
 
     private func scheduleIdle(_ id: String) {
         guard let e = entries[id], e.config.isOnDemand else { return }
-        e.idleTask?.cancel()
         let secs = Double(e.config.idleMinutes ?? 10) * idleUnit
-        entries[id]?.idleTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(secs * 1_000_000_000))
-            if !Task.isCancelled { await self?.sleepOnDemand(id) }
-        }
+        e.idle.arm(after: secs) { [weak self] in await self?.sleepOnDemand(id) }
     }
 
     // MARK: crashes
@@ -489,17 +484,17 @@ public actor MCPManager {
     private func exited(_ id: String, _ conn: MCPServerConnection, _ code: Int32) async {
         guard entries[id]?.conn === conn else { return }
         entries[id]?.conn = nil
-        entries[id]?.idleTask?.cancel()
-        let now = Date()
-        let recent = (entries[id]?.crashes ?? []).filter { now.timeIntervalSince($0) < crashWindow } + [now]
-        entries[id]?.crashes = recent
-        let n = recent.count
+        entries[id]?.idle.cancel()
+        var crashes = entries[id]?.crashes ?? []
+        let decision = policy.decide(crashes: &crashes)
+        entries[id]?.crashes = crashes
         if entries[id]?.config.isOnDemand == true {
             // Nothing is waiting on it; the next call starts it again.
             await registerLazy(id, tools: await hub.allTools().filter { $0.server == id })
             return
         }
-        if n > backoff.count {
+        guard case .restart(let wait) = decision else {
+            let n = crashes.count
             let tail = ServiceLog.tail(home: home, service: logName(id), lines: 4)
             let msg = "Exited with status \(code) \(n) times in ten minutes; not restarting.\n" + tail
             entries[id]?.state = .failed(msg)
@@ -509,7 +504,6 @@ public actor MCPManager {
         entries[id]?.state = .starting
         entries[id]?.restarts += 1
         await hub.setStatus(status(id, state: .connecting))
-        let wait = backoff[n - 1]
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             guard let self, await self.entries[id]?.manuallyStopped == false, await self.entries[id]?.conn == nil else { return }
