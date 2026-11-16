@@ -137,7 +137,7 @@ public final class Room: Identifiable {
 
     private func makeInput(agent: Agent, tools: [ToolDef], names: [String: String]? = nil, action: TurnAction? = nil) -> TurnInput {
         let meta = deps.library.flatMap { lib in
-            lib.installed.first(where: { $0.repo == agent.model }).flatMap { ModelMetadata.load(dir: $0.directory) }
+            lib.installed.first(where: { $0.repo == agent.chatHost }).flatMap { ModelMetadata.load(dir: $0.directory) }
         }
         var input = TurnInput(
             agent: agent, conversationID: id, participants: config.participants, transcript: messages,

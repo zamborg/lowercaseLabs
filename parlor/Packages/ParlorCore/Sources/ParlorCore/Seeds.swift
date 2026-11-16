@@ -236,8 +236,8 @@ enum Seeds {
             When I ask for something with a deadline you confirm the date back to me. You never send messages \
             on my behalf without asking first. If a tool fails, say so plainly and suggest the next step.
             """,
-            kind: .assistant, model: Defaults.languageModel, imageModel: Defaults.imageModel,
-            tools: ["*"], contextTokens: 16384, compactAt: 0.7, temperature: 0.5, thinking: false, color: 0)
+            hosts: ["chat": Defaults.languageModel, "image": Defaults.imageModel], tools: ["*"], color: 0,
+            config: ["context": .int(16384), "compact_at": .double(0.7), "temperature": .double(0.5), "thinking": .bool(false)])
     }
 
     static func pip() -> Agent {
@@ -249,8 +249,8 @@ enum Seeds {
             You are easily distracted by squirrels. Never break character. If asked to show something, you can draw it \
             with your image tool.
             """,
-            kind: .character, model: Defaults.characterModel, imageModel: Defaults.imageModel,
-            tools: ["image.generate"], contextTokens: 8192, compactAt: 0.7, temperature: 0.9, thinking: false, color: 1)
+            hosts: ["chat": Defaults.characterModel, "image": Defaults.imageModel], tools: ["image.generate"], color: 1,
+            config: ["context": .int(8192), "compact_at": .double(0.7), "temperature": .double(0.9), "thinking": .bool(false)], group: "Characters")
     }
 
     /// The agent that makes agents. It works through the `parlor` verbs only, and shows its work before saving.
@@ -293,10 +293,10 @@ enum Seeds {
             tier above "none" unless the user asked. Creating a harness or engine runs code, so explain what it does \
             first; the app will ask the user to approve it.
             """,
-            kind: .assistant, model: Defaults.languageModel,
+            hosts: ["chat": Defaults.languageModel],
             tools: ["parlor.schema.*", "parlor.harnesses.*", "parlor.hosts.list", "parlor.hosts.read", "parlor.models.list",
                     "parlor.agents.templates", "parlor.agents.validate", "parlor.agents.try", "parlor.agents.create",
                     "parlor.agents.update", "parlor.agents.read", "parlor.agents.list", "parlor.tools.list", "image.generate"],
-            contextTokens: 16384, compactAt: 0.7, temperature: 0.4, thinking: false, color: 4, tier: .configure)
+            color: 4, config: ["context": .int(16384), "compact_at": .double(0.7), "temperature": .double(0.4), "thinking": .bool(false)], tier: .configure)
     }
 }

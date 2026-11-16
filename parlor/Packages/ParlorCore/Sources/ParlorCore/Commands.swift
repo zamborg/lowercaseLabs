@@ -100,6 +100,12 @@ public final class CommandCenter {
             let ok = await ask("\(caller.name) wants to run \(v.qualified)\n\n" + arguments.text)
             guard ok else { return ToolOutput(text: "The user declined \(v.qualified).", isError: true) }
         }
+        if let props = v.schema.objectValue?["properties"]?.objectValue, let given = arguments.objectValue {
+            let unknown = given.keys.filter { props[$0] == nil }.sorted()
+            if let k = unknown.first {
+                return ToolOutput(text: "Unknown argument \"\(k)\" for \(v.qualified). Arguments: " + (props.keys.sorted().joined(separator: ", ")) + ".", isError: true)
+            }
+        }
         do {
             let r = try await v.run(Args(arguments), caller)
             return ToolOutput(text: r.pretty)
@@ -115,31 +121,6 @@ public final class CommandCenter {
     public func tiers() -> [String: Tier] { Dictionary(uniqueKeysWithValues: verbs.values.map { ($0.qualified, $0.tier) }) }
 
     // MARK: JSON helpers
-
-    func agentJSON(_ a: Agent, full: Bool = false) -> JSON {
-        func r(_ d: Double) -> JSON { .double((d * 1000).rounded() / 1000) }
-        var o: [String: JSON] = [
-            "id": .string(a.id), "name": .string(a.name), "description": .string(a.summary), "kind": .string(a.kind.rawValue),
-            "model": .string(a.model), "tools": .strings(a.tools), "tier": .string(a.tier.rawValue),
-            "context": .int(a.contextTokens), "compact_at": r(a.compactAt), "temperature": r(a.temperature),
-            "thinking": .bool(a.thinking), "color": .int(a.color), "group": .string(a.group),
-        ]
-        o["harness"] = .string(a.harnessID)
-        o["hosts"] = .object(a.hosts.mapValues { .string($0) })
-        o["config"] = .object(a.config)
-        if let m = a.imageModel { o["image_model"] = .string(m) }
-        let ov = a.overrides
-        if let v = ov.topP { o["top_p"] = r(v) }
-        if let v = ov.repetitionPenalty { o["repetition_penalty"] = r(v) }
-        if let v = ov.maxReplyTokens { o["max_reply_tokens"] = .int(v) }
-        if let v = ov.maxSteps { o["max_steps"] = .int(v) }
-        if let v = ov.toolResultChars { o["tool_result_chars"] = .int(v) }
-        if let v = ov.toolTimeoutSeconds { o["tool_timeout"] = .int(v) }
-        if let v = ov.keepRecent { o["keep_recent"] = .int(v) }
-        if let v = ov.summaryTokens { o["summary_tokens"] = .int(v) }
-        if full { o["persona"] = .string(a.persona) }
-        return .object(o)
-    }
 
     func messageJSON(_ m: ChatMessage) -> JSON {
         var o: [String: JSON] = ["id": .string(m.id.uuidString), "role": .string(m.role.rawValue), "text": .string(m.text),

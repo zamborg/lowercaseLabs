@@ -49,7 +49,7 @@ final class GGUFTests: XCTestCase {
         let p = try XCTUnwrap(engine.router.provider("flint-q4-gguf"))
         XCTAssertTrue(p.config.service!.command.contains(#"'\''"#), "quotes in the path are escaped for the shell")
         XCTAssertTrue(p.config.service!.command.contains("'--port'"))
-        XCTAssertNil(engine.modelProblem(for: { var a = Seeds.mabel(); a.model = "Org/Flint-Q4-GGUF"; return a }()))
+        XCTAssertNil(engine.modelProblem(for: { var a = Seeds.mabel(); a.chatHost = "Org/Flint-Q4-GGUF"; return a }()))
         await engine.shutdown()
     }
 }

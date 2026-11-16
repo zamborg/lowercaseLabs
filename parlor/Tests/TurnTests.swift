@@ -39,7 +39,7 @@ final class TurnTests: XCTestCase {
     @MainActor func testCancelKeepsPartialReply() async throws {
         let engine = ParlorEngine(home: tempHome(), runtime: HangingRuntime())
         await engine.start()
-        let a = Agent(id: "h", name: "H", model: "hang")
+        let a = Agent(id: "h", name: "H", hosts: ["chat": "hang"])
         engine.save(a)
         let room = engine.room(for: "h")
         room.send("hello", agent: a)
@@ -56,7 +56,7 @@ final class TurnTests: XCTestCase {
     func testSettingsResolutionPrecedenceAndClamp() {
         var machine = ParlorSettings()
         machine.llm.topP = 0.95; machine.loop.maxSteps = 8; machine.llm.maxReplyTokens = 2048
-        var agent = Agent(id: "r", name: "R", contextTokens: 32768, temperature: 0.9)
+        var agent = Agent(id: "r", name: "R", config: ["context": .int(32768), "temperature": .double(0.9)])
         // Nothing overridden: machine values, V1 agent values, no model.
         var r = ResolvedSettings.resolve(agent: agent, model: nil, machine: machine)
         XCTAssertEqual(r.topP, 0.95); XCTAssertEqual(r.maxSteps, 8); XCTAssertEqual(r.maxReplyTokens, 2048)
@@ -65,7 +65,7 @@ final class TurnTests: XCTestCase {
         var meta = ModelMetadata(); meta.topP = 0.8; meta.maxContext = 8192
         r = ResolvedSettings.resolve(agent: agent, model: meta, machine: machine)
         XCTAssertEqual(r.topP, 0.8); XCTAssertEqual(r.contextTokens, 8192)
-        agent.overrides.topP = 0.5; agent.overrides.maxSteps = 3; agent.overrides.maxReplyTokens = 0
+        agent.config["top_p"] = .double(0.5); agent.config["max_steps"] = .int(3); agent.config["max_reply_tokens"] = .int(0)
         r = ResolvedSettings.resolve(agent: agent, model: meta, machine: machine)
         XCTAssertEqual(r.topP, 0.5); XCTAssertEqual(r.llm.topP, 0.5)
         XCTAssertEqual(r.maxSteps, 3); XCTAssertNil(r.maxReplyTokens, "0 means no cap")
@@ -106,7 +106,7 @@ final class TurnTests: XCTestCase {
         let home = tempHome()
         let first = ParlorEngine(home: home, runtime: scriptedLLM())
         await first.start()
-        let a = Agent(id: "t", name: "T", model: "scripted", tools: ["*"])
+        let a = Agent(id: "t", name: "T", hosts: ["chat": "scripted"], tools: ["*"])
         first.save(a)
         await first.room(for: "t").sendAndWait("hello", agent: a)
         await first.shutdown()
@@ -302,9 +302,9 @@ final class RoomTests: XCTestCase {
         let e = ParlorEngine(home: tempHome(), runtime: llm)
         await e.start()
         for id in ["mabel", "pip", "babe"] where e.agent(id) == nil {
-            e.save(Agent(id: id, name: id.capitalized, persona: "You are \(id.capitalized).", model: "scripted"))
+            e.save(Agent(id: id, name: id.capitalized, persona: "You are \(id.capitalized).", hosts: ["chat": "scripted"]))
         }
-        for a in e.agents { var x = a; x.model = "scripted"; e.save(x) }
+        for a in e.agents { var x = a; x.chatHost = "scripted"; e.save(x) }
         return e
     }
 

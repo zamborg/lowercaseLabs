@@ -19,7 +19,7 @@ final class WireTests: XCTestCase {
     func testRequestMessagesMatchV2() async throws {
         let seen = Seen()
         let e = try await engine(ScriptedRuntime { req in seen.add(req); return [.text("ok")] })
-        var a = Agent(id: "x", name: "X", persona: "  You are X.  \n", model: "scripted")
+        var a = Agent(id: "x", name: "X", persona: "  You are X.  \n", hosts: ["chat": "scripted"])
         e.save(a)
         let u1 = ChatMessage(role: .user, text: "one"), a1 = ChatMessage(role: .assistant, text: "two", speaker: "x")
         let log = ChatLog(dir: e.home.chatDir(for: "x"))
@@ -55,7 +55,7 @@ final class WireTests: XCTestCase {
             return [.toolCall(ToolCallRecord(id: UUID().uuidString, name: "mock__add", arguments: .object(["a": .int(1), "b": .int(2)])))]
         })
         await mockHub(e)
-        var a = Agent(id: "x", name: "X", model: "scripted", tools: ["*"], tier: .none)
+        var a = Agent(id: "x", name: "X", hosts: ["chat": "scripted"], tools: ["*"], tier: .none)
         a.config["max_steps"] = .int(2)
         e.save(a)
         let room = e.room(for: "x")
@@ -78,7 +78,7 @@ final class WireTests: XCTestCase {
             return [.toolCall(ToolCallRecord(id: "c1", name: "mock__add", arguments: .object(["a": .int(1), "b": .int(1)])))]
         })
         await mockHub(e)
-        let a = Agent(id: "n", name: "N", model: "scripted", tools: [])
+        let a = Agent(id: "n", name: "N", hosts: ["chat": "scripted"], tools: [])
         e.save(a)
         let room = e.room(for: "n")
         await room.sendAndWait("add", agent: a)
@@ -95,7 +95,7 @@ final class WireTests: XCTestCase {
 
     func testCompactionIsAnEventBeforeTheReply() async throws {
         let e = try await engine(scriptedLLM())
-        let a = Agent(id: "c", name: "C", model: "scripted", contextTokens: 200, compactAt: 0.1)
+        let a = Agent(id: "c", name: "C", hosts: ["chat": "scripted"], config: ["context": .int(200), "compact_at": .double(0.1)])
         e.save(a)
         padded(e, "c")
         let room = e.room(for: "c")
@@ -107,7 +107,7 @@ final class WireTests: XCTestCase {
 
     func testCompactNowIsChatsActionAndLogsNoUserLine() async throws {
         let e = try await engine(scriptedLLM())
-        let a = Agent(id: "c", name: "C", model: "scripted")
+        let a = Agent(id: "c", name: "C", hosts: ["chat": "scripted"])
         e.save(a)
         padded(e, "c")
         let room = e.room(for: "c")

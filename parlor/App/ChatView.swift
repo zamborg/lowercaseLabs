@@ -99,13 +99,13 @@ struct ChatView: View {
         let installed = engine.modelProblem(for: agent) == nil
         return Button { route = .models } label: {
             HStack(spacing: 5) {
-                Circle().fill(installed ? (engine.loadedModel == agent.model ? Color.green : Color.secondary) : Color.orange).frame(width: 7, height: 7)
-                Text(shortModelName(agent.model)).font(.caption)
+                Circle().fill(installed ? (engine.chatHostStatus(for: agent) == .running ? Color.green : Color.secondary) : Color.orange).frame(width: 7, height: 7)
+                Text(shortModelName(agent.chatHost)).font(.caption)
                 if !installed { Text("not downloaded").font(.caption).foregroundStyle(.orange) }
             }
         }
         .buttonStyle(.bordered).controlSize(.small)
-        .help(installed ? agent.model : "Download this model in Models")
+        .help(installed ? agent.chatHost : "Download this model in Models")
     }
 
     private var toolsPopover: some View {
@@ -158,7 +158,7 @@ struct ChatView: View {
             AvatarView(agent: agent, size: 56)
             Text("This is the start of your chat with \(agent.name).").foregroundStyle(.secondary)
             if engine.modelProblem(for: agent) != nil {
-                Text("Download \(shortModelName(agent.model)) to begin.").font(.callout)
+                Text("Download \(shortModelName(agent.chatHost)) to begin.").font(.callout)
                 Button("Open Models") { route = .models }.buttonStyle(.borderedProminent)
             }
         }
@@ -228,7 +228,7 @@ struct ChatView: View {
                 Text(room.summaryText == nil ? "Return to send, Shift-Return for a new line" : "Earlier messages are summarized")
                 Spacer()
                 if let s = room.lastStats { Text("\(Int(s.tokensPerSecond)) tok/s · ").monospacedDigit() }
-                Text("context \(tokenString(room.contextUsed)) / \(tokenString(agent.contextTokens))").monospacedDigit()
+                Text("context \(tokenString(room.contextUsed)) / \(tokenString(agent.configInt("context") ?? 16384))").monospacedDigit()
             }
             .font(.caption2).foregroundStyle(.tertiary)
         }

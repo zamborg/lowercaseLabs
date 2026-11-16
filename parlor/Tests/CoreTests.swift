@@ -59,14 +59,15 @@ func scriptedLLM() -> ScriptedRuntime {
 final class CoreTests: XCTestCase {
     func testAgentRecordRoundTripKeepsUnknownKeys() throws {
         let a = Agent(id: "orla", name: "Captain: Orla", summary: "Keeper of the \"light\" # not a comment",
-                      persona: "Line one: has a colon.\n---\nstill persona", kind: .character,
-                      model: "qwen", imageModel: "zimage", tools: ["image.generate", "zass.*"],
-                      contextTokens: 8192, compactAt: 0.65, temperature: 0.9, thinking: true, color: 3, harness: "character")
+                      persona: "Line one: has a colon.\n---\nstill persona",
+                      hosts: ["chat": "qwen", "image": "zimage"], tools: ["image.generate", "zass.*"],
+                      color: 3, harness: "character",
+                      config: ["context": .int(8192), "compact_at": .double(0.65), "temperature": .double(0.9), "thinking": .bool(true)])
         let data = try JSONEncoder().encode(AgentRecord(a))
         let back = try JSONDecoder().decode(AgentRecord.self, from: data).agent(persona: a.persona)
         XCTAssertEqual(back, a)
         XCTAssertEqual(back.hosts, ["chat": "qwen", "image": "zimage"])
-        XCTAssertEqual(back.contextTokens, 8192)
+        XCTAssertEqual(back.configInt("context"), 8192)
     }
 
     func testToolPermissionPatterns() {
@@ -102,8 +103,8 @@ final class CoreTests: XCTestCase {
         // create an agent by writing a file the way Claude Code would, and see it appear live
         let folder = home.agentsDir.appendingPathComponent("orla")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let orlaAgent = Agent(id: "orla", name: "Orla", persona: "You keep a lighthouse.", kind: .character, model: "scripted",
-                              tools: ["mock.*"], contextTokens: 1200, compactAt: 0.5)
+        let orlaAgent = Agent(id: "orla", name: "Orla", persona: "You keep a lighthouse.", hosts: ["chat": "scripted"],
+                              tools: ["mock.*"], config: ["context": .int(1200), "compact_at": .double(0.5)])
         try JSONEncoder().encode(AgentRecord(orlaAgent)).write(to: folder.appendingPathComponent("agent.json"))
         try "You keep a lighthouse.".write(to: folder.appendingPathComponent("persona.md"), atomically: true, encoding: .utf8)
         for _ in 0..<40 where engine.agent("orla") == nil { try await Task.sleep(nanoseconds: 100_000_000) }
@@ -165,7 +166,7 @@ final class CoreTests: XCTestCase {
         let home = tempHome()
         let engine = ParlorEngine(home: home, runtime: scriptedLLM())
         await engine.start()
-        let a = Agent(id: "t", name: "T", model: "scripted", tools: ["*"])
+        let a = Agent(id: "t", name: "T", hosts: ["chat": "scripted"], tools: ["*"])
         engine.save(a)
         let room = engine.room(for: "t")
         await room.sendAndWait("hello", agent: a)
@@ -203,21 +204,18 @@ final class CoreTests: XCTestCase {
         await engine.shutdown()
     }
 
-    @MainActor func testRenameMovesFileAndChatAndDeleteTidies() async throws {
+    @MainActor func testRenamingChangesTheNameOnlyAndDeleteTidies() async throws {
         let home = tempHome()
         let engine = ParlorEngine(home: home, runtime: scriptedLLM())
-        let a = engine.create(kind: .character, name: "New character")
+        let a = engine.create(harness: "character", template: nil, name: "New character")
         let log = home.chatDir(for: a.id).appendingPathComponent("log.jsonl")
         try FileManager.default.createDirectory(at: home.chatDir(for: a.id), withIntermediateDirectories: true)
         try "{}\n".write(to: log, atomically: true, encoding: .utf8)
         var edited = a; edited.name = "Babe"
         engine.save(edited)
-        XCTAssertEqual(engine.renameToMatchName(a.id), "babe")
-        XCTAssertNil(engine.agent("new-character"))
-        XCTAssertEqual(engine.agent("babe")?.name, "Babe")
-        XCTAssertEqual(engine.selection, "babe")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: home.chatDir(for: "babe").appendingPathComponent("log.jsonl").path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: home.agentsDir.appendingPathComponent("new-character.md").path))
+        XCTAssertEqual(engine.agent(a.id)?.name, "Babe", "the id is stable; only the name changes")
+        XCTAssertNil(engine.agent("babe"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: log.path))
         // An emptied chat folder for a removed agent is tidied up on reload.
         try FileManager.default.createDirectory(at: home.chatDir(for: "ghost"), withIntermediateDirectories: true)
         engine.reloadAgents()
@@ -263,7 +261,7 @@ final class CoreTests: XCTestCase {
         await engine.start()
         await engine.hub.register(SlowTools(), status: ServerStatus(id: "mock", kind: "test", detail: "", state: .connecting, toolCount: 0, toolNames: []))
         engine.updateSettings { $0.loop.toolResultChars = 400; $0.llm.maxReplyTokens = 77; $0.llm.topP = 0.8 }
-        var a = engine.create(kind: .assistant, name: "Tuner")
+        var a = engine.create(harness: "chat", template: nil, name: "Tuner")
         a.tools = ["*"]; engine.save(a)
         let room = engine.room(for: a.id)
         await room.sendAndWait("go", agent: engine.agent(a.id)!)

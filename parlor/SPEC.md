@@ -82,9 +82,12 @@ Seeded: `chat` (the default) and `character`, with `parlor_harness.py` (the help
 ### 2.5 Agent: `agents/<id>/agent.json`
 
 `id` (the folder), `name`, `description`, `harness` (default `chat`), `hosts` (need to host or `host/model`), `tools`
-(patterns `*`, `server.*`, `server.tool`), `tier` (`none|read|act|configure`), `group`, `color`, `kind`, and `config`
-(the harness's own settings, validated against its schema; a missing key falls back to the host's `defaults`, then to
-machine `settings`). Unknown keys survive an edit.
+(patterns `*`, `server.*`, `server.tool`), `tier` (`none|read|act|configure`), `group` (the sidebar section; default `Characters` for the `character` harness, else `Assistants`), `color`, and
+`config` (the harness's own settings, validated against its schema; a missing key falls back to the host's `defaults`,
+then to machine `settings`). Unknown keys survive an edit. The id never changes: renaming changes `name` only.
+`agents.list` returns this shape; `agents.read` returns it plus `persona` and `memory`, which is exactly what
+`agents.create` accepts (memory is ignored). `agents.update {id, patch}` is a JSON merge patch over it; a `persona` key
+rewrites `persona.md`.
 
 ### 2.6 Log line, summary, room
 

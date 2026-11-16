@@ -52,8 +52,8 @@ struct RoomView: View {
                 }
                 Spacer()
             }
-            if Set(agents.map(\.model)).count > 1 {
-                Label("These agents use different models, so a model may reload between turns.", systemImage: "exclamationmark.triangle")
+            if Set(agents.map(\.chatHost)).count > 1 {
+                Label("These agents use different hosts, so a model may reload between turns.", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange)
             }
         }
@@ -169,7 +169,7 @@ struct NewRoomSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(engine.agents) { a in
                     Toggle(isOn: Binding(get: { chosen.contains(a.id) }, set: { if $0 { chosen.insert(a.id) } else { chosen.remove(a.id) } })) {
-                        HStack(spacing: 8) { AvatarView(agent: a, size: 22); Text(a.name); Text(shortModelName(a.model)).font(.caption).foregroundStyle(.secondary) }
+                        HStack(spacing: 8) { AvatarView(agent: a, size: 22); Text(a.name); Text(shortModelName(a.chatHost)).font(.caption).foregroundStyle(.secondary) }
                     }
                 }
             }

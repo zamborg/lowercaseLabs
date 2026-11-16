@@ -25,7 +25,7 @@ struct AgentEditorView: View {
         }
         .onChange(of: draft) { _, new in scheduleSave(new) }
         .onChange(of: memoryText) { _, new in scheduleMemorySave(new) }
-        .onDisappear { flushMemory(); commitRename() }
+        .onDisappear { flushMemory(); flushSave() }
         .onChange(of: engine.agent(agentID)) { _, external in
             // File changed on disk by something other than us: take it.
             if let external, external != draft, external != lastSaved { draft = external; lastSaved = external }
@@ -59,12 +59,11 @@ struct AgentEditorView: View {
         memoryLoaded = text
     }
 
-    /// Flush the pending edit, then let the file name and chat folder follow the display name.
-    private func commitRename() {
+    /// Write a pending edit now. The id never changes; renaming changes `name` only.
+    private func flushSave() {
         guard loaded else { return }
         saveTask?.cancel()
         if draft != lastSaved { lastSaved = draft; engine.save(draft) }
-        engine.renameToMatchName(agentID)
     }
 
     // MARK: form
@@ -76,13 +75,9 @@ struct AgentEditorView: View {
                     AvatarView(agent: draft, size: 54)
                     VStack(spacing: 8) {
                         TextField("Name", text: $draft.name).accessibilityIdentifier("agent-name")
-                            .onSubmit { commitRename() }
+                            .onSubmit { flushSave() }
                         TextField("Short description", text: $draft.summary)
                     }
-                }
-                Picker("Kind", selection: $draft.kind) {
-                    Text("Assistant").tag(Agent.Kind.assistant)
-                    Text("Character").tag(Agent.Kind.character)
                 }
                 TextField("Sidebar group", text: $draft.group, prompt: Text(draft.defaultGroup))
                     .accessibilityIdentifier("agent-group")
@@ -124,18 +119,18 @@ struct AgentEditorView: View {
                 }
             }
             Section("Hosts") {
-                Picker("Chat host", selection: $draft.model) {
+                Picker("Chat host", selection: $draft.chatHost) {
                     ForEach(chatChoices, id: \.self) { Text(hostLabel($0)).tag($0) }
                 }
                 .accessibilityIdentifier("agent-chat-host")
                 if showsImage {
-                    Picker("Image host", selection: Binding(get: { draft.imageModel ?? "" }, set: { draft.imageModel = $0.isEmpty ? nil : $0 })) {
+                    Picker("Image host", selection: Binding(get: { draft.imageHost ?? "" }, set: { draft.imageHost = $0.isEmpty ? nil : $0 })) {
                         Text("None").tag("")
                         ForEach(imageChoices, id: \.self) { Text(hostLabel($0)).tag($0) }
                     }
                     .accessibilityIdentifier("agent-image-host")
                 }
-                if let remote = remoteProvider(for: draft.model) {
+                if let remote = remoteProvider(for: draft.chatHost) {
                     Label("\(remote) is a remote provider: this agent's messages leave your Mac.", systemImage: "network").foregroundStyle(.orange).font(.caption)
                 } else if let problem = engine.modelProblem(for: draft) {
                     Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.caption)
@@ -184,12 +179,12 @@ struct AgentEditorView: View {
 
     private var chatChoices: [String] {
         var set = engine.catalog.hosts(capability: "chat").map(\.id)
-        if !draft.model.isEmpty, !set.contains(draft.model) { set.append(draft.model) }
+        if !draft.chatHost.isEmpty, !set.contains(draft.chatHost) { set.append(draft.chatHost) }
         return set
     }
     private var imageChoices: [String] {
         var set = engine.catalog.hosts(capability: "image").map(\.id)
-        if let m = draft.imageModel, !m.isEmpty, !set.contains(m) { set.append(m) }
+        if let m = draft.imageHost, !m.isEmpty, !set.contains(m) { set.append(m) }
         return set
     }
     private func remoteProvider(for model: String) -> String? {

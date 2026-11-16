@@ -202,8 +202,8 @@ public final class ParlorEngine {
         guard !fm.fileExists(atPath: home.seededMarker.path) else { return }
         if agentStore.ids().isEmpty {
             for var a in [Seeds.mabel(), Seeds.pip(), Seeds.builder()] {
-                a.model = availableModel(a.model)
-                if a.imageModel != nil { a.imageModel = availableImageHost(a.imageModel!) }
+                a.chatHost = availableModel(a.chatHost)
+                if let img = a.imageHost { a.imageHost = availableImageHost(img) }
                 write(a)
             }
         }

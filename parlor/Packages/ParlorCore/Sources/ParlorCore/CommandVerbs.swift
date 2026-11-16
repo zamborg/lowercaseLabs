@@ -5,70 +5,6 @@ extension CommandCenter {
 
     // MARK: agents
 
-    private static let agentKeys: Set<String> = [
-        "name", "description", "kind", "model", "image_model", "tools", "tier", "context", "compact_at", "temperature",
-        "thinking", "color", "persona", "top_p", "repetition_penalty", "max_reply_tokens", "max_steps",
-        "tool_result_chars", "tool_timeout", "keep_recent", "summary_tokens", "group", "harness", "template", "hosts", "config",
-    ]
-
-    private func apply(_ a: inout Agent, _ args: Args, caller: Caller) throws {
-        try args.check(allowed: Self.agentKeys.union(["id"]))
-        func num(_ k: String, _ r: ClosedRange<Double>) throws -> Double? {
-            guard let v = args.raw[k] else { return nil }
-            guard let d = v.doubleValue, r.contains(d) else { throw CommandError("\"\(k)\" must be a number from \(r.lowerBound) to \(r.upperBound).") }
-            return d
-        }
-        func whole(_ k: String, _ r: ClosedRange<Int>) throws -> Int? {
-            guard let v = args.raw[k] else { return nil }
-            guard let i = v.intValue, r.contains(i) else { throw CommandError("\"\(k)\" must be a whole number from \(r.lowerBound) to \(r.upperBound).") }
-            return i
-        }
-        if let v = args.optString("name") { guard !v.trimmingCharacters(in: .whitespaces).isEmpty else { throw CommandError("\"name\" is empty.") }; a.name = v }
-        if let v = args.optString("description") { a.summary = v }
-        if let v = args.optString("persona") { a.persona = v }
-        if let v = args.optString("kind") {
-            guard let k = Agent.Kind(rawValue: v) else { throw CommandError("\"kind\" is assistant or character.") }
-            a.kind = k
-        }
-        if let v = args.optString("group") { a.group = v }
-        if let v = args.optString("harness") { a.harness = v.trimmingCharacters(in: .whitespaces).isEmpty ? nil : v }
-        if let v = args.optString("model") { a.model = v }
-        if let v = args.optString("image_model") { a.imageModel = v.isEmpty ? nil : v }
-        if let h = args.raw["hosts"] {
-            guard let o = h.objectValue else { throw CommandError("\"hosts\" is an object like {\"chat\": \"stheno\", \"image\": \"z-image\"}.") }
-            for (k, v) in o { guard let id = v.stringValue else { throw CommandError("hosts.\(k) must be a host id.") }; a.hosts[k] = id.isEmpty ? nil : id }
-        }
-        if let c = args.raw["config"] {
-            guard c.objectValue != nil else { throw CommandError("\"config\" is an object of the harness's settings.") }
-            var merged = NounStore<AgentRecord>.merge(.object(a.config), c).objectValue ?? a.config
-            merged = merged.filter { if case .null = $0.value { return false } else { return true } }
-            if let m = engine.harnessList.first(where: { $0.id == a.harnessID }), let schema = m.config {
-                let issues = SchemaCheck.validate(.object(merged), schema: schema, path: "config")
-                if !issues.errors.isEmpty { throw CommandError(issues.errors.summary) }
-            }
-            a.config = merged
-        }
-        if let v = args.strings("tools") { a.tools = v }
-        if let v = args.optString("tier") {
-            guard let t = Tier(rawValue: v) else { throw CommandError("\"tier\" is one of none, read, act, configure.") }
-            if caller.kind == .agent || caller.kind == .token, t > caller.tier { throw CommandError("A caller cannot grant a tier above its own (\(caller.tier.rawValue)).") }
-            a.tier = t
-        }
-        if let v = try whole("context", 512...262_144) { a.contextTokens = v }
-        if let v = try num("compact_at", 0.1...1) { a.compactAt = v }
-        if let v = try num("temperature", 0...2) { a.temperature = v }
-        if let v = args.raw["thinking"] { guard let b = v.boolValue else { throw CommandError("\"thinking\" is true or false.") }; a.thinking = b }
-        if let v = try whole("color", 0...5) { a.color = v }
-        if let v = try num("top_p", 0...1) { a.overrides.topP = v }
-        if let v = try num("repetition_penalty", 0.5...2) { a.overrides.repetitionPenalty = v }
-        if let v = try whole("max_reply_tokens", 0...131_072) { a.overrides.maxReplyTokens = v }
-        if let v = try whole("max_steps", 1...64) { a.overrides.maxSteps = v }
-        if let v = try whole("tool_result_chars", 100...200_000) { a.overrides.toolResultChars = v }
-        if let v = try whole("tool_timeout", 1...86_400) { a.overrides.toolTimeoutSeconds = v }
-        if let v = try whole("keep_recent", 0...200) { a.overrides.keepRecent = v }
-        if let v = try whole("summary_tokens", 64...8192) { a.overrides.summaryTokens = v }
-    }
-
     /// A harness is a command the app will run. An agent or token setting one needs the user's yes.
     private func confirmHarness(_ args: Args, _ caller: Caller) async throws {
         guard let h = args.optString("harness"), !h.trimmingCharacters(in: .whitespaces).isEmpty, caller.mustConfirmDestructive,
@@ -93,33 +29,35 @@ extension CommandCenter {
         return a
     }
 
+    /// An agent exactly as `agents.create` takes it: the `agent.json` keys (unknown ones included), plus `persona`, and on a full read `memory`.
+    func agentRecordJSON(_ id: String, full: Bool) throws -> JSON {
+        let a = try agent(id)
+        var o = engine.agentStore.raw(id)
+            ?? ((try? JSONDecoder().decode(JSON.self, from: JSONEncoder().encode(AgentRecord(a))))?.objectValue ?? [:])
+        o["id"] = .string(id)
+        if full { o["persona"] = .string(a.persona); o["memory"] = .string(engine.memory.read(id)) }
+        return .object(o)
+    }
+
     func registerAgents() {
-        let fields: [(String, String, String)] = [
-            ("name", "string", "Display name"), ("description", "string", "One line shown in the sidebar"),
-            ("persona", "string", "The system prompt"), ("kind", "string", "assistant or character"),
-            ("model", "string", "Language model repo id"), ("image_model", "string", "Image model repo id"),
-            ("tools", "strings", "Tool patterns: *, server.*, server.tool"), ("tier", "string", "none, read, act or configure"),
-            ("context", "integer", "Context tokens"), ("compact_at", "number", "Compaction threshold, 0.1 to 1"),
-            ("temperature", "number", "0 to 2"), ("thinking", "boolean", "Let the model think"), ("color", "integer", "Avatar color 0-5"),
-            ("top_p", "number", "Override of the machine default"), ("repetition_penalty", "number", "Override"),
-            ("max_reply_tokens", "integer", "Override; 0 for no cap"), ("max_steps", "integer", "Override"),
-            ("tool_result_chars", "integer", "Override"), ("tool_timeout", "integer", "Override, seconds"),
-            ("keep_recent", "integer", "Override"), ("summary_tokens", "integer", "Override"),
-            ("group", "string", "Sidebar section"), ("harness", "string", "A harness id (chat, character, a folder in harnesses/) or an inline command (asks the user first when set by an agent or token)"),
-            ("hosts", "object", "Hosts the agent uses: {\"chat\": host id, \"image\": host id}"), ("config", "object", "The harness's settings (see the harness manifest's config schema); null removes a key"),
-        ]
-        add("agents.list", .read, "List agents (id, name, kind, model, tools, tier).") { _, _ in
-            .array(self.engine.agents.map { self.agentJSON($0) })
+        add("agents.list", .read, "List agents in the agent.json shape (id, name, harness, hosts, tools, tier, group, color, config). A folder that does not load is listed with ok: false and its issues.") { _, _ in
+            let scan = self.engine.agentStore.scan()
+            return .array(scan.map { e in
+                guard e.value != nil else { return .object(["id": .string(e.id), "ok": .bool(false), "issues": e.issues.json]) }
+                var o = e.raw
+                o["ok"] = .bool(e.ok); o["issues"] = e.issues.json
+                return .object(o)
+            })
         }
-        add("agents.read", .read, "One agent in full, including its persona.", props: [("id", "string", "Agent id")], required: ["id"]) { a, _ in
-            self.agentJSON(try self.agent(try a.string("id")), full: true)
+        add("agents.read", .read, "One agent in full: exactly what agents.create takes (agent.json keys and persona), plus its memory.", props: [("id", "string", "Agent id")], required: ["id"]) { a, _ in
+            try self.agentRecordJSON(try a.string("id"), full: true)
         }
         add("agents.templates", .read, "Starting points for agents.create: id, title, what it sets up.") { _, _ in
             .array(self.engine.harnessList.flatMap { h in h.templates.map { t in
                 .object(["id": .string(t.id), "harness": .string(h.id), "title": .string(t.title), "description": .string(t.description), "tools": .strings(t.tools)]) } })
         }
-        add("agents.create", .configure, "Create an agent: from a full `draft` (the agent.json shape plus persona; every problem is returned at once), or from a template (see agents.templates) plus fields.",
-            props: [("draft", "object", "A complete agent draft; see schema.get agent and agents.validate"), ("template", "string", "Template id; default assistant")] + fields) { a, c in
+        add("agents.create", .configure, "Create an agent from a full `draft` (the agent.json shape plus persona; every problem is returned at once), or from a template (see agents.templates) with an optional name.",
+            props: [("draft", "object", "A complete agent draft; see schema.get agent and agents.validate"), ("template", "string", "Template id, or harness:template; default assistant"), ("name", "string", "Display name for a template agent")]) { a, c in
             if let d = a.raw["draft"] {
                 let issues = self.agentIssues(d, caller: c)
                 if !issues.errors.isEmpty { throw ValidationError(issues: issues) }
@@ -127,52 +65,53 @@ extension CommandCenter {
                     throw CommandError("Call parlor.agents.try with this exact draft first and show the user its reply; then call agents.create with the same draft.")
                 }
                 if let h = d.objectValue?["harness"]?.stringValue, h.contains(" ") || h.contains("/") { try await self.confirmHarness(Args(.object(["harness": .string(h)])), c) }
-                let made = try self.engine.draftAgent(d)
-                if self.engine.agent(made.id) != nil { throw ValidationError(issues: [Issue(code: "exists", path: "id", message: "agent \"\(made.id)\" already exists", hint: "use agents.update, or pick another id")]) }
-                self.engine.save(made)
-                if c.kind == .agent || c.kind == .token { self.createdBy[made.id] = c.name }
-                return self.agentJSON(try self.agent(made.id), full: true)
+                let id = d.objectValue?["id"]?.stringValue ?? ""
+                if self.engine.agent(id) != nil { throw ValidationError(issues: [Issue(code: "exists", path: "id", message: "agent \"\(id)\" already exists", hint: "use agents.update, or pick another id")]) }
+                try self.engine.writeAgent(d)
+                if c.kind == .agent || c.kind == .token { self.createdBy[id] = c.name }
+                return try self.agentRecordJSON(id, full: true)
             }
             if c.kind == .agent, a.optString("template") == nil {
                 throw CommandError("Pass the whole agent as `draft`: call parlor.agents.validate, then parlor.agents.try, then parlor.agents.create with the same draft.")
             }
-            try await self.confirmHarness(a, c)
             let name = a.optString("name") ?? "New assistant"
-            let kind = Agent.Kind(rawValue: a.optString("kind") ?? "assistant") ?? .assistant
-            var made: Agent
-            if let tid = a.optString("template") {
-                let want = tid.split(separator: ":").map(String.init)
-                let hit = self.engine.harnessList.compactMap { h -> (HarnessManifest, HarnessManifest.Template)? in
-                    guard want.count == 1 || want[0] == h.id, let t = h.templates.first(where: { $0.id == want.last! }) else { return nil }
-                    return (h, t)
-                }.first
-                guard let (h, t) = hit else { throw CommandError("No template \"\(tid)\". Use agents.templates.") }
-                made = self.engine.create(harness: h.id, template: t, name: name)
-            } else { made = self.engine.create(kind: kind, name: name) }
-            try self.apply(&made, a, caller: c)
-            self.engine.save(made)
-            let id = self.engine.renameToMatchName(made.id)
-            if c.kind == .agent || c.kind == .token { self.createdBy[id] = c.name }
-            return self.agentJSON(try self.agent(id), full: true)
+            let tid = a.optString("template") ?? "assistant"
+            let want = tid.split(separator: ":").map(String.init)
+            let hit = self.engine.harnessList.compactMap { h -> (HarnessManifest, HarnessManifest.Template)? in
+                guard want.count == 1 || want[0] == h.id, let t = h.templates.first(where: { $0.id == want.last! }) else { return nil }
+                return (h, t)
+            }.first
+            guard let (h, t) = hit else { throw CommandError("No template \"\(tid)\". Use agents.templates.") }
+            let made = self.engine.create(harness: h.id, template: t, name: name)
+            if c.kind == .agent || c.kind == .token { self.createdBy[made.id] = c.name }
+            return try self.agentRecordJSON(made.id, full: true)
         }
-        add("agents.update", .configure, "Change fields of an agent. Unknown or out-of-range values are refused.",
-            props: [("id", "string", "Agent id")] + fields, required: ["id"]) { a, c in
-            try await self.confirmHarness(a, c)
-            var cur = try self.agent(try a.string("id"))
-            let before = self.agentJSON(cur, full: true)
-            try self.apply(&cur, a, caller: c)
+        add("agents.update", .configure, "Change an agent with a JSON merge patch over its agent.json (objects merge, null removes a key). A `persona` key rewrites persona.md. The id never changes.",
+            props: [("id", "string", "Agent id"), ("patch", "object", "Merge patch")], required: ["id", "patch"]) { a, c in
+            let id = try a.string("id")
+            let before = try self.agentRecordJSON(id, full: true)
+            guard let patch = a.raw["patch"], patch.objectValue != nil else { throw CommandError("\"patch\" is an object, for example {\"config\": {\"temperature\": 0.4}}.") }
+            if patch.objectValue?["id"] != nil, patch.objectValue?["id"]?.stringValue != id { throw CommandError("An agent's id never changes. Change \"name\" instead, or duplicate the agent.") }
+            if patch.objectValue?["memory"] != nil { throw CommandError("Memory is edited with parlor.memory.append / memory.replace, not agents.update.") }
+            var merged = NounStore<AgentRecord>.merge(before, patch).objectValue ?? [:]
+            merged["memory"] = nil; merged["id"] = .string(id)
+            // Problems the agent already had (a host that is not downloaded) must not block an unrelated change.
+            var already = before.objectValue ?? [:]; already["memory"] = nil
+            let existing = Set(self.agentIssues(.object(already), caller: c).map { $0.code + "@" + $0.path })
+            let issues = self.agentIssues(.object(merged), caller: c).filter { !existing.contains($0.code + "@" + $0.path) || $0.severity == .warning }
+            if !issues.errors.isEmpty { throw ValidationError(issues: issues) }
+            if let h = patch.objectValue?["harness"]?.stringValue { try await self.confirmHarness(Args(.object(["harness": .string(h)])), c) }
             // An agent or token changing an agent it did not make shows the user a diff and waits.
-            if c.mustConfirmDestructive, self.createdBy[cur.id] != c.name {
-                let after = self.agentJSON(cur, full: true)
-                let diff = Self.diff(before, after)
+            if c.mustConfirmDestructive, self.createdBy[id] != c.name {
+                var shown = before.objectValue ?? [:]; shown["memory"] = nil
+                let diff = Self.diff(.object(shown), .object(merged))
                 if !diff.isEmpty {
-                    guard let ask = self.engine.confirm else { throw CommandError("Changing \(cur.name) needs the user. Nobody is available to confirm it.") }
-                    guard await ask("\(c.name) wants to change \(cur.name):\n\n" + diff) else { throw CommandError("The user declined the change.") }
+                    guard let ask = self.engine.confirm else { throw CommandError("Changing \(id) needs the user. Nobody is available to confirm it.") }
+                    guard await ask("\(c.name) wants to change \(id):\n\n" + diff) else { throw CommandError("The user declined the change.") }
                 }
             }
-            self.engine.save(cur)
-            let id = self.engine.renameToMatchName(cur.id)
-            return self.agentJSON(try self.agent(id), full: true)
+            try self.engine.writeAgent(.object(merged))
+            return try self.agentRecordJSON(id, full: true)
         }
         add("agents.duplicate", .configure, "Copy an agent (without its chat).", props: [("id", "string", "Agent id")], required: ["id"]) { a, _ in
             let id = try a.string("id"); _ = try self.agent(id)

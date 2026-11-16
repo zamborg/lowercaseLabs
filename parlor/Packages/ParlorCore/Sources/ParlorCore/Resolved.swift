@@ -47,22 +47,21 @@ public struct ResolvedSettings: Sendable, Equatable {
     public var llm: ParlorSettings.LLM
 
     public static func resolve(agent: Agent, model: ModelMetadata?, machine: ParlorSettings) -> ResolvedSettings {
-        let o = agent.overrides
         var llm = machine.llm
-        llm.topP = o.topP ?? model?.topP ?? machine.llm.topP
-        llm.repetitionPenalty = o.repetitionPenalty ?? machine.llm.repetitionPenalty
-        if let r = o.maxReplyTokens { llm.maxReplyTokens = r == 0 ? nil : r }
-        var context = agent.contextTokens
+        llm.topP = agent.configNumber("top_p") ?? model?.topP ?? machine.llm.topP
+        llm.repetitionPenalty = agent.configNumber("repetition_penalty") ?? machine.llm.repetitionPenalty
+        if let r = agent.configInt("max_reply_tokens") { llm.maxReplyTokens = r == 0 ? nil : r }
+        var context = agent.configInt("context") ?? 16384
         if let cap = model?.maxContext, cap > 0 { context = min(context, cap) }
         return ResolvedSettings(
-            temperature: agent.temperature, topP: llm.topP, repetitionPenalty: llm.repetitionPenalty,
-            maxReplyTokens: llm.maxReplyTokens, thinking: agent.thinking,
-            contextTokens: context, compactAt: agent.compactAt,
-            keepRecent: o.keepRecent ?? machine.loop.keepRecent,
-            summaryTokens: o.summaryTokens ?? machine.loop.summaryTokens,
-            maxSteps: o.maxSteps ?? machine.loop.maxSteps,
-            toolResultChars: o.toolResultChars ?? machine.loop.toolResultChars,
-            toolTimeoutSeconds: o.toolTimeoutSeconds ?? machine.loop.toolTimeoutSeconds,
+            temperature: agent.configNumber("temperature") ?? 0.6, topP: llm.topP, repetitionPenalty: llm.repetitionPenalty,
+            maxReplyTokens: llm.maxReplyTokens, thinking: agent.configBool("thinking") ?? false,
+            contextTokens: context, compactAt: agent.configNumber("compact_at") ?? 0.7,
+            keepRecent: agent.configInt("keep_recent") ?? machine.loop.keepRecent,
+            summaryTokens: agent.configInt("summary_tokens") ?? machine.loop.summaryTokens,
+            maxSteps: agent.configInt("max_steps") ?? machine.loop.maxSteps,
+            toolResultChars: agent.configInt("tool_result_chars") ?? machine.loop.toolResultChars,
+            toolTimeoutSeconds: agent.configInt("tool_timeout") ?? machine.loop.toolTimeoutSeconds,
             llm: llm)
     }
 }

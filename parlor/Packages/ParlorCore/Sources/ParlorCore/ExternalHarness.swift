@@ -251,8 +251,8 @@ public final class ExternalHarness: Harness, @unchecked Sendable {
     static func turnStart(_ input: TurnInput, turn: String) -> JSON {
         let a = input.agent
         let agent: [String: JSON] = [
-            "id": .string(a.id), "name": .string(a.name), "description": .string(a.summary), "kind": .string(a.kind.rawValue),
-            "model": .string(a.model), "tools": .array(a.tools.map { .string($0) }), "tier": .string(a.tier.rawValue), "persona": .string(a.persona)]
+            "id": .string(a.id), "name": .string(a.name), "description": .string(a.summary), 
+            "tools": .array(a.tools.map { .string($0) }), "tier": .string(a.tier.rawValue), "persona": .string(a.persona)]
         let transcript: [JSON] = input.transcript.compactMap { m in
             guard let d = try? ChatLog.encoder.encode(m) else { return nil }
             return try? JSONDecoder().decode(JSON.self, from: d)

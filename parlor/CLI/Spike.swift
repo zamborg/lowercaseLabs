@@ -21,7 +21,7 @@ enum Spike {
             .init(prompt: "Tell me a one-line joke about compilers.", expectTool: "", argContains: nil),
         ]
         let a = Agent(id: "spike", name: "Spike", persona: "You are a concise personal assistant. Use your tools to look things up instead of guessing.",
-                      kind: .assistant, model: model, tools: ["zass.briefing", "zass.todo_list", "zass.note_list", "zass.search", "zass.person_list", "zass.journal_read", "zass.inbox_read", "zass.memory_list"], contextTokens: 8192, temperature: 0.2)
+                      hosts: ["chat": model], tools: ["zass.briefing", "zass.todo_list", "zass.note_list", "zass.search", "zass.person_list", "zass.journal_read", "zass.inbox_read", "zass.memory_list"], config: ["context": .int(8192), "temperature": .double(0.2)])
         engine.save(a)
         // wait for the server to come up
         for _ in 0..<60 {

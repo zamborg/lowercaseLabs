@@ -83,7 +83,7 @@ struct ModelsView: View {
     }
 
     private func usedBy(_ m: InstalledModel) -> String {
-        let names = engine.agents.filter { $0.model == m.repo || $0.imageModel == m.repo }.map(\.name)
+        let names = engine.agents(usingModel: m.repo).map(\.name)
         return names.isEmpty ? "Not used by any agent" : "Used by " + names.joined(separator: ", ")
     }
 

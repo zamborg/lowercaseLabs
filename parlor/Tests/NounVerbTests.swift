@@ -109,7 +109,7 @@ final class NounVerbTests: XCTestCase {
         var shown: [String] = []
         e.confirm = { text in shown.append(text); return false }
         let tok = Caller.token("claude", .configure)
-        var r = await call(e, "agents.update", ["id": "mabel", "name": "Mabel Two"], as: tok)
+        var r = await call(e, "agents.update", ["id": "mabel", "patch": ["name": "Mabel Two"]], as: tok)
         XCTAssertTrue(r.isError); XCTAssertTrue(r.text.contains("declined"))
         XCTAssertEqual(shown.count, 1)
         XCTAssertTrue(shown[0].contains("- ") && shown[0].contains("+ ") && shown[0].contains("Mabel Two"), shown[0])
@@ -119,7 +119,7 @@ final class NounVerbTests: XCTestCase {
         _ = await call(e, "hosts.create", ["draft": ["id": "lm", "engine": "openai-remote", "url": "http://127.0.0.1:9/v1", "models": ["m"]]], as: .local)
         r = await call(e, "agents.create", ["draft": ["id": "mine", "name": "Mine", "harness": "chat", "hosts": ["chat": "lm/m"]]], as: tok)
         XCTAssertFalse(r.isError, r.text)
-        r = await call(e, "agents.update", ["id": "mine", "description": "changed"], as: tok)
+        r = await call(e, "agents.update", ["id": "mine", "patch": ["description": "changed"]], as: tok)
         XCTAssertFalse(r.isError, r.text)
         await e.shutdown()
     }

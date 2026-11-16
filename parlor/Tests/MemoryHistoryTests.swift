@@ -8,7 +8,7 @@ final class MemoryHistoryTests: XCTestCase {
         try #"{"gateway":{"enabled":false,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
         let e = ParlorEngine(home: home, runtime: DemoRuntime())
         await e.start()
-        for a in e.agents { var x = a; x.model = "demo"; x.tools = ["parlor.*"]; e.save(x) }
+        for a in e.agents { var x = a; x.chatHost = "demo"; x.tools = ["parlor.*"]; e.save(x) }
         return e
     }
 
@@ -65,7 +65,7 @@ final class MemoryHistoryTests: XCTestCase {
         try HarnessTests.script.write(to: path, atomically: true, encoding: .utf8)
         let e = ParlorEngine(home: home, runtime: DemoRuntime())
         await e.start()
-        var a = try XCTUnwrap(e.agent("mabel")); a.model = "demo"; a.harness = "python3 '\(path.path)'"; e.save(a)
+        var a = try XCTUnwrap(e.agent("mabel")); a.chatHost = "demo"; a.harness = "python3 '\(path.path)'"; e.save(a)
         try e.memory.write("mabel", "Prefers metric units.")
         let room = e.room(for: "mabel")
         await room.sendAndWait("what is in memory", agent: try XCTUnwrap(e.agent("mabel")))
@@ -82,12 +82,12 @@ final class MemoryHistoryTests: XCTestCase {
         r = await call(e, "agents.create", ["template": "researcher", "name": "Rae"], as: .local)
         XCTAssertFalse(r.isError, r.text)
         let rae = try XCTUnwrap(e.agent("rae"))
-        XCTAssertTrue(rae.thinking)
+        XCTAssertEqual(rae.configBool("thinking"), true)
         XCTAssertTrue(rae.persona.contains("careful researcher"))
         r = await call(e, "agents.create", ["template": "scene", "name": "Scott"], as: .local)
         let scott = try XCTUnwrap(e.agent("scott"))
         XCTAssertEqual(scott.harnessID, "character")
-        r = await call(e, "agents.update", ["id": "rae", "group": "Work"], as: .local)
+        r = await call(e, "agents.update", ["id": "rae", "patch": ["group": "Work"]], as: .local)
         XCTAssertEqual(e.agent("rae")?.group, "Work")
         r = await call(e, "agents.create", ["template": "nope"], as: .local)
         XCTAssertTrue(r.isError)
@@ -96,11 +96,11 @@ final class MemoryHistoryTests: XCTestCase {
     func testHarnessSetByATokenNeedsTheUser() async throws {
         let e = try await engine()
         e.confirm = nil
-        let r = await call(e, "agents.update", ["id": "mabel", "harness": "echo hi"], as: .token("t", .configure))
+        let r = await call(e, "agents.update", ["id": "mabel", "patch": ["harness": "echo hi"]], as: .token("t", .configure))
         XCTAssertTrue(r.isError, r.text)
         XCTAssertNil(e.agent("mabel")?.harness)
         e.confirm = { _ in true }
-        let ok = await call(e, "agents.update", ["id": "mabel", "harness": "echo hi"], as: .token("t", .configure))
+        let ok = await call(e, "agents.update", ["id": "mabel", "patch": ["harness": "echo hi"]], as: .token("t", .configure))
         XCTAssertFalse(ok.isError, ok.text)
         XCTAssertEqual(e.agent("mabel")?.harness, "echo hi")
     }
@@ -108,7 +108,7 @@ final class MemoryHistoryTests: XCTestCase {
     func testModelProblemFlagsDisabledProvider() async throws {
         let e = try await engine()
         var a = try XCTUnwrap(e.agent("mabel"))
-        a.model = "nowhere/model"
+        a.chatHost = "nowhere/model"
         XCTAssertNil(e.modelProblem(for: a), "unknown prefix with no MLX in tests is not flagged")
     }
 }

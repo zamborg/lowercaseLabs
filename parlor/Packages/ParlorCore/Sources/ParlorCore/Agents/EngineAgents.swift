@@ -11,7 +11,7 @@ extension ParlorEngine {
             let persona = (try? String(contentsOf: home.agentsDir.appendingPathComponent(id).appendingPathComponent("persona.md"), encoding: .utf8)) ?? ""
             out.append(r.agent(persona: persona.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
-        out.sort { ($0.kind == .assistant ? 0 : 1, $0.name.lowercased()) < ($1.kind == .assistant ? 0 : 1, $1.name.lowercased()) }
+        out.sort { ($0.group == "Assistants" ? 0 : 1, $0.name.lowercased()) < ($1.group == "Assistants" ? 0 : 1, $1.name.lowercased()) }
         if out != agents { agents = out }
         if let s = selection, !agents.contains(where: { $0.id == s }) { selection = agents.first?.id }
         // A chat folder only lingers for a deleted agent when it never got a message: tidy it.
@@ -83,16 +83,21 @@ extension ParlorEngine {
         }
     }
 
-    public func save(_ a: Agent) {
-        write(a)
+    /// Write an agent from its JSON (the `agent.json` keys plus `persona`), keeping unknown keys, then reload.
+    func writeAgent(_ draft: JSON) throws {
+        var o = draft.objectValue ?? [:]
+        let persona = o["persona"]?.stringValue ?? (try? String(contentsOf: home.agentsDir.appendingPathComponent(o["id"]?.stringValue ?? "").appendingPathComponent("persona.md"), encoding: .utf8)) ?? ""
+        o["persona"] = nil; o["memory"] = nil
+        guard let id = o["id"]?.stringValue else { throw CommandError("An agent needs an id.") }
+        try? home.ensure()
+        try agentStore.write(id, o)
+        try (persona.trimmingCharacters(in: .whitespacesAndNewlines) + "\n").write(to: home.agentsDir.appendingPathComponent(id).appendingPathComponent("persona.md"), atomically: true, encoding: .utf8)
         reloadAgents()
     }
 
-    @discardableResult
-    public func create(kind: Agent.Kind, name: String? = nil) -> Agent {
-        let h = kind == .assistant ? "chat" : "character"
-        let t = harnessList.first { $0.id == h }?.templates.first { $0.id == (kind == .assistant ? "assistant" : "character") }
-        return create(harness: h, template: t, name: name)
+    public func save(_ a: Agent) {
+        write(a)
+        reloadAgents()
     }
 
     /// A new agent on a harness, from one of its templates, with a free id. Hosts fall back to ones that exist.
@@ -104,11 +109,10 @@ extension ParlorEngine {
         var n = 2
         while agents.contains(where: { $0.id == id }) { id = Agent.slug(base) + "-\(n)"; n += 1 }
         let character = hid == "character"
+        var hosts = ["chat": availableModel(character ? Defaults.characterModel : Defaults.languageModel)]
+        if t?.image ?? false { hosts["image"] = availableImageHost(Defaults.imageModel) }
         var a = Agent(id: id, name: base, persona: (t?.persona ?? "You are {name}.").replacingOccurrences(of: "{name}", with: base),
-                      kind: character ? .character : .assistant,
-                      model: availableModel(character ? Defaults.characterModel : Defaults.languageModel),
-                      imageModel: (t?.image ?? false) ? availableImageHost(Defaults.imageModel) : nil,
-                      tools: t?.tools ?? [], color: agents.count % 6, harness: hid == "chat" ? nil : hid, config: t?.config ?? [:])
+                      hosts: hosts, tools: t?.tools ?? [], color: agents.count % 6, harness: hid == "chat" ? nil : hid, config: t?.config ?? [:])
         if let g = t?.group { a.group = g }
         save(a)
         selection = a.id
@@ -157,9 +161,9 @@ extension ParlorEngine {
     public func modelProblem(for a: Agent) -> String? {
         guard mlx != nil else { return nil }
         let cat = catalog
-        if let (p, _) = router.route(a.model), cat.host(p.config.id) == nil { return p.config.enabled ? nil : "Provider \(p.config.id) is off." }
-        guard let h = cat.resolve(a.model) else {
-            let repo = a.model.hasPrefix("mlx/") ? String(a.model.dropFirst(4)) : a.model
+        if let (p, _) = router.route(a.chatHost), cat.host(p.config.id) == nil { return p.config.enabled ? nil : "Provider \(p.config.id) is off." }
+        guard let h = cat.resolve(a.chatHost) else {
+            let repo = a.chatHost.hasPrefix("mlx/") ? String(a.chatHost.dropFirst(4)) : a.chatHost
             return "\(repo.split(separator: "/").last.map(String.init) ?? repo) is not downloaded."
         }
         return cat.problem(host: h.id)
@@ -171,33 +175,6 @@ extension ParlorEngine {
         try? FileManager.default.removeItem(at: home.chatDir(for: id))
         rooms[id] = nil
         reloadAgents()
-    }
-
-    /// Makes the file name and chat folder follow the agent's display name (`agents/<slug>.md`).
-    /// Returns the (possibly unchanged) id. Skipped while the agent is mid-reply.
-    @discardableResult
-    public func renameToMatchName(_ id: String) -> String {
-        guard let a = agent(id), rooms[id]?.isBusy != true else { return id }
-        let base = Agent.slug(a.name)
-        guard !base.isEmpty, base != id else { return id }
-        var newID = base; var n = 2
-        while agents.contains(where: { $0.id == newID }) || FileManager.default.fileExists(atPath: home.chatDir(for: newID).path) {
-            newID = base + "-\(n)"; n += 1
-        }
-        let fm = FileManager.default
-        var moved = a; moved.id = newID
-        externalHarness.stop(agent: id)
-        // The folder moves whole, so memory.md and anything else in it goes with the agent.
-        try? fm.moveItem(at: home.agentsDir.appendingPathComponent(id), to: home.agentsDir.appendingPathComponent(newID))
-        write(moved)
-        if fm.fileExists(atPath: home.chatDir(for: id).path) {
-            try? fm.moveItem(at: home.chatDir(for: id), to: home.chatDir(for: newID))
-        }
-        rooms[id] = nil
-        let wasSelected = selection == id
-        reloadAgents()
-        if wasSelected { selection = newID }
-        return newID
     }
 
     public func duplicate(_ id: String) {

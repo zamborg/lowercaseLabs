@@ -44,7 +44,7 @@ struct CLIMain {
             for m in engine.library.installed { out("\(m.kind.rawValue)\t\(m.repo)\t\(byte(m.bytes))") }
             return 0
         case "agents":
-            for a in engine.agents { out("\(a.id)\t\(a.kind.rawValue)\t\(a.model)\ttools=\(a.tools.joined(separator: ","))") }
+            for a in engine.agents { out("\(a.id)\t\(a.harnessID)\t\(a.chatHost)\ttools=\(a.tools.joined(separator: ","))") }
             return 0
         case "download":
             guard let repo = args.first else { usage(); return 2 }

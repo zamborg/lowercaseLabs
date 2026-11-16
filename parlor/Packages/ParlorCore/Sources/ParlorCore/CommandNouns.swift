@@ -30,7 +30,7 @@ public enum NounSchemas {
         "name": { "type": "string" },
         "description": { "type": "string", "description": "one line shown in the sidebar" },
         "persona": { "type": "string", "format": "multiline", "description": "the system prompt (drafts only; saved as persona.md)" },
-        "kind": { "type": "string", "enum": ["assistant", "character"] },
+        "memory": { "type": "string", "format": "multiline", "description": "read-only: agents.read returns it; create and update ignore it (use memory.append)" },
         "harness": { "type": "string", "description": "a harness id from harnesses.list; blank means chat" },
         "hosts": { "type": "object", "description": "{ \\"chat\\": host id, \\"image\\": host id }; see hosts.list" },
         "tools": { "type": "array", "items": { "type": "string" }, "description": "patterns: *, server.*, server.tool" },

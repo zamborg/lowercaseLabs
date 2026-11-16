@@ -9,7 +9,7 @@ final class CommandTests: XCTestCase {
         try #"{"gateway":{"enabled":true,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
         let e = ParlorEngine(home: home, runtime: llm)
         await e.start()
-        for a in e.agents { var x = a; x.model = "demo"; e.save(x) }
+        for a in e.agents { var x = a; x.chatHost = "demo"; e.save(x) }
         return e
     }
 
@@ -70,7 +70,7 @@ final class CommandTests: XCTestCase {
         let ok = await exec.call(ToolCallRecord(name: "parlor__agents.list", arguments: .object([:])), agent: a, settings: r)
         XCTAssertFalse(ok.isError); XCTAssertTrue(ok.text.contains("mabel"))
         // The command layer enforces it too, for any caller.
-        let direct = await e.commands.call("agents.update", .object(["id": .string("pip"), "name": .string("X")]), caller: .agent(a))
+        let direct = await e.commands.call("agents.update", .object(["id": .string("pip"), "patch": .object(["name": .string("X")])]), caller: .agent(a))
         XCTAssertTrue(direct.isError)
         // Default tier is none: nothing but the agent's own memory.
         var plain = a; plain.tier = .none
@@ -99,7 +99,7 @@ final class CommandTests: XCTestCase {
         XCTAssertFalse(done.isError); XCTAssertNil(e.agent("pip"))
         // The UI's own buttons already confirm; verbs called by the person do not ask again.
         e.confirm = { _ in XCTFail("should not ask"); return false }
-        let made = e.create(kind: .assistant, name: "Temp")
+        let made = e.create(harness: "chat", template: nil, name: "Temp")
         let ui = await e.commands.call("agents.delete", .object(["id": .string(made.id)]), caller: .ui)
         XCTAssertFalse(ui.isError)
         await e.shutdown()
@@ -116,15 +116,15 @@ final class CommandTests: XCTestCase {
         XCTAssertFalse(r.isError); XCTAssertEqual(e.settings.llm.keepLoadedMinutes, 7)
         r = await call("settings.set", ["path": .string("tokens"), "value": .strings([])])
         XCTAssertTrue(r.isError, "tokens are not settable by name")
-        r = await call("agents.update", ["id": .string("mabel"), "temperature": .double(9)])
+        r = await call("agents.update", ["id": .string("mabel"), "patch": .object(["config": .object(["temperature": .double(9)])])])
         XCTAssertTrue(r.isError)
         r = await call("agents.update", ["id": .string("mabel"), "bogus": .int(1)])
         XCTAssertTrue(r.isError); XCTAssertTrue(r.text.contains("Unknown argument"))
-        r = await call("agents.update", ["id": .string("mabel"), "temperature": .double(0.2), "description": .string("changed")])
-        XCTAssertFalse(r.isError); XCTAssertEqual(e.agent("mabel")?.temperature, 0.2); XCTAssertEqual(e.agent("mabel")?.summary, "changed")
+        r = await call("agents.update", ["id": .string("mabel"), "patch": .object(["config": .object(["temperature": .double(0.2)]), "description": .string("changed")])])
+        XCTAssertFalse(r.isError, r.text); XCTAssertEqual(e.agent("mabel")?.configNumber("temperature"), 0.2); XCTAssertEqual(e.agent("mabel")?.summary, "changed")
         // A token cannot grant more than it has.
         e.confirm = { _ in true }   // changing an agent the token did not make shows a diff first
-        let low = await e.commands.call("agents.update", .object(["id": .string("mabel"), "tier": .string("configure")]), caller: .token("x", .configure))
+        let low = await e.commands.call("agents.update", .object(["id": .string("mabel"), "patch": .object(["tier": .string("configure")])]), caller: .token("x", .configure))
         XCTAssertFalse(low.isError)
         await e.shutdown()
     }

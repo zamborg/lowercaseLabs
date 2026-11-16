@@ -9,6 +9,8 @@ extension ParlorEngine {
         for h in hostList where h.spec.engine != "mlx" {
             if let proc = router.provider(h.id)?.process { states[h.id] = proc.snapshot().state }
         }
+        // In-process hosts are running while their model is the one loaded.
+        for h in hostList where h.spec.engine == "mlx" { if let m = h.spec.model, m == loadedModel { states[h.id] = .running } }
         var dirs: [String: URL] = [:]
         for e in engineList { dirs[e.id] = e.directory }
         return Catalog(models: library.installed, engines: engineList, hosts: hostList, states: states, engineDirs: dirs)
@@ -76,10 +78,23 @@ extension ParlorEngine {
         return catalog.isInstalled(repo)
     }
 
+    /// The state of the host an agent chats on (nil when it names none that exists).
+    public func chatHostStatus(for a: Agent) -> HostStatus? {
+        let cat = catalog
+        return cat.resolve(a.chatHost).map { cat.status(host: $0.id) }
+    }
+
+    /// Agents that use a host serving this model, for "used by" in the Library.
+    public func agents(usingModel repo: String) -> [Agent] {
+        let cat = catalog
+        let hostIDs = Set(cat.hosts(usingModel: repo).map(\.id))
+        return agents.filter { a in a.hosts.values.contains { ref in cat.resolve(ref).map { hostIDs.contains($0.id) } ?? false } }
+    }
+
     /// The image host an agent draws with: its `image_model` through the catalog, else the first usable image host (Z-Image first).
     func defaultImageHost(for agentID: String?) -> String? {
         let cat = catalog
-        if let id = agentID, let a = agent(id), let m = a.imageModel, !m.isEmpty,
+        if let id = agentID, let a = agent(id), let m = a.imageHost, !m.isEmpty,
            let h = cat.resolve(m), cat.capabilities(of: h).contains("image") { return h.id }
         let hs = cat.hosts(capability: "image").filter { cat.status(host: $0.id).usable }
         return (hs.first { $0.spec.engine == "z-image" } ?? hs.first)?.id

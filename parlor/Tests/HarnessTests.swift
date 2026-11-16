@@ -45,7 +45,7 @@ final class HarnessTests: XCTestCase {
             send({"type": "turn.done", "turn": t}); continue
         if "api" in last:
             req = urllib.request.Request(os.environ["OPENAI_BASE_URL"] + "/chat/completions", method="POST",
-                data=json.dumps({"model": m["agent"]["model"], "messages": [{"role": "user", "content": "from harness"}]}).encode(),
+                data=json.dumps({"model": m["hosts"]["chat"]["model"], "messages": [{"role": "user", "content": "from harness"}]}).encode(),
                 headers={"Authorization": "Bearer " + os.environ["OPENAI_API_KEY"], "Content-Type": "application/json"})
             body = json.load(urllib.request.urlopen(req))
             send({"type": "message", "turn": t, "role": "assistant", "text": "api said: " + body["choices"][0]["message"]["content"].strip()})
@@ -53,8 +53,8 @@ final class HarnessTests: XCTestCase {
         if "tool" in last or "forbidden" in last:
             name = "echo__say" if "tool" in last else "parlor__agents.list"
             send({"type": "text.delta", "turn": t, "text": "calling"})
-            send({"type": "message", "turn": t, "role": "assistant", "text": "", "toolCalls": [{"id": "c1", "name": name, "arguments": {"text": "hi"}}]})
-            send({"type": "tool.call", "turn": t, "callID": "c1", "name": name, "arguments": {"text": "hi"}})
+            send({"type": "message", "turn": t, "role": "assistant", "text": "", "toolCalls": [{"id": "c1", "name": name, "arguments": ({"text": "hi"} if "tool" in last else {})}]})
+            send({"type": "tool.call", "turn": t, "callID": "c1", "name": name, "arguments": ({"text": "hi"} if "tool" in last else {})})
             r = wait_result(t, "c1")
             if r is None: continue
             send({"type": "stats", "turn": t, "promptTokens": 10, "completionTokens": 5, "tokensPerSecond": 50})
@@ -81,7 +81,7 @@ final class HarnessTests: XCTestCase {
         await e.start()
         await e.hub.register(EchoProvider(), status: ServerStatus(id: "echo", kind: "built in", detail: "", state: .ready, toolCount: 1, toolNames: ["say"]))
         var a = try XCTUnwrap(e.agent("mabel"))
-        a.model = "demo"; a.tools = tools; a.tier = tier
+        a.chatHost = "demo"; a.tools = tools; a.tier = tier
         a.harness = "python3 '\(path.path)'"
         e.save(a)
         return (e, e.room(for: "mabel"), try XCTUnwrap(e.agent("mabel")))
