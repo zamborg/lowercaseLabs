@@ -163,6 +163,10 @@ public final class ParlorEngine {
                                 hostFor: { [weak self] agent in await self?.defaultImageHost(for: agent) })
         image = img
         imageBox.provider = img
+        await img.setRoute { [weak self] r, host, caller in
+            guard let self else { throw ParlorError.message("The app is shutting down.") }
+            return try await self.gateway.generateImage(r, host: host, caller: caller)
+        }
         deps.image = img
         await applySettings()
         let provider = CommandProvider(center: commands)

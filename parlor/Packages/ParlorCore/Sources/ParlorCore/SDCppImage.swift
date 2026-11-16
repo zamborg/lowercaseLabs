@@ -1,9 +1,9 @@
 import Foundation
 
 /// Draws with a single-file Stable Diffusion checkpoint (SDXL, Illustrious, Pony and the like) by running
-/// stable-diffusion.cpp's `sd-cli` once per image. Per-model settings live in `parlor-image.json` next to the weights.
+/// stable-diffusion.cpp's `sd-cli` once per image. Its settings are the host's, shaped by the engine's settings schema.
 public enum SDCppImage {
-    /// `parlor-image.json`: how to sample this checkpoint. Written with defaults on install; edit it by hand.
+    /// How to sample: the engine's schema defaults with the host's settings over them. Never read from a file.
     public struct Config: Codable, Equatable, Sendable {
         /// `v` for V-prediction checkpoints, `eps` for ordinary ones, nil lets sd-cli detect it.
         public var prediction: String?
@@ -46,34 +46,16 @@ public enum SDCppImage {
             extraArgs = try c.decodeIfPresent([String].self, forKey: .extraArgs) ?? []
         }
 
-        /// Defaults for a checkpoint file name: V-prediction ones are recognised by their name.
-        public static func defaults(forFile file: String) -> Config {
-            var c = Config()
-            let n = file.lowercased().replacingOccurrences(of: "_", with: "-")
-            if ["v-pred", "vpred", "v-prediction", "vprediction"].contains(where: { n.contains($0) }) { c.prediction = "v" }
-            return c
-        }
-
-        public static func url(in dir: URL) -> URL { dir.appendingPathComponent("parlor-image.json") }
-
-        /// The model's settings: its file if there is one, else defaults from the checkpoint's name.
-        public static func load(dir: URL, file: String) -> Config {
-            if let d = try? Data(contentsOf: url(in: dir)), let c = try? JSONDecoder().decode(Config.self, from: d) { return c }
-            return defaults(forFile: file)
-        }
-
-        /// Write the defaults beside a fresh download. Never overwrites an edited file.
-        public static func writeDefault(in dir: URL, file: String) {
-            let u = url(in: dir)
-            guard !FileManager.default.fileExists(atPath: u.path) else { return }
-            let e = JSONEncoder(); e.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try? e.encode(defaults(forFile: file)).write(to: u)
-        }
-
         public func size(shape: String) -> (Int, Int) {
             let v = shape == "portrait" ? portrait : shape == "landscape" ? landscape : square
             return v.count == 2 ? (v[0], v[1]) : (1024, 1024)
         }
+    }
+
+    /// V-prediction checkpoints are recognised by their file name.
+    public static func isVPrediction(file: String) -> Bool {
+        let n = file.lowercased().replacingOccurrences(of: "_", with: "-")
+        return ["v-pred", "vpred", "v-prediction", "vprediction"].contains { n.contains($0) }
     }
 
     /// `sd-cli` and the library it loads: bundled in the app, next to the CLI, or installed by the user.

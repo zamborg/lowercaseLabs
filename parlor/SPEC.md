@@ -155,7 +155,7 @@ Rules:
 ### 3.2 Gateway and tokens
 
 `http://127.0.0.1:<port>` serves `GET /v1/models`, `POST /v1/chat/completions` (streaming, tools, usage),
-`POST /v1/images/generations` and `/mcp` (streamable HTTP). Errors are OpenAI-shaped. A foreign `Origin` or `Host` is refused.
+`POST /v1/images/generations` and `/mcp` (streamable HTTP). Errors are OpenAI-shaped. The `image.generate` tool and `/v1/images/generations` share one entry, `generateImage`: host scope, problem check, memory budget, then the host's queue and its adapter. SD settings are the host's `settings` (the engine's schema); no file sits beside the weights. A foreign `Origin` or `Host` is refused.
 A bearer token is required. Tokens are made in System, stored in the Keychain (names and hashes in `settings.json`), and have a
 name, a tier, an optional expiry and an optional host list; a scoped token is forbidden on other hosts. Processes the app
 launches (harnesses, tools, bench) get an ephemeral token at their tool.json's or agent's tier.

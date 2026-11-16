@@ -28,7 +28,7 @@ struct SystemView: View {
     private var servicesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Services").font(.headline)
-            Text("Everything the app keeps running for you. Servers set to on demand start when an agent first uses them and stop after their idle time; change that in mcp.json with \"lifecycle\" and \"idleMinutes\".")
+            Text("Everything the app keeps running for you. Servers set to on demand start when an agent first uses them and stop after their idle time; change that in tool.json with \"lifecycle\" and \"idleMinutes\".")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(engine.services) { s in serviceCard(s) }
             if engine.services.isEmpty { ProgressView().controlSize(.small) }

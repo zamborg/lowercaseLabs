@@ -74,7 +74,10 @@ public enum HostRegistry {
             while taken.contains(id) { id = "\(base)-\(n)"; n += 1 }
             if explicitModels.contains("\(engine.id)|\(m.repo)"), explicit.contains(where: { $0.id == base }) { continue }
             taken.insert(id)
-            out.append(HostInfo(spec: HostSpec(id: id, engine: engine.id, model: m.repo), isAuto: true))
+            // A V-prediction checkpoint says so in its file name; the auto host starts with that setting.
+            var settings: [String: JSON] = [:]
+            if engine.id == "stable-diffusion.cpp", let f = m.file, SDCppImage.isVPrediction(file: f) { settings["prediction"] = .string("v") }
+            out.append(HostInfo(spec: HostSpec(id: id, engine: engine.id, model: m.repo, settings: settings), isAuto: true))
         }
         return out.sorted { $0.id < $1.id }
     }

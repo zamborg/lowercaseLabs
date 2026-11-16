@@ -82,7 +82,7 @@ public actor MCPServerConnection: ToolProvider {
         let connecting = Task { try await self.connect() }
         let timer = Task {
             try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-            gate.finish(.failure(ParlorError.message("Timed out waiting for \(self.id) to start. Check the command in mcp.json.")))
+            gate.finish(.failure(ParlorError.message("Timed out waiting for \(self.id) to start. Check the command in tool.json.")))
         }
         Task {
             do { try await connecting.value; gate.finish(.success(())) } catch { gate.finish(.failure(error)) }
@@ -250,7 +250,7 @@ public struct MCPServiceState: Sendable, Equatable {
     public var restarts: Int
 }
 
-/// Keeps the hub in sync with `mcp.json` and supervises each server: lifecycle (always or on demand with an
+/// Keeps the hub in sync with the tool list and supervises each server: lifecycle (always or on demand with an
 /// idle stop), restart on crash by the shared `RestartPolicy` (1 s, 5 s, 30 s; `failed` after three crashes in ten minutes),
 /// and a log per server in `logs/`.
 public actor MCPManager {

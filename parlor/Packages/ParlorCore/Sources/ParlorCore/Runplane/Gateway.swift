@@ -279,24 +279,48 @@ public final class GatewayRoutes {
 
     // MARK: images
 
+    struct ImageFailure: LocalizedError {
+        var status: Int; var message: String; var type = "invalid_request_error"; var code: String?
+        var errorDescription: String? { message }
+    }
+
+    /// The one in-process way to draw: pick the host (named, or the caller's image host), check scope and problems, make room
+    /// in the memory budget, wait in the host's queue, then let its adapter draw. The `image.generate` tool and
+    /// `/v1/images/generations` both come here.
+    public func generateImage(_ r: ImageRequest, host requested: String?, caller: Caller) async throws -> ImageResult {
+        let cat = engine.catalog
+        let hostID: String
+        if let m = requested, !m.isEmpty { hostID = m }
+        else if let d = await engine.defaultImageHost(for: caller.kind == .agent ? caller.name : nil) { hostID = d }
+        else { throw ImageFailure(status: 404, message: "No image model is downloaded. Download one in Models.", code: "model_not_found") }
+        guard let host = cat.host(hostID), cat.capabilities(of: host).contains("image") else {
+            throw ImageFailure(status: 404, message: "The model \"\(hostID)\" is not an image host. GET /v1/models lists hosts and their capabilities.", code: "model_not_found")
+        }
+        guard caller.mayUse(host: host.id) else {
+            throw ImageFailure(status: 403, message: "This caller may not use host \"\(host.id)\".", type: "permission_error", code: "host_forbidden")
+        }
+        if let why = cat.problem(host: host.id) { throw ImageFailure(status: 503, message: why, type: "server_error", code: "model_unavailable") }
+        guard let e = cat.engine(host.spec.engine), let adapter = engine.adapters[e.adapter] else {
+            throw ImageFailure(status: 503, message: "Host \(host.id) names an adapter this app does not have.", type: "server_error")
+        }
+        let queue = await engine.queues.queue(host.id)
+        let ticket = try await queue.acquire(model: host.spec.model ?? host.id, priority: .user)
+        do {
+            do { try await admit(host, cost: host.spec.model.flatMap { cat.model($0)?.bytes } ?? 0) }
+            catch { throw ImageFailure(status: 503, message: error.localizedDescription, type: "server_error", code: "over_budget") }
+            let res = try await adapter.image(r, host: host, engine: e)
+            await queue.release(ticket)
+            return res
+        } catch {
+            await queue.release(ticket)
+            throw error
+        }
+    }
+
     private func images(_ body: Data, caller: Caller) async -> LoopbackServer.Response {
         guard let o = (try? JSONDecoder().decode(JSON.self, from: body))?.objectValue else { return Self.error(400, "The body is not a JSON object.") }
         guard let prompt = o["prompt"]?.stringValue, !prompt.isEmpty else { return Self.error(400, "\"prompt\" is required.", code: "missing_prompt") }
         if let n = o["n"]?.intValue, n > 1 { return Self.error(400, "n > 1 is not supported.", code: "unsupported") }
-        let cat = engine.catalog
-        let hostID: String
-        if let m = o["model"]?.stringValue, !m.isEmpty { hostID = m }
-        else if let d = await engine.defaultImageHost(for: nil) { hostID = d }
-        else { return Self.error(404, "No image host is available. GET /v1/models lists hosts.", code: "model_not_found") }
-        guard let host = cat.host(hostID), cat.capabilities(of: host).contains("image") else {
-            return Self.error(404, "The model \"\(hostID)\" is not an image host. GET /v1/models lists hosts and their capabilities.", code: "model_not_found")
-        }
-        guard caller.mayUse(host: host.id) else {
-            return Self.error(403, "This token may not use host \"\(host.id)\".", type: "permission_error", code: "host_forbidden")
-        }
-        if let why = cat.problem(host: host.id) { return Self.error(503, why, type: "server_error", code: "model_unavailable") }
-        do { try await admit(host, cost: host.spec.model.flatMap { cat.model($0)?.bytes } ?? 0) }
-        catch { return Self.error(503, error.localizedDescription, type: "server_error", code: "over_budget") }
         var r = ImageRequest(prompt: prompt, negative: (o["negative_prompt"] ?? o["negative"])?.stringValue,
                              shape: o["shape"]?.stringValue ?? "square", detailed: o["detail"]?.stringValue == "detailed",
                              seed: o["seed"]?.intValue, steps: o["steps"]?.intValue)
@@ -304,18 +328,17 @@ public final class GatewayRoutes {
             let p = size.lowercased().split(separator: "x").compactMap { Int($0) }
             if p.count == 2 { r.width = p[0]; r.height = p[1] }
         }
-        guard let e = cat.engine(host.spec.engine), let adapter = engine.adapters[e.adapter] else {
-            return Self.error(503, "Host \(host.id) names an adapter this app does not have.", type: "server_error")
-        }
         do {
-            let res = try await adapter.image(r, host: host, engine: e)
+            let res = try await generateImage(r, host: o["model"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }, caller: caller)
             var item: [String: JSON] = ["url": .string(res.url.absoluteString), "parlor_path": .string(res.path),
                                         "revised_prompt": .string(res.prompt), "seed": .int(res.seed), "width": .int(res.width), "height": .int(res.height)]
             if o["response_format"]?.stringValue == "b64_json", let d = try? Data(contentsOf: res.url) { item["b64_json"] = .string(d.base64EncodedString()) }
             return .init(status: 200, body: OpenAIWire.encode(.object(["created": .int(Int(Date().timeIntervalSince1970)), "data": .array([.object(item)]),
-                                                                       "parlor": .object(["host": .string(host.id), "seconds": .double(res.seconds)])])))
+                                                                       "parlor": .object(["host": .string(res.host), "seconds": .double(res.seconds)])])))
         } catch is CancellationError {
             return Self.error(499, "cancelled")
+        } catch let f as ImageFailure {
+            return Self.error(f.status, f.message, type: f.type, code: f.code)
         } catch {
             return Self.error(503, error.localizedDescription, type: "server_error", code: "image_failed")
         }

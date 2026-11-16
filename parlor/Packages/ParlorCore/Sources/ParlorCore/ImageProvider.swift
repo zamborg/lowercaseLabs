@@ -41,6 +41,8 @@ public actor ImageProvider: ToolProvider {
     private let catalog: @Sendable () async -> Catalog
     /// The image host an agent draws with (nil agent: the default). Set by the engine.
     private let hostFor: @Sendable (String?) async -> String?
+    /// The gateway's image entry point: scope, problem check, budget and the host's queue, then the adapter.
+    private var route: (@Sendable (ImageRequest, String?, Caller) async throws -> ImageResult)?
     private var cfg = ParlorSettings.Image()
 
     private struct Worker {
@@ -62,6 +64,8 @@ public actor ImageProvider: ToolProvider {
                 hostFor: @escaping @Sendable (String?) async -> String?) {
         self.home = home; self.library = library; self.catalog = catalog; self.hostFor = hostFor
     }
+
+    public func setRoute(_ r: @escaping @Sendable (ImageRequest, String?, Caller) async throws -> ImageResult) { route = r }
 
     /// Apply the image knobs. They are the base for a Z-Image host's settings until Tuning owns them.
     public func configure(_ new: ParlorSettings.Image) {
@@ -146,7 +150,8 @@ public actor ImageProvider: ToolProvider {
         guard let launch = engine.launch, let exe = cat.binary(for: engine) ?? EngineBinary.find(launch.command, engineDir: engine.directory) else {
             throw ParlorError.message("Engine \(engine.id) needs \(engine.requires?.hint ?? "its program").")
         }
-        var c = SDCppImage.Config.load(dir: m.directory, file: file)
+        var c = SDCppImage.Config()
+        if host.spec.settings["prediction"] == nil, SDCppImage.isVPrediction(file: file) { c.prediction = "v" }
         Self.overlay(&c, host.spec.settings)
         let (w, h) = (req.width.flatMap { a in req.height.map { (a, $0) } }) ?? c.size(shape: req.shape)
         let steps = req.steps ?? (req.detailed ? c.steps : min(c.fastSteps, c.steps))
@@ -308,15 +313,13 @@ public actor ImageProvider: ToolProvider {
         guard let prompt = arguments.objectValue?["prompt"]?.stringValue, !prompt.isEmpty else {
             return ToolOutput(text: "Missing prompt", isError: true)
         }
-        // The host comes from the calling agent on every call.
-        guard let host = await hostFor(caller.kind == .agent ? caller.name : nil) else {
-            return ToolOutput(text: "No image model is downloaded. Ask the user to download one in Models.", isError: true)
-        }
+        guard let route else { return ToolOutput(text: "The image service is not running.", isError: true) }
         let o = arguments.objectValue ?? [:]
         let req = ImageRequest(prompt: prompt, negative: o["negative"]?.stringValue, shape: o["shape"]?.stringValue ?? "square",
                                detailed: o["detail"]?.stringValue == "detailed", seed: o["seed"]?.intValue)
         do {
-            let r = try await generate(host: host, req)
+            // The gateway picks the calling agent's image host and applies scope, budget and the queue.
+            let r = try await route(req, nil, caller)
             return ToolOutput(text: "The image was generated and is already displayed to the user inline; do not write a placeholder like [image] or a link in your reply, just comment on it naturally. (\(r.width)x\(r.height), seed \(r.seed), prompt: \(r.prompt))", images: [r.path])
         } catch {
             return ToolOutput(text: "Image generation failed: \(error.localizedDescription)", isError: true)
