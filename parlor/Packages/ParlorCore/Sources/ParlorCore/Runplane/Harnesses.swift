@@ -196,6 +196,9 @@ public enum HarnessSeeds {
     A harness is a program that runs an agent's turns. Every agent has one (`chat` unless it says otherwise). The app owns the
     log, the tools and the tiers; the harness owns what is said and when to call tools or take a picture.
 
+    Drop a folder here and it appears in the app within a second, no restart. If it does not appear, or shows a problem,
+    `parlor.harnesses.list` lists it with `ok: false` and the exact issues. Fixing the file clears them.
+
     A harness is a folder:
 
         harnesses/<id>/harness.json     the manifest

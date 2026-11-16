@@ -123,10 +123,10 @@ are refused). The UI, the in-process `parlor` provider, the HTTP server and the 
 | `hosts.start`, `hosts.stop`, `hosts.bench` | act | Start, Stop, Tuning bench |
 | `hosts.delete` | destructive | Delete host |
 | `engines.list`, `engines.read`, `engines.validate` | read | Library, Engines |
-| `engines.create`, `engines.update` | configure | always asks the user: an engine runs code |
+| `engines.create`, `engines.update`, `engines.duplicate` | configure | always asks the user: an engine runs code. Built-in engines are read-only; duplicate to change |
 | `engines.delete` | destructive | Delete engine |
 | `harnesses.list`, `harnesses.read`, `harnesses.validate` | read | agent editor |
-| `harnesses.create`, `harnesses.update` | configure | always asks the user: a harness runs code |
+| `harnesses.create`, `harnesses.update`, `harnesses.duplicate` | configure | always asks the user: a harness runs code. Built-in harnesses are read-only; duplicate to change |
 | `harnesses.delete` | destructive | Delete harness |
 | `schema.get` | read | the JSON Schema of agent, host, harness or engine |
 | `services.list`, `services.logs`, `modules.list` | read | System |

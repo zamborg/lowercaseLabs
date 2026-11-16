@@ -105,6 +105,19 @@ public extension Noun {
     static func check(_ draft: [String: JSON]) -> [Issue] { [] }
 }
 
+public enum NounSource: String, Sendable { case seeded, user }
+
+/// One noun file as the registry sees it: the decoded value (nil when it does not decode), every issue, and where it came from.
+public struct NounEntry<T: Noun>: Sendable {
+    public var id: String
+    public var value: T?
+    public var raw: [String: JSON]
+    public var issues: [Issue]
+    public var source: NounSource
+    public var modified: Date
+    public var ok: Bool { value != nil && issues.errors.isEmpty }
+}
+
 public enum NounLayout: Sendable {
     /// `<dir>/<id>.json`
     case file
@@ -155,6 +168,52 @@ public final class NounStore<T: Noun>: @unchecked Sendable {
     }
 
     public func list() -> [T] { ids().compactMap { read($0) } }
+
+    /// Every file as an entry: a file that does not decode is listed with its issues, never dropped.
+    public func scan() -> [NounEntry<T>] {
+        ids().map { id in
+            let u = url(id)
+            let modified = (try? FileManager.default.attributesOfItem(atPath: u.path)[.modificationDate] as? Date) ?? Date(timeIntervalSince1970: 0)
+            guard let data = try? Data(contentsOf: u) else {
+                return NounEntry(id: id, value: nil, raw: [:], issues: [Issue(code: "unreadable", path: "", message: "the file cannot be read")], source: .user, modified: modified)
+            }
+            guard let j = try? JSONDecoder().decode(JSON.self, from: data), var o = j.objectValue else {
+                return NounEntry(id: id, value: nil, raw: [:], issues: [Issue(code: "invalid_json", path: "", message: "not valid JSON", hint: "check commas, quotes and brackets")], source: .user, modified: modified)
+            }
+            let source: NounSource = o["managed"] != nil ? .seeded : .user
+            var issues: [Issue] = []
+            if let fid = o["id"]?.stringValue, fid != id { issues.append(Issue(code: "id_mismatch", path: "id", message: "\"\(fid)\" does not match its name \"\(id)\"", hint: "set id to \"\(id)\"")) }
+            o["id"] = .string(id)
+            issues += validate(.object(o))
+            return NounEntry(id: id, value: read(id), raw: o, issues: issues, source: source, modified: modified)
+        }
+    }
+
+    /// Copy a noun under a new id. The copy is the user's: the managed marker is dropped, and a copied `.py` loses its
+    /// "edits are overwritten" header.
+    @discardableResult
+    public func duplicate(_ id: String, as newID: String) throws -> T {
+        guard Self.slugOK(newID) else { throw ValidationError(issues: [Issue(path: "new_id", message: "use letters, digits, - and _ only")]) }
+        guard raw(id) != nil else { throw ValidationError(issues: [Issue(code: "missing", path: "id", message: "no \(T.kind) \"\(id)\"", hint: "available: " + ids().joined(separator: ", "))]) }
+        guard !FileManager.default.fileExists(atPath: url(newID).path) else {
+            throw ValidationError(issues: [Issue(code: "exists", path: "new_id", message: "\(T.kind) \"\(newID)\" already exists")])
+        }
+        let fm = FileManager.default
+        if case .folder = layout {
+            try fm.copyItem(at: dir.appendingPathComponent(id), to: dir.appendingPathComponent(newID))
+            if let en = fm.enumerator(at: dir.appendingPathComponent(newID), includingPropertiesForKeys: nil) {
+                for case let f as URL in en where f.pathExtension == "py" {
+                    guard let text = try? String(contentsOf: f, encoding: .utf8), text.hasPrefix("# parlor-") else { continue }
+                    try? text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).dropFirst().joined(separator: "\n").write(to: f, atomically: true, encoding: .utf8)
+                }
+            }
+            try? fm.removeItem(at: dir.appendingPathComponent(newID).appendingPathComponent("__pycache__"))
+        }
+        var o = raw(id) ?? [:]
+        o["id"] = .string(newID); o["managed"] = nil
+        try write(newID, o)
+        return read(newID)!
+    }
 
     /// Report every problem with a draft, writing nothing.
     public func validate(_ draft: JSON) -> [Issue] {

@@ -7,7 +7,7 @@ import Foundation
 
 /// Hand-written JSON Schemas, one per noun, beside the structs they describe. A test validates every seeded file against them.
 public enum NounSchemas {
-    public static let nouns = ["agent", "host", "harness", "engine"]
+    public static var nouns: [String] { NounRegistry.ids }
 
     static func parse(_ s: String) -> JSON { (try? JSONDecoder().decode(JSON.self, from: Data(s.utf8))) ?? .null }
 
@@ -109,7 +109,7 @@ public enum NounSchemas {
 
 extension CommandCenter {
     func registerNouns() {
-        registerSchema(); registerEngineVerbs(); registerHostVerbs(); registerHarnessVerbs(); registerDraftVerbs()
+        registerSchema(); registerEngineVerbs(); registerHostVerbs(); registerHarnessVerbs(); registerDuplicateVerbs(); registerDraftVerbs()
     }
 
     private func ids(_ s: [String]) -> String { s.isEmpty ? "none yet" : s.joined(separator: ", ") }
@@ -120,6 +120,22 @@ extension CommandCenter {
 
     private func schemaIssues(_ draft: JSON, noun: String) -> [Issue] {
         NounSchemas.check(draft, noun: noun).filter { $0.code != "unknown" || noun == "agent" || noun == "host" }
+    }
+
+    /// How a listed file reads: `ok`, its issues, and whether parlor ships it (`seeded`) or a person wrote it (`user`).
+    private func entryFields<T>(_ e: NounEntry<T>) -> [String: JSON] {
+        ["ok": .bool(e.ok), "issues": e.issues.json, "source": .string(e.source.rawValue)]
+    }
+
+    /// Files that do not load, so a typo shows up in a list instead of the file vanishing.
+    private func brokenEntries<T>(_ scan: [NounEntry<T>]) -> [JSON] {
+        scan.filter { $0.value == nil }.map { .object(["id": .string($0.id), "ok": .bool(false), "issues": $0.issues.json, "source": .string($0.source.rawValue)]) }
+    }
+
+    /// Shipped files are rewritten by parlor, so a verb that changed one would be undone at the next launch.
+    private func refuseSeeded(_ noun: String, _ id: String, _ raw: [String: JSON]?) throws {
+        guard raw?["managed"] != nil else { return }
+        throw CommandError("\(noun) \"\(id)\" is built in: parlor rewrites it. Duplicate it first with parlor.\(noun == "engine" ? "engines" : "harnesses").duplicate {\"id\":\"\(id)\",\"new_id\":\"my-\(id)\"}, then change the copy.")
     }
 
     /// Code that will run needs the user's yes, whoever asks.
@@ -142,12 +158,16 @@ extension CommandCenter {
     // MARK: engines
 
     func registerEngineVerbs() {
-        add("engines.list", .read, "Engines: id, title, capabilities, formats, adapter, and whether their binary is present.") { _, _ in
+        add("engines.list", .read, "Engines: id, title, capabilities, formats, adapter, and whether their binary is present. A file that does not load is listed with ok: false and its issues.") { _, _ in
             let cat = self.engine.catalog
-            return .array(cat.engines.map { e in
-                .object(["id": .string(e.id), "title": .string(e.title), "capabilities": .strings(e.capabilities), "formats": .strings(e.formats),
-                         "adapter": .string(e.adapter), "remote": .bool(e.remote), "binary": .bool(e.remote || e.requires?.binary == nil || cat.binary(for: e) != nil)])
-            })
+            let scan = self.engine.engineStore.scan()
+            let good: [JSON] = cat.engines.map { e in
+                var o: [String: JSON] = ["id": .string(e.id), "title": .string(e.title), "capabilities": .strings(e.capabilities), "formats": .strings(e.formats),
+                         "adapter": .string(e.adapter), "remote": .bool(e.remote), "binary": .bool(e.remote || e.requires?.binary == nil || cat.binary(for: e) != nil)]
+                if let en = scan.first(where: { $0.id == e.id }) { o.merge(self.entryFields(en)) { _, n in n } }
+                return .object(o)
+            }
+            return .array(good + self.brokenEntries(scan))
         }
         add("engines.read", .read, "One engine's manifest, including its settings schema.", props: [("id", "string", "Engine id")], required: ["id"]) { a, _ in
             let id = try a.string("id")
@@ -169,6 +189,7 @@ extension CommandCenter {
         }
         add("engines.update", .configure, "Change an engine with a JSON merge patch (always asks the user).", props: [("id", "string", "Engine id"), ("patch", "object", "Merge patch")], required: ["id", "patch"]) { a, c in
             let id = try a.string("id")
+            try self.refuseSeeded("engine", id, self.engine.engineStore.raw(id))
             try await self.askUser("change engine \(id), which can run programs:\n\n" + (a.raw["patch"] ?? .null).pretty, c)
             try self.engine.engineStore.update(id, patch: a.raw["patch"] ?? .null)
             self.engine.reloadRunplane()
@@ -176,10 +197,26 @@ extension CommandCenter {
         }
         add("engines.delete", .configure, destructive: true, "Remove an engine manifest. Hosts on it stop working.", props: [("id", "string", "Engine id")], required: ["id"]) { a, _ in
             let id = try a.string("id")
-            guard self.engine.engineStore.raw(id) != nil else { throw CommandError("No engine \"\(id)\". Engines: \(self.ids(self.engine.engineStore.ids())).") }
+            guard let cur = self.engine.engineStore.raw(id) else { throw CommandError("No engine \"\(id)\". Engines: \(self.ids(self.engine.engineStore.ids())).") }
+            try self.refuseSeeded("engine", id, cur)
             try self.engine.engineStore.delete(id)
             self.engine.reloadRunplane()
             return .object(["deleted": .string(id)])
+        }
+    }
+
+    func registerDuplicateVerbs() {
+        for (noun, plural, tool) in [("engine", "engines", "which can run programs"), ("harness", "harnesses", "a program that runs agents' turns")] {
+            add("\(plural).duplicate", .configure, "Copy a \(noun) under a new id. The copy is yours to edit; built-in ones are read-only. Asks the user: it can run code.",
+                props: [("id", "string", "\(noun.capitalized) id"), ("new_id", "string", "Id for the copy; default my-<id>")], required: ["id"]) { a, c in
+                let id = try a.string("id")
+                var newID = a.optString("new_id") ?? ""
+                if newID.isEmpty { newID = "my-" + id }
+                try await self.askUser("copy \(noun) \(id) as \(newID), \(tool)", c)
+                if noun == "engine" { try self.engine.engineStore.duplicate(id, as: newID) } else { try self.engine.harnessStore.duplicate(id, as: newID) }
+                self.engine.reloadRunplane()
+                return .object(["duplicated": .string(id), "id": .string(newID)])
+            }
         }
     }
 
@@ -220,7 +257,13 @@ extension CommandCenter {
 
     func registerHostVerbs() {
         add("hosts.list", .read, "Hosts (an engine serving a model): id, engine, model, capabilities, status. Auto hosts are computed from installed models.") { _, _ in
-            .array(self.engine.catalog.hosts.map { self.hostJSON($0) })
+            let scan = self.engine.hostStore.scan()
+            let good: [JSON] = self.engine.catalog.hosts.map { h in
+                var o = self.hostJSON(h).objectValue ?? [:]
+                if let en = scan.first(where: { $0.id == h.id }) { o.merge(self.entryFields(en)) { _, n in n } } else { o["ok"] = .bool(true); o["issues"] = .array([]); o["source"] = .string("auto") }
+                return .object(o)
+            }
+            return .array(good + self.brokenEntries(scan))
         }
         add("hosts.read", .read, "One host in full, with its status and last benchmark.", props: [("id", "string", "Host id")], required: ["id"]) { a, _ in
             let id = try a.string("id")
@@ -407,11 +450,15 @@ extension CommandCenter {
     // MARK: harnesses
 
     func registerHarnessVerbs() {
-        add("harnesses.list", .read, "Harnesses: id, title, what they need, their templates and actions.") { _, _ in
-            .array(self.engine.harnessList.map { h in
-                .object(["id": .string(h.id), "title": .string(h.title), "description": .string(h.description),
-                         "needs": .object(h.needs.mapValues { .string($0) }), "templates": .strings(h.templates.map(\.id)), "actions": .strings(h.actions.map(\.id))])
-            })
+        add("harnesses.list", .read, "Harnesses: id, title, what they need, their templates and actions. A folder that does not load is listed with ok: false and its issues.") { _, _ in
+            let scan = self.engine.harnessStore.scan()
+            let good: [JSON] = self.engine.harnessList.map { h in
+                var o: [String: JSON] = ["id": .string(h.id), "title": .string(h.title), "description": .string(h.description),
+                         "needs": .object(h.needs.mapValues { .string($0) }), "templates": .strings(h.templates.map(\.id)), "actions": .strings(h.actions.map(\.id))]
+                if let en = scan.first(where: { $0.id == h.id }) { o.merge(self.entryFields(en)) { _, n in n } }
+                return .object(o)
+            }
+            return .array(good + self.brokenEntries(scan))
         }
         add("harnesses.read", .read, "One harness manifest in full: command, needs, the config schema agents' config must fit, actions and templates.",
             props: [("id", "string", "Harness id")], required: ["id"]) { a, _ in
@@ -442,6 +489,7 @@ extension CommandCenter {
         }
         add("harnesses.update", .configure, "Change a harness manifest with a merge patch (always asks the user).", props: [("id", "string", "Harness id"), ("patch", "object", "Merge patch")], required: ["id", "patch"]) { a, c in
             let id = try a.string("id")
+            try self.refuseSeeded("harness", id, self.engine.harnessStore.raw(id))
             try await self.askUser("change harness \(id), a program that runs agents' turns:\n\n" + (a.raw["patch"] ?? .null).pretty, c)
             try self.engine.harnessStore.update(id, patch: a.raw["patch"] ?? .null)
             self.engine.reloadRunplane()
@@ -449,7 +497,8 @@ extension CommandCenter {
         }
         add("harnesses.delete", .configure, destructive: true, "Delete a harness folder. Agents that use it will not run.", props: [("id", "string", "Harness id")], required: ["id"]) { a, _ in
             let id = try a.string("id")
-            guard self.engine.harnessStore.raw(id) != nil else { throw CommandError("No harness \"\(id)\". Harnesses: \(self.ids(self.engine.harnessStore.ids())).") }
+            guard let cur = self.engine.harnessStore.raw(id) else { throw CommandError("No harness \"\(id)\". Harnesses: \(self.ids(self.engine.harnessStore.ids())).") }
+            try self.refuseSeeded("harness", id, cur)
             try self.engine.harnessStore.delete(id)
             self.engine.reloadRunplane()
             return .object(["deleted": .string(id)])
@@ -480,6 +529,9 @@ extension CommandCenter {
                     out += SchemaCheck.validate(cfg, schema: schema, path: "config").filter { $0.code != "unknown" }
                     out += SchemaCheck.validate(cfg, schema: schema, path: "config").filter { $0.code == "unknown" }
                 }
+            } else if let broken = engine.harnessStore.scan().first(where: { $0.id == hid }) {
+                out.append(Issue(code: "harness_invalid", path: "harness", message: "harness \(hid) has errors and cannot run",
+                                 hint: "fix harnesses/\(hid): " + broken.issues.errors.summary))
             } else {
                 out.append(Issue(code: "unknown_harness", path: "harness", message: "no harness \"\(hid)\"", hint: "harnesses: " + ids(engine.harnessList.map(\.id))))
             }

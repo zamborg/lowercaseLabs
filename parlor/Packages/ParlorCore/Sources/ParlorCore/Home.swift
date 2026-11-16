@@ -40,7 +40,7 @@ public struct ParlorHome: Sendable {
 
     public func ensure() throws {
         let fm = FileManager.default
-        for d in [root, agentsDir, chatsDir, mediaDir, modelsDir, logsDir] {
+        for d in [root, agentsDir, chatsDir, mediaDir, modelsDir, logsDir, hostsDir, enginesDir, harnessesDir] {
             try fm.createDirectory(at: d, withIntermediateDirectories: true)
         }
     }

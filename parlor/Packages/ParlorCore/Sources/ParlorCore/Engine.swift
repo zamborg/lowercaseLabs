@@ -220,18 +220,15 @@ public final class ParlorEngine {
     }
 
     func filesChanged(_ paths: [String]) {
-        // FSEvents reports resolved paths (/private/var/…), so compare against resolved prefixes too.
-        let prefixes = [home.agentsDir.path, Self.realPath(home.agentsDir.path)]
-        let relevant = paths.contains { p in prefixes.contains { p.hasPrefix($0) } || p.hasSuffix("/mcp.json") }
-        _ = relevant
+        // FSEvents reports resolved paths (/private/var/…); `folders` compares both spellings.
+        let folders = NounRegistry.folders(changed: paths, home: home)
         let chats = paths.filter { $0.contains("/chats/") }
         reloadTask?.cancel()
         reloadTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 200_000_000)
-            if relevant {
-                self.reloadAgents()
-                if paths.contains(where: { $0.hasSuffix("/mcp.json") }) { await self.mcp.reload(); self.loadConfig() }
-            }
+            if !folders.isDisjoint(with: ["engine", "host", "harness"]) { self.reloadRunplane() }
+            if !folders.isEmpty { self.reloadAgents() }
+            if paths.contains(where: { $0.hasSuffix("/mcp.json") }) { await self.mcp.reload(); self.loadConfig() }
             if paths.contains(where: { $0.contains("/modules/") }) { self.reloadModules(); await self.mcp.reload() }
             if paths.contains(where: { $0.hasSuffix("/settings.json") }) {
                 let fresh = ParlorSettings.load(self.home.settingsFile)

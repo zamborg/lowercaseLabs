@@ -4,7 +4,7 @@ enum Seeds {
     static let folderGuide = """
     # parlor home
 
-    This folder is the whole state of the parlor Mac app. Edit files here and the running app updates live.
+    This folder is the whole state of the parlor Mac app. Edit files here and the running app updates live: a new or changed engine, host, harness or agent appears within a second, and a file with a mistake is listed with its problems (`parlor.<noun>s.list` shows `ok` and `issues`) instead of disappearing.
     Everything is a JSON file or a folder with one. Ask `parlor.schema.get` for the exact shape of any of them.
 
     ## Layout
