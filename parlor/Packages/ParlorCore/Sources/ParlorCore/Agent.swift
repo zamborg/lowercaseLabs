@@ -102,9 +102,16 @@ public struct Agent: Identifiable, Hashable, Sendable {
 }
 
 public enum Defaults {
-    public static let languageModel = "mlx-community/Qwen3-4B-4bit"
-    public static let characterModel = "mlx-community/Llama-3.2-3B-Instruct-4bit"
-    public static let imageModel = "mlx-community/Z-Image-Turbo-bf16"
+    /// The models parlor suggests, as repos to download.
+    public static let languageRepo = "mlx-community/Qwen3-4B-4bit"
+    public static let characterRepo = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+    public static let imageRepo = "mlx-community/Z-Image-Turbo-bf16"
+
+    /// The host an installed model gets automatically (see `HostRegistry`): agents name hosts, never repos.
+    public static func hostID(forRepo repo: String) -> String { Agent.slug(String(repo.split(separator: "/").last ?? "")) }
+    public static var languageModel: String { hostID(forRepo: languageRepo) }
+    public static var characterModel: String { hostID(forRepo: characterRepo) }
+    public static var imageModel: String { hostID(forRepo: imageRepo) }
 }
 
 // MARK: - the file

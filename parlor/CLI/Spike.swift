@@ -6,7 +6,7 @@ enum Spike {
     struct Case { var prompt: String; var expectTool: String; var argContains: String? }
 
     @MainActor static func run(_ engine: ParlorEngine) async -> Int32 {
-        let model = ProcessInfo.processInfo.environment["SPIKE_MODEL"] ?? Defaults.languageModel
+        let model = ProcessInfo.processInfo.environment["SPIKE_MODEL"] ?? Defaults.languageRepo
         guard engine.catalog.isInstalled(model) else { out("model \(model) not installed"); return 1 }
         let cases: [Case] = [
             .init(prompt: "What do I need to do today?", expectTool: "zass.briefing", argContains: nil),
@@ -21,7 +21,7 @@ enum Spike {
             .init(prompt: "Tell me a one-line joke about compilers.", expectTool: "", argContains: nil),
         ]
         let a = Agent(id: "spike", name: "Spike", persona: "You are a concise personal assistant. Use your tools to look things up instead of guessing.",
-                      hosts: ["chat": model], tools: ["zass.briefing", "zass.todo_list", "zass.note_list", "zass.search", "zass.person_list", "zass.journal_read", "zass.inbox_read", "zass.memory_list"], config: ["context": .int(8192), "temperature": .double(0.2)])
+                      hosts: ["chat": Bench.hostID(engine, model)], tools: ["zass.briefing", "zass.todo_list", "zass.note_list", "zass.search", "zass.person_list", "zass.journal_read", "zass.inbox_read", "zass.memory_list"], config: ["context": .int(8192), "temperature": .double(0.2)])
         engine.save(a)
         // wait for the server to come up
         for _ in 0..<60 {

@@ -4,12 +4,17 @@ import ParlorCore
 /// Prompt-cache check on the real model: the same four-message chat with the cache on and off.
 /// Reports prefill reuse and time per turn, and whether the replies match (temperature 0).
 enum Bench {
+    /// A host id, or the repo of an installed model (its auto host).
+    @MainActor static func hostID(_ engine: ParlorEngine, _ ref: String) -> String {
+        engine.catalog.host(ref)?.id ?? engine.catalog.hosts(usingModel: ref).first?.id ?? ref
+    }
+
     /// Two agents with different personas taking alternate turns, with one cache slot and with four.
     /// With one slot every turn re-processes its whole prompt; with several, each agent keeps its own cache.
     @MainActor static func alternate(_ engine: ParlorEngine, model: String) async -> Int32 {
         func make(_ name: String, _ fact: String) -> Agent {
             var a = engine.create(harness: "chat", template: nil, name: name)
-            a.chatHost = model; a.config["temperature"] = .double(0); a.tools = []
+            a.chatHost = hostID(engine, model); a.config["temperature"] = .double(0); a.tools = []
             a.persona = "You are a terse assistant. Answer in one sentence.\n" + (1...50).map { "Fact \($0): \(fact) \($0)." }.joined(separator: "\n")
             engine.save(a); return a
         }
@@ -45,7 +50,7 @@ enum Bench {
     @MainActor static func run(_ engine: ParlorEngine, model: String) async -> Int32 {
         let persona = (1...60).map { "Fact \($0): the village of Brindle keeps a ledger of every lantern lit on night \($0)." }.joined(separator: "\n")
         var a = engine.create(harness: "chat", template: nil, name: "Bench")
-        a.chatHost = model; a.config["temperature"] = .double(0); a.config["thinking"] = .bool(false); a.tools = []; a.persona = "You are a terse assistant. Answer in one sentence.\n" + persona
+        a.chatHost = hostID(engine, model); a.config["temperature"] = .double(0); a.config["thinking"] = .bool(false); a.tools = []; a.persona = "You are a terse assistant. Answer in one sentence.\n" + persona
         engine.save(a)
         let prompts = ["What is the capital of France?", "And of Italy?", "Which of those two is further north?", "Name one river in each."]
         var replies: [[String]] = []

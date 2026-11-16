@@ -167,4 +167,22 @@ final class GatewayTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 1.5)
         await e.shutdown()
     }
+
+    /// Seeded agents name hosts, and the installed default model's auto host has exactly that id.
+    @MainActor func testSeededAgentsPointAtTheDefaultModelsAutoHosts() async throws {
+        let home = tempHome(); try home.ensure()
+        try #"{"gateway":{"enabled":true,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        for repo in [Defaults.languageRepo, Defaults.characterRepo] {
+            let dir = home.modelsDir.appendingPathComponent(repo)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data(count: 8).write(to: dir.appendingPathComponent("m.safetensors"))
+            try JSONEncoder().encode(ModelLibrary.Marker(repo: repo, kind: .language, format: .mlxLM, file: nil)).write(to: dir.appendingPathComponent(".parlor-model.json"))
+        }
+        let e = ParlorEngine(home: home, runtime: DemoRuntime())
+        await e.start()
+        XCTAssertEqual(e.catalog.host(Defaults.languageModel)?.spec.model, Defaults.languageRepo)
+        XCTAssertEqual(e.catalog.host(Defaults.characterModel)?.spec.model, Defaults.characterRepo)
+        for a in e.agents where a.id != "builder" || true { XCTAssertFalse(a.chatHost.contains("/"), "\(a.id) names a repo, not a host: \(a.chatHost)") }
+        await e.shutdown()
+    }
 }

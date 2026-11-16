@@ -93,18 +93,26 @@ final class ParlorUITests: XCTestCase {
             elif method == "tools/list": send({"jsonrpc":"2.0","id":i,"result":{"tools":[]}})
         """
         try py.write(to: script, atomically: true, encoding: .utf8)
-        let mcp = #"{"mcpServers":{"fake":{"command":"python3","args":["\#(script.path)"]},"broken":{"command":"/no/such/command"}}}"#
-        try mcp.write(to: home.appendingPathComponent("mcp.json"), atomically: true, encoding: .utf8)
+        for (id, json) in [("fake", #"{"id":"fake","command":"python3","args":["\#(script.path)"]}"#), ("broken", #"{"id":"broken","command":"/no/such/command"}"#)] {
+            let d = home.appendingPathComponent("tools/\(id)")
+            try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+            try json.write(to: d.appendingPathComponent("tool.json"), atomically: true, encoding: .utf8)
+        }
         try FileManager.default.createDirectory(at: home.appendingPathComponent("hosts"), withIntermediateDirectories: true)
         try #"{"id":"nowhere","engine":"openai-remote","url":"http://127.0.0.1:9/v1","models":["m"]}"#.write(to: home.appendingPathComponent("hosts/nowhere.json"), atomically: true, encoding: .utf8)
         app.launchEnvironment["PARLOR_ROUTE"] = "system"
         app.launch()
-        XCTAssertTrue(app.buttons["stop-mcp:fake"].waitForExistence(timeout: 20), "fake server running")
-        XCTAssertTrue(app.buttons["start-mcp:broken"].waitForExistence(timeout: 5), "failed server can be started again")
-        app.buttons["stop-mcp:fake"].click()
-        XCTAssertTrue(app.buttons["start-mcp:fake"].waitForExistence(timeout: 10), "stopped from System")
-        app.buttons["start-mcp:fake"].click()
-        XCTAssertTrue(app.buttons["stop-mcp:fake"].waitForExistence(timeout: 20), "started again")
+        for id in ["fake", "broken"] {
+            let approve = app.buttons["approve-\(id)"]
+            XCTAssertTrue(approve.waitForExistence(timeout: 20), "a dropped-in tool waits for approval")
+            approve.click()
+        }
+        XCTAssertTrue(app.buttons["stop-tool:fake"].waitForExistence(timeout: 20), "fake server running")
+        XCTAssertTrue(app.buttons["start-tool:broken"].waitForExistence(timeout: 5), "failed server can be started again")
+        app.buttons["stop-tool:fake"].click()
+        XCTAssertTrue(app.buttons["start-tool:fake"].waitForExistence(timeout: 10), "stopped from System")
+        app.buttons["start-tool:fake"].click()
+        XCTAssertTrue(app.buttons["stop-tool:fake"].waitForExistence(timeout: 20), "started again")
         XCTAssertTrue(app.staticTexts["Your data"].exists)
         XCTAssertTrue(app.staticTexts["Gateway"].exists, "gateway is a service")
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.lifetime = .keepAlways; add(shot)
@@ -119,7 +127,7 @@ final class ParlorUITests: XCTestCase {
         let tabs = app.radioButtons["Hosts"]
         XCTAssertTrue(tabs.waitForExistence(timeout: 15), "Library has a Hosts tab")
         tabs.click()
-        let row = app.descendants(matching: .any)["host-nowhere"]
+        let row = app.descendants(matching: .any).matching(identifier: "host-nowhere").firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10), "host listed")
         row.click()
         let test = app.buttons["test-host-nowhere"]
@@ -145,7 +153,7 @@ final class ParlorUITests: XCTestCase {
     func testStep7Screens() throws {
         app.launchEnvironment["PARLOR_ROUTE"] = "tools"          // an alias of system
         app.launch()
-        XCTAssertTrue(app.otherElements["tools-section"].waitForExistence(timeout: 15), "Tools panel lives in System")
+        XCTAssertTrue(app.descendants(matching: .any)["tools-section"].waitForExistence(timeout: 15), "Tools panel lives in System")
         XCTAssertFalse(app.staticTexts["History"].exists, "history is cut in V3")
         app.terminate()
 
