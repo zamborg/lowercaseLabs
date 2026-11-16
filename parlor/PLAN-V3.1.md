@@ -2,8 +2,11 @@
 
 V3 (steps 1–7, `PLAN-V3.md`) shipped the right shape: engines → hosts → harnesses → agents, one gateway, one
 catalog, every agent a harness process. Two principal reviews (2026-11-16) found that each of the three patterns
-(nouns, adapters, services) is only partly done, and the gaps are where the bugs are. V3.1 finishes them. No new
-features.
+(nouns, adapters, services) is only partly done, and the gaps are where the bugs are. V3.1 finishes them, and makes every noun first party in the app. No new features.
+
+**The bar (Zubin, 2026-11-16):** at the end of V3.1 the app works, is solid and stable, and every primitive is right,
+so the only feedback left is UI/UX, and extending it later means using a seam, not fixing one. "Done means" at the
+end of this file is the acceptance checklist for that.
 
 Written by Opus for Sonnet to execute, step by step, with gates. Fresh start still applies: there is no
 migration and no back-compat. Delete old paths; do not keep shims.
@@ -38,6 +41,11 @@ migration and no back-compat. Delete old paths; do not keep shims.
 | L | Vestigial: Swift `Harness` protocol (one impl), `TurnContext.llm` (unused by it), `Agent.Kind` | `Turn.swift`, `Agent.swift` | Suggests in-process paths that don't exist |
 | M | 693 lines of Python inside Swift string literals | `Runplane/HarnessPython.swift` | Not lintable or testable as Python |
 | N | Every spawn goes through `zsh -l -c`, including engines whose binary path is known | `Supervisor.Launch`, `EngineCatalog.derivedProviders` | Slow, environment-dependent, shell-quoted settings |
+| P | Files dropped in by a person or a coding agent are not picked up. `filesChanged` reloads agents, `mcp.json`, modules, settings and chats, but not `engines/`, `hosts/` or `harnesses/`; they reload only when a verb runs or the app restarts | `Engine.swift` `filesChanged` | A new harness from Claude Code is invisible until restart |
+| Q | A broken noun file vanishes silently: `NounStore.list()` is `ids().compactMap { read($0) }` | `Runplane/Noun.swift` | A typo in `harness.json` makes the harness disappear with no error anywhere |
+| R | No UI for harnesses: Library has Models, Hosts and Engines only. There is nowhere to see every harness, where it came from, whether it works, which agents use it, or to edit, duplicate or delete one | `App/LibraryView.swift` | Harnesses are not first party in the app |
+| S | Tools are not a noun. PLAN-V3 names three manifest types (engine, harness, tools), but MCP servers are entries in one `mcp.json` and modules have their own manifest and approval flow, with no `tools.*` CRUD-validate-schema verbs in the noun shape | `MCP.swift`, `Modules.swift`, `CommandVerbs.swift` tools.* | Two ways to add a tool, neither on the noun pattern |
+| T | Each Library tab is hand-written per noun | `LibraryView.swift` `HostsTab`, `EnginesTab` | A new noun needs new UI code, against pattern 3 |
 | O | Concurrency: Swift 5 mode, 22 `@unchecked Sendable`, 11 `NSLock`s, lock-in-async warnings in `ExternalHarness` | ParlorCore | Debt for Swift 6 |
 
 ## Target shapes
@@ -49,6 +57,14 @@ migration and no back-compat. Delete old paths; do not keep shims.
 // agents.create {draft} | {template, name}         (template expands server-side into a draft, same path)
 // agents.update {id, patch}                        (merge patch over agent.json; "persona" key writes persona.md)
 // Ids never change after create. Renaming changes `name` only.
+
+// Nouns: one registry drives files, pickup, verbs, schema and the Library.
+// NounKind(id: "harness", folder: "harnesses", layout: .folder("harness.json"), schema:, verbs:, runsCode: true)
+// Registry: engine, host, harness, agent, tool (and conversation, read-mostly).
+// NounStore.scan() -> [NounEntry<T>]   NounEntry = (id, value: T?, issues: [Issue], source: .seeded|.user, modified: Date)
+//   A file that does not decode is an entry with value nil and its issues, never dropped.
+// FolderWatcher: any change under a noun folder reloads that store (debounced), recomputes the catalog and the
+//   UI updates. Seeded ("managed") files carry their marker; a user edits a copy (duplicate), never the managed file.
 
 // Adapters: one per wire protocol. The gateway is the only caller.
 protocol Adapter: Sendable {
@@ -79,7 +95,33 @@ protocol Adapter: Sendable {
 
 Each step is self-contained and leaves the app working. Do them in order.
 
-### Step 8: agents are a true noun (A, B, C, K)
+### Step 8: the noun registry, live pickup, visible errors (P, Q)
+
+1. `Runplane/NounRegistry.swift`: a `NounKind` per noun (engine, host, harness, agent; tool joins in step 13) with
+   folder, layout, schema (`NounSchemas`), whether it runs code, and its reload hook. `schema.get` and the noun
+   verbs read from it, so a new noun is one entry.
+2. `NounStore.scan()` returns every file as an entry: the decoded value or `nil`, its `[Issue]` (decode errors with
+   paths, `T.check`, schema check, cross-references via the catalog: unknown engine, missing host, missing
+   `command`), `source` (`seeded` when it carries the managed marker), and modified date. `list()` stays for callers
+   that want only valid values. Every `*.list` verb returns entries with `ok`, `issues` and `source`, so an agent
+   sees a broken file instead of nothing.
+3. `filesChanged` reloads by noun folder: `engines/`, `hosts/`, `harnesses/`, `agents/` (and later `tools/`), each
+   debounced, then `reloadRunplane()` / `reloadAgents()`. Remove the agents-only special case.
+4. Managed seeds (`chat`, `character`, built-in engines) are read-only to verbs: `update`/`delete` on a seeded noun
+   fails with the hint "duplicate it first"; add `harnesses.duplicate` and `engines.duplicate` (copy the folder
+   under a new id, drop the managed marker).
+5. Folder guide and `harnesses/CLAUDE.md`: "drop a folder here and it appears in the app within a second; if it
+   does not, `parlor.harnesses.list` shows why".
+
+Tests: a harness folder written to disk appears in `harnessList` within 2 s with no verb call (same for an engine
+and a host); a `harness.json` with a type error is listed with `ok: false` and an issue at its path; fixing the
+file clears it; `harnesses.update` on `chat` is refused and `harnesses.duplicate chat → mychat` works and is
+editable; an agent naming a broken harness shows `harness_invalid` in `agents.validate`.
+
+Gate: suite green; real check: copy `harnesses/chat` to `harnesses/test-chat` with `cp -R` in a temp home while
+`parlor-cli` waits on `harnesses.list`, and see it listed.
+
+### Step 9: agents are a true noun (A, B, C, K)
 
 1. `agents.list` / `agents.read` return `AgentRecord` JSON from `agentStore.raw(id)` (unknown keys included), plus
    `persona` (and `memory` on read). Delete `CommandCenter.agentJSON`.
@@ -109,7 +151,7 @@ for the editor.
 Gate: suite green; `grep -rn "agentJSON\|AgentOverrides\|\.contextTokens\|renameToMatchName" Packages App CLI`
 is empty.
 
-### Step 9: one place for sampling (D)
+### Step 10: one place for sampling (D)
 
 1. `ResolvedSettings` and `turn.start.settings`: remove `top_p`, `temperature`, `repetition_penalty`,
    `max_reply_tokens`. Keep the loop knobs listed above.
@@ -118,7 +160,7 @@ is empty.
 3. Gateway `chat`: precedence request > `host.defaults` > machine `settings.llm` (`topP`, `repetitionPenalty`,
    `maxReplyTokens`) > engine default; only `engine.params` are passed on; report the rest in `parlor.ignored`
    (as now).
-4. Delete the sampling half of `AgentOverrides` if anything survived step 8.
+4. Delete the sampling half of `AgentOverrides` if anything survived step 9.
 
 Tests (fake OpenAI host that records request bodies, reuse `DropInTests.fakeServer`):
 - agent silent, host `defaults.top_p = 0.5` → backend receives 0.5;
@@ -129,7 +171,7 @@ Tests (fake OpenAI host that records request bodies, reuse `DropInTests.fakeServ
 Gate: suite green, plus a real check: set Stheno's host `defaults.top_p` and `max_tokens` via `hosts.update`, chat
 through the `chat` harness, and confirm with `hosts.stats`/the fake recorder that the values arrived.
 
-### Step 10: the Adapter protocol, one routing path (E, G)
+### Step 11: the Adapter protocol, one routing path (E, G)
 
 1. New `Runplane/Adapter.swift` with the protocol above and `AdapterRegistry` (adapter id → instance).
 2. Four adapters, each in its own file under `Runplane/Adapters/`:
@@ -157,7 +199,7 @@ loaded (scripted runtime with two residents); a drop-in `http-openai` engine nee
 Gate: suite green; `grep -rn "ProviderRouter\|ProviderConfig\|setAliases\|\"provider:\"" Packages App CLI Tests`
 is empty; `parlor-cli bench` shows the cache pattern; `hosts.bench` on Stheno, the SD host and Z-Image succeeds.
 
-### Step 11: the Supervisor owns lifecycles (F, N)
+### Step 12: the Supervisor owns lifecycles (F, N)
 
 1. Implement `ensure/release/control/footprint` and the restart policy in `Supervisor` (an actor). `ServiceSpec`
    gains `env`, `cwd`, `startupSeconds`, and `Ready.http(URL)` polling.
@@ -183,9 +225,27 @@ turn starts a fresh process; budget evicts the least recently used idle service;
 `testOnlySupervisorCreatesProcesses` still holds.
 
 Gate: suite green; `grep -rn "backoff" Packages/ParlorCore/Sources | grep -v Supervisor.swift` is empty; the real
-host benches from step 10 still pass.
+host benches from step 11 still pass.
 
-### Step 12: images through the gateway, settings in the host (H, I)
+### Step 13: tools are a noun (S)
+
+1. `tools/<id>/tool.json` is the one way to add a tool server: `{id, title, transport: "stdio"|"http",
+   command, args, env, url, lifecycle, idleMinutes, tier, enabled}`. A module is a tool whose program lives in
+   its own folder (`command` relative to the folder); no separate module manifest.
+2. `ToolSpec: Noun` with a schema; `tools.list/read/validate/create/update/delete/duplicate/enable`, in the noun
+   shape. Tools run code, so `create`/`update` of `command`/`args`/`env` always ask the user (as engines and
+   harnesses do); this replaces the module approval flow and its `moduleApprovals` setting.
+3. The Supervisor runs each tool as `tool:<id>` (step 12's lifecycle). `ToolHub` reads tool specs only.
+4. Delete `mcp.json` handling, `ModuleManifest`, module approvals, `tools.mount/unmount`, `modules.list`. Update
+   `modules/CLAUDE.md` into `tools/CLAUDE.md`.
+
+Tests: a tool folder dropped in appears and its tools list after approval; changing its `command` asks again; a
+crashing tool restarts with backoff then shows failed; an agent's `tools` pattern still gates calls.
+
+Gate: suite green; `grep -rn "mcp.json\|ModuleManifest\|moduleApprovals" Packages App CLI` is empty except the
+folder guide's one line saying it is gone.
+
+### Step 14: images through the gateway, settings in the host (H, I)
 
 1. `image.generate` is a thin client: it calls the gateway's in-process image entry point with the agent as caller,
    so scope, problem check, budget and the per-host queue apply. Image requests are queued per host like chat.
@@ -200,18 +260,25 @@ sd-cli command line (`SDCppTests`); no file named `parlor-image.json` is read or
 
 Gate: suite green; real: `hosts.update` the SD host's `steps`, `hosts.bench` it, and see the timing change.
 
-### Step 13: the UI goes through verbs (J)
+### Step 15: the UI goes through verbs, and every noun has a Library tab (J, R, T)
 
 1. Every mutating UI action calls `engine.commands.call(verb, args, caller: .ui)` through one helper (the
    `runVerb` helper in `LibraryView` generalised into `App/Verbs.swift`), and shows verb errors inline.
 2. Engine mutators that duplicate a verb become `internal` (verbs use them; the App target cannot). Read-only
    state (`agents`, `catalog`, `services`, `room(for:)`, `send`) stays public.
-3. Add `CommandTests.testTheAppOnlyMutatesThroughVerbs`: scans `App/*.swift` for calls to a list of engine
+3. Library becomes one generic `NounLibraryView(kind:)` for every noun in the registry: Models (kept as is, it
+   manages downloads), Hosts, Engines, **Harnesses**, **Tools**, and Agents. Each tab lists `scan()` entries with
+   status and issues, a detail pane (read-only summary from the schema: for a harness its needs, config schema,
+   actions, templates and which agents use it), a JSON editor with Validate and Save (`update` patch), and
+   Duplicate, Delete, Reveal in Finder, and noun-specific buttons declared in the registry (`hosts`: Test, Bench,
+   Tuning; `harnesses`: Try, which runs `agents.try` with a minimal draft on the default chat host). Delete the
+   hand-written `HostsTab` and `EnginesTab`.
+4. Add `CommandTests.testTheAppOnlyMutatesThroughVerbs`: scans `App/*.swift` for calls to a list of engine
    mutators and fails on any hit (same style as `testNobodyElseCallsInstalledDirectory`).
 
 Gate: unit and UI suites green; the test above passes.
 
-### Step 14: hygiene (L, M, O)
+### Step 16: hygiene (L, M, O)
 
 1. Python harness files move to `Packages/ParlorCore/Sources/ParlorCore/Resources/harnesses/*.py` (SwiftPM
    resources), copied into the home by the existing marker logic. Add a test that runs `python3 -m py_compile` on
@@ -223,11 +290,36 @@ Gate: unit and UI suites green; the test above passes.
    is fine; record the remaining `@unchecked` count in the commit message.
 4. Update `SPEC.md` (§1 shape: Adapter, Supervisor ownership; §2.2 SD settings; §2.5 agent; §3 verbs; §4 settings
    in `turn.start`), `README.md`, the folder guide, and mark `PLAN-V3.1.md` done at the top.
+5. Walk "Done means" below and report each line.
 
 Gate (final): unit + UI suites green; `parlor-cli bench` cache pattern; real benches on Qwen3 (MLX), Stheno
 (llama.cpp), the SD checkpoint and Z-Image; Builder on Qwen3-4B creates an agent through validate → try → create
 (record honestly if the model still fails; it is not a gate failure if the verbs behave); `scripts/package.sh`;
 install to `/Applications` leaving one Parlor.
+
+## Done means (acceptance for "only UI feedback left")
+
+Walk this list at the end of step 16 on the installed app. Use a temp `PARLOR_HOME` for anything that writes;
+only Zubin resets his real `~/parlor`, never the agent. Each line is either already covered by a test or checked by hand and
+reported.
+
+1. Fresh `~/parlor`: the app starts, seeds Mabel, Pip and Builder, `chat` and `character` harnesses, built-in
+   engines, and shows every installed model with an auto host. No errors in System.
+2. Every noun (engine, host, harness, agent, tool) has a Library tab: list, status, issues, detail, JSON edit with
+   validate, duplicate, delete. Seeded ones say "built in, duplicate to change".
+3. A coding agent drops a harness, engine, host, agent or tool folder in `~/parlor`: it appears within a second; a
+   broken one shows its issues; fixing the file clears them. No restart.
+4. Chat works on an MLX host, a llama.cpp host and a remote OpenAI host; images on Z-Image and an SD checkpoint;
+   Stop, compaction, rooms and the harness buttons (Gen image, Selfie, Compact now) work.
+5. Tuning changes a host's settings and defaults; the next chat and `hosts.bench` reflect them.
+6. Kill any child process (a host server, a harness, a tool): it restarts, or shows failed with its log; the app
+   never hangs.
+7. Memory: loading a second large host evicts the idle one instead of swapping.
+8. An outside client with a scoped token can list and use only its hosts at `/v1` and call verbs at `/mcp`.
+9. Builder (or Claude Code with a configure token) makes an agent with validate → try → create; the result reads
+   back in exactly the shape it was written.
+10. `SPEC.md` describes the app as it is; every verb in it exists at its tier; there is no code path for a removed
+    feature.
 
 ## Expected size
 
