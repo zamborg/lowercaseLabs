@@ -60,10 +60,10 @@ extension ParlorEngine {
             if state == .running, let t = m.lastUsed, now.timeIntervalSince(t) > 30 { state = .idle }
             let cfg = m.config
             let pid = await mcp.pid(m.id)
-            let sid = (m.isModule ? "module:" : "mcp:") + m.id
+            let sid = "tool:" + m.id
             let name = m.id
             let info = ServiceInfo(
-                id: sid, kind: m.isModule ? "module" : "mcp", title: m.id,
+                id: sid, kind: "tool", title: m.id,
                 detail: cfg.url ?? ([cfg.command ?? ""] + (cfg.args ?? [])).joined(separator: " "),
                 state: state, memoryBytes: pid.flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: m.lastUsed, queueDepth: nil,
                 lifecycle: cfg.isOnDemand ? "onDemand" : "always", restarts: m.restarts,

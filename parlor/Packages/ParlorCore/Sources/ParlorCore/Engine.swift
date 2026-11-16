@@ -13,13 +13,12 @@ public final class ParlorEngine {
     @ObservationIgnored public lazy var engineStore = NounStore<EngineManifest>(dir: home.enginesDir, layout: .folder("engine.json"))
     @ObservationIgnored public lazy var hostStore = NounStore<HostSpec>(dir: home.hostsDir, layout: .file)
     @ObservationIgnored public lazy var harnessStore = NounStore<HarnessManifest>(dir: home.harnessesDir, layout: .folder("harness.json"))
+    @ObservationIgnored public lazy var toolStore = NounStore<ToolSpec>(dir: home.toolsDir, layout: .folder("tool.json"))
     @ObservationIgnored public lazy var agentStore = NounStore<AgentRecord>(dir: home.agentsDir, layout: .folder("agent.json"))
     public internal(set) var harnessList: [HarnessManifest] = []
     var servicesRegistered = false
     public internal(set) var agents: [Agent] = []
     public internal(set) var servers: [ServerStatus] = []
-    /// Every server in `mcp.json`, including disabled ones.
-    public internal(set) var configuredServers: [String: MCPServerConfig] = [:]
     public internal(set) var tools: [ToolDef] = []
     public var selection: String?
     /// Group rooms (conversations with several agents or another scheduler). One-to-one chats are the agents.
@@ -59,9 +58,9 @@ public final class ParlorEngine {
     /// The `parlor` MCP endpoint on 127.0.0.1.
     public internal(set) var endpoint: ParlorMCPEndpoint!
     public internal(set) var serverError: String?
-    /// Modules found in `modules/`, approved or not.
-    public internal(set) var modules: [ModuleInfo] = []
-    var moduleTokens: [String: String] = [:]
+    /// Tools found in `tools/`, approved or not, enabled or not.
+    public internal(set) var toolList: [ToolInfo] = []
+    var toolTokens: [String: String] = [:]
     /// Asked before an agent's or token's destructive verb runs. nil means nobody can answer, so it is refused.
     public var confirm: (@MainActor (String) async -> Bool)?
 
@@ -173,10 +172,9 @@ public final class ParlorEngine {
         _ = await hub.onChange { [weak self] in
             Task { @MainActor in await self?.syncFromHub() }
         }
-        loadConfig()
-        seedModuleFiles()
-        reloadModules()
-        await mcp.setModuleProvider { [weak self] in await self?.moduleConfigs() ?? [:] }
+        seedToolFiles()
+        reloadToolList()
+        await mcp.setToolProvider { [weak self] in await self?.toolConfigs() ?? [:] }
         // Servers start in the background: a slow or broken one must not hold up the window.
         Task { await self.mcp.reload(); await self.syncFromHub() }
         await syncFromHub()
@@ -197,7 +195,6 @@ public final class ParlorEngine {
         let fm = FileManager.default
         let guide = home.root.appendingPathComponent("CLAUDE.md")
         if !fm.fileExists(atPath: guide.path) { try? Seeds.folderGuide.write(to: guide, atomically: true, encoding: .utf8) }
-        if !fm.fileExists(atPath: home.mcpConfig.path) { try? MCPConfigFile().save(home.mcpConfig) }
         // Starter agents are created once. An existing home with agents is adopted without seeding, and
         // deleting every agent later does not bring them back.
         guard !fm.fileExists(atPath: home.seededMarker.path) else { return }
@@ -229,8 +226,7 @@ public final class ParlorEngine {
             try? await Task.sleep(nanoseconds: 200_000_000)
             if !folders.isDisjoint(with: ["engine", "host", "harness"]) { self.reloadRunplane() }
             if !folders.isEmpty { self.reloadAgents() }
-            if paths.contains(where: { $0.hasSuffix("/mcp.json") }) { await self.mcp.reload(); self.loadConfig() }
-            if paths.contains(where: { $0.contains("/modules/") }) { self.reloadModules(); await self.mcp.reload() }
+            if folders.contains("tool") { self.reloadToolList(); await self.mcp.reload(); await self.syncFromHub() }
             if paths.contains(where: { $0.hasSuffix("/settings.json") }) {
                 let fresh = ParlorSettings.load(self.home.settingsFile)
                 if fresh != self.settings { self.settings = fresh; await self.applySettings() }

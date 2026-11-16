@@ -68,7 +68,7 @@ public final class CommandCenter {
     init(engine: ParlorEngine) {
         self.engine = engine
         registerAgents(); registerConversations(); registerModels(); registerServices()
-        registerSettings(); registerTools(); registerMemory(); registerNouns()
+        registerSettings(); registerMemory(); registerNouns()
     }
 
     public var sorted: [Verb] { verbs.values.sorted { $0.name < $1.name } }

@@ -85,6 +85,8 @@ final class SupervisorTests: XCTestCase {
         let deadline = Date().addingTimeInterval(10)
         while svc.snapshot().state != .stopped, Date() < deadline { try await Task.sleep(nanoseconds: 200_000_000) }
         XCTAssertEqual(svc.snapshot().state, .stopped, "stops when idle")
+        let gone = Date().addingTimeInterval(3)
+        while kill(pid, 0) == 0, Date() < gone { try await Task.sleep(nanoseconds: 100_000_000) }
         XCTAssertNotEqual(kill(pid, 0), 0, "the process is gone")
         svc.stop()
     }

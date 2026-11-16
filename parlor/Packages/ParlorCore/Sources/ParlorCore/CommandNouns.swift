@@ -17,6 +17,7 @@ public enum NounSchemas {
         case "host": return parse(host)
         case "harness": return parse(harness)
         case "engine": return parse(engine)
+        case "tool": return parse(tool)
         default: return nil
         }
     }
@@ -73,6 +74,28 @@ public enum NounSchemas {
         "templates": { "type": "array", "description": "starting points: id, title, description, persona, tools, config, group, image" } } }
     """
 
+    static let tool = """
+    { "type": "object", "description": "tools/<id>/tool.json: a tool server (MCP over stdio or http) agents can call.",
+      "required": ["id"],
+      "properties": {
+        "version": { "type": "integer" },
+        "id": { "type": "string", "description": "letters, digits, - and _; also the folder name" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "transport": { "type": "string", "enum": ["stdio", "http"] },
+        "command": { "type": "string", "description": "stdio: the program; runs with the tool's folder as its working directory" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "env": { "type": "object" },
+        "cwd": { "type": "string" },
+        "url": { "type": "string", "description": "http: the MCP endpoint" },
+        "lifecycle": { "type": "string", "enum": ["always", "onDemand"] },
+        "idleMinutes": { "type": "integer", "minimum": 0 },
+        "tier": { "type": "string", "enum": ["none", "read", "act", "configure"], "description": "how much of parlor itself the tool may control" },
+        "enabled": { "type": "boolean" },
+        "settings": { "type": "object", "description": "a JSON Schema subset the app renders as a form" },
+        "values": { "type": "object", "description": "what the user chose in that form" } } }
+    """
+
     static let engine = """
     { "type": "object", "description": "engines/<id>/engine.json: a backend that serves models.",
       "required": ["id", "adapter"],
@@ -109,7 +132,7 @@ public enum NounSchemas {
 
 extension CommandCenter {
     func registerNouns() {
-        registerSchema(); registerEngineVerbs(); registerHostVerbs(); registerHarnessVerbs(); registerDuplicateVerbs(); registerDraftVerbs()
+        registerSchema(); registerEngineVerbs(); registerHostVerbs(); registerHarnessVerbs(); registerToolVerbs(); registerDuplicateVerbs(); registerDraftVerbs()
     }
 
     private func ids(_ s: [String]) -> String { s.isEmpty ? "none yet" : s.joined(separator: ", ") }
@@ -147,8 +170,8 @@ extension CommandCenter {
     // MARK: schema
 
     func registerSchema() {
-        add("schema.get", .read, "The JSON Schema of a noun (agent, host, harness, engine). The file, the verb input and the verb output all have this shape.",
-            props: [("noun", "string", "agent, host, harness or engine")], required: ["noun"]) { a, _ in
+        add("schema.get", .read, "The JSON Schema of a noun (agent, host, harness, engine, tool). The file, the verb input and the verb output all have this shape.",
+            props: [("noun", "string", "agent, host, harness, engine or tool")], required: ["noun"]) { a, _ in
             let n = try a.string("noun")
             guard let s = NounSchemas.schema(for: n) else { throw CommandError("No noun \"\(n)\". Nouns: \(NounSchemas.nouns.joined(separator: ", ")).") }
             return s
@@ -374,6 +397,95 @@ extension CommandCenter {
         add("hosts.bench", .act, "Benchmark a host: a fixed three-turn chat (text) or a fixed prompt at fast and detailed size (image). Saves the run, with the settings that produced it, to hosts/<id>.bench.json.",
             props: [("id", "string", "Host id")], required: ["id"]) { a, c in
             try await self.bench(try a.string("id"), caller: c)
+        }
+    }
+
+    // MARK: tools
+
+    private func toolState(_ t: ToolInfo, _ statuses: [ServerStatus]) -> String {
+        guard let spec = t.spec else { return "broken" }
+        if !t.approved { return "needs approval" }
+        if !spec.enabled { return "off" }
+        guard let st = statuses.first(where: { $0.id == t.id }) else { return "stopped" }
+        switch st.state { case .ready: return "ready"; case .connecting: return "starting"; case .failed(let e): return "failed: " + e; case .stopped: return "stopped" }
+    }
+
+    /// Approve what the user just saw and said yes to, so a verb-made tool needs no second click.
+    private func approveSeen(_ id: String) {
+        guard let raw = engine.toolStore.raw(id) else { return }
+        engine.updateSettings { $0.toolApprovals[id] = Tools.hash(raw) }
+    }
+
+    func registerToolVerbs() {
+        add("tools.list", .read, "Tool servers: id, title, state (ready, needs approval, off, failed...), the tools each offers, and whether the file loads. A folder that does not load is listed with ok: false and its issues.") { _, _ in
+            self.engine.reloadToolList()
+            let scan = self.engine.toolStore.scan()
+            let statuses = await self.engine.hub.allStatuses()
+            let tools = await self.engine.hub.allTools()
+            return .array(self.engine.toolList.map { t in
+                var o: [String: JSON] = ["id": .string(t.id), "state": .string(self.toolState(t, statuses)), "approved": .bool(t.approved)]
+                if let s = t.spec {
+                    o["title"] = .string(s.title); o["description"] = .string(s.description); o["transport"] = .string(s.transport)
+                    o["tier"] = .string(s.tier); o["enabled"] = .bool(s.enabled)
+                    o["tools"] = .strings(tools.filter { $0.server == t.id }.map(\.qualified))
+                }
+                if let en = scan.first(where: { $0.id == t.id }) { o.merge(self.entryFields(en)) { _, n in n } }
+                return .object(o)
+            })
+        }
+        add("tools.read", .read, "One tool's file in full, with its approval and state.", props: [("id", "string", "Tool id")], required: ["id"]) { a, _ in
+            let id = try a.string("id")
+            guard var raw = self.engine.toolStore.raw(id) else { throw CommandError("No tool \"\(id)\". Tools: \(self.ids(self.engine.toolStore.ids())).") }
+            let t = self.engine.toolList.first { $0.id == id }
+            raw["approved"] = .bool(t?.approved ?? false)
+            return .object(raw)
+        }
+        add("tools.validate", .read, "Check a tool draft and return every problem at once. Writes nothing.", props: [("draft", "object", "tool.json contents")], required: ["draft"]) { a, _ in
+            let d = a.raw["draft"] ?? .null
+            return self.issuesJSON(self.engine.toolStore.validate(d) + self.schemaIssues(d, noun: "tool"))
+        }
+        add("tools.create", .configure, "Add a tool: tool.json plus program files (always asks the user, showing both; their yes approves it).",
+            props: [("draft", "object", "tool.json contents"), ("files", "object", "{ filename: text } program files written beside tool.json")], required: ["draft"]) { a, c in
+            let d = a.raw["draft"] ?? .null
+            let issues = self.engine.toolStore.validate(d) + self.schemaIssues(d, noun: "tool")
+            if !issues.errors.isEmpty { throw ValidationError(issues: issues) }
+            let files = a.raw["files"]?.objectValue ?? [:]
+            for name in files.keys where name.contains("/") || name.hasPrefix(".") {
+                throw ValidationError(issues: [Issue(path: "files." + name, message: "file names are plain, with no folders")])
+            }
+            let shown = files.sorted { $0.key < $1.key }.map { "--- \($0.key) ---\n" + ($0.value.stringValue ?? "") }.joined(separator: "\n")
+            try await self.askUser("add this tool, a program that will run on this Mac:\n\n" + d.pretty + "\n\n" + shown, c)
+            try self.engine.toolStore.create(d)
+            let id = d.objectValue!["id"]!.stringValue!
+            let dir = self.engine.home.toolsDir.appendingPathComponent(id)
+            for (name, text) in files { try (text.stringValue ?? "").write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+            self.approveSeen(id)
+            self.engine.reloadTools()
+            return .object(["created": .string(id)])
+        }
+        add("tools.update", .configure, "Change a tool with a merge patch. Changing what runs (command, args, env, cwd, url, transport, tier) asks the user.",
+            props: [("id", "string", "Tool id"), ("patch", "object", "Merge patch")], required: ["id", "patch"]) { a, c in
+            let id = try a.string("id")
+            guard self.engine.toolStore.raw(id) != nil else { throw CommandError("No tool \"\(id)\". Tools: \(self.ids(self.engine.toolStore.ids())).") }
+            let patch = a.raw["patch"] ?? .null
+            let touchesCode = !Set(patch.objectValue?.keys.map { $0 } ?? []).isDisjoint(with: ToolSpec.codeKeys)
+            if touchesCode { try await self.askUser("change tool \(id), a program that runs on this Mac:\n\n" + patch.pretty, c) }
+            _ = try self.engine.toolStore.update(id, patch: patch)
+            if touchesCode { self.approveSeen(id) }
+            self.engine.reloadTools()
+            return .object(self.engine.toolStore.raw(id) ?? [:])
+        }
+        add("tools.delete", .configure, destructive: true, "Delete a tool's folder. Agents that listed its tools simply lose them.", props: [("id", "string", "Tool id")], required: ["id"]) { a, _ in
+            let id = try a.string("id")
+            guard self.engine.toolStore.raw(id) != nil else { throw CommandError("No tool \"\(id)\". Tools: \(self.ids(self.engine.toolStore.ids())).") }
+            self.engine.deleteTool(id)
+            return .object(["deleted": .string(id)])
+        }
+        add("tools.enable", .configure, "Turn a tool on or off without losing its settings.", props: [("id", "string", "Tool id"), ("enabled", "boolean", "On or off")], required: ["id", "enabled"]) { a, _ in
+            let id = try a.string("id")
+            guard self.engine.toolStore.raw(id) != nil else { throw CommandError("No tool \"\(id)\". Tools: \(self.ids(self.engine.toolStore.ids())).") }
+            self.engine.setTool(id, enabled: a.bool("enabled", default: true))
+            return .object(["id": .string(id), "enabled": .bool(a.bool("enabled", default: true))])
         }
     }
 

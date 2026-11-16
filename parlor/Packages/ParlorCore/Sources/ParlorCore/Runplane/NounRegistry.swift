@@ -14,10 +14,11 @@ public struct NounKind: Sendable {
     public static let host = NounKind(id: "host", folder: "hosts", layout: .file, runsCode: false, canBeSeeded: false)
     public static let harness = NounKind(id: "harness", folder: "harnesses", layout: .folder("harness.json"), runsCode: true, canBeSeeded: true)
     public static let agent = NounKind(id: "agent", folder: "agents", layout: .folder("agent.json"), runsCode: false, canBeSeeded: false)
+    public static let tool = NounKind(id: "tool", folder: "tools", layout: .folder("tool.json"), runsCode: true, canBeSeeded: false)
 }
 
 public enum NounRegistry {
-    public static let all: [NounKind] = [.agent, .host, .harness, .engine]
+    public static let all: [NounKind] = [.agent, .host, .harness, .engine, .tool]
     public static var ids: [String] { all.map(\.id) }
     public static func kind(_ id: String) -> NounKind? { all.first { $0.id == id } }
 

@@ -2,7 +2,7 @@ import Foundation
 import MCP
 import System
 
-/// One entry of `mcp.json` (Claude Desktop format).
+/// How to reach one tool server: derived from a `tool.json`, never written on its own.
 public struct MCPServerConfig: Codable, Sendable, Equatable {
     public var command: String?
     public var args: [String]?
@@ -23,24 +23,6 @@ public struct MCPServerConfig: Codable, Sendable, Equatable {
     }
 
     public var isOnDemand: Bool { lifecycle == "onDemand" }
-}
-
-public struct MCPConfigFile: Codable, Sendable, Equatable {
-    public var mcpServers: [String: MCPServerConfig]
-    public init(mcpServers: [String: MCPServerConfig] = [:]) { self.mcpServers = mcpServers }
-
-    public static func load(_ url: URL) -> MCPConfigFile {
-        guard let d = try? Data(contentsOf: url), let c = try? JSONDecoder().decode(MCPConfigFile.self, from: d) else {
-            return MCPConfigFile()
-        }
-        return c
-    }
-
-    public func save(_ url: URL) throws {
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try enc.encode(self).write(to: url)
-    }
 }
 
 /// Resolves exactly once, from whichever of connect, timeout or process exit gets there first.
@@ -261,7 +243,6 @@ actor LazyProvider: ToolProvider {
 /// What the dashboard shows for one mount.
 public struct MCPServiceState: Sendable, Equatable {
     public var id: String
-    public var isModule = false
     public var config: MCPServerConfig
     public var state: ServiceState
     public var pid: Int32?
@@ -288,9 +269,8 @@ public actor MCPManager {
     private let hub: ToolHub
     private let home: ParlorHome
     private var entries: [String: Entry] = [:]
-    /// Approved modules, supplied by the engine; they run under the same supervision as `mcp.json` servers.
-    private var moduleProvider: (@Sendable () async -> [String: MCPServerConfig])?
-    private var moduleNames: Set<String> = []
+    /// Approved tools, supplied by the engine: id → how to reach it.
+    private var toolProvider: (@Sendable () async -> [String: MCPServerConfig])?
     /// What to do after a crash; the one policy every service uses. Tests shrink the delays.
     public var policy = RestartPolicy()
     /// Seconds per `idleMinutes` unit; tests shrink it.
@@ -298,8 +278,8 @@ public actor MCPManager {
 
     public init(hub: ToolHub, home: ParlorHome) { self.hub = hub; self.home = home }
 
-    public func setModuleProvider(_ p: @escaping @Sendable () async -> [String: MCPServerConfig]) { moduleProvider = p }
-    func logName(_ id: String) -> String { moduleNames.contains(id) ? "module:\(id)" : "mcp:\(id)" }
+    public func setToolProvider(_ p: @escaping @Sendable () async -> [String: MCPServerConfig]) { toolProvider = p }
+    func logName(_ id: String) -> String { "tool:\(id)" }
 
     public func setRestartDelays(_ d: [TimeInterval]) { policy.delays = d }
     public func setIdleUnit(_ u: TimeInterval) { idleUnit = u }
@@ -307,18 +287,15 @@ public actor MCPManager {
     // MARK: configuration
 
     public func reload() async {
-        var file = MCPConfigFile.load(home.mcpConfig)
-        let mods = await moduleProvider?() ?? [:]
-        moduleNames = Set(mods.keys).subtracting(file.mcpServers.keys)
-        for (k, v) in mods where file.mcpServers[k] == nil { file.mcpServers[k] = v }
+        let configs = await toolProvider?() ?? [:]
         // Drop servers that were removed or changed; keep the rest running.
-        for (id, e) in entries where file.mcpServers[id] == nil || file.mcpServers[id] != e.config {
+        for (id, e) in entries where configs[id] == nil || configs[id] != e.config {
             await teardown(id)
             entries[id] = nil
             await hub.unregister(id)
         }
         var launches: [String] = []
-        for (id, cfg) in file.mcpServers where entries[id] == nil {
+        for (id, cfg) in configs where entries[id] == nil {
             entries[id] = Entry(config: cfg)
             if cfg.disabled == true { continue }
             if cfg.isOnDemand { await prepareOnDemand(id) } else { launches.append(id) }
@@ -331,7 +308,7 @@ public actor MCPManager {
 
     public func snapshot() -> [MCPServiceState] {
         entries.map { id, e in
-            MCPServiceState(id: id, isModule: moduleNames.contains(id), config: e.config, state: e.config.disabled == true ? .stopped : e.state,
+            MCPServiceState(id: id, config: e.config, state: e.config.disabled == true ? .stopped : e.state,
                             pid: nil, lastUsed: e.lastUsed, restarts: e.restarts)
         }.sorted { $0.id < $1.id }
     }
@@ -356,9 +333,8 @@ public actor MCPManager {
     }
 
     public func restart(_ id: String) async {
-        var file = MCPConfigFile.load(home.mcpConfig)
-        for (k, v) in await moduleProvider?() ?? [:] where file.mcpServers[k] == nil { file.mcpServers[k] = v }
-        if let cfg = file.mcpServers[id] {
+        let configs = await toolProvider?() ?? [:]
+        if let cfg = configs[id] {
             if entries[id] == nil { entries[id] = Entry(config: cfg) } else { entries[id]?.config = cfg }
         }
         await teardown(id)

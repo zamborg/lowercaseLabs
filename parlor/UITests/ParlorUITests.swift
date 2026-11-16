@@ -142,7 +142,7 @@ final class ParlorUITests: XCTestCase {
     func testStep7Screens() throws {
         app.launchEnvironment["PARLOR_ROUTE"] = "tools"          // an alias of system
         app.launch()
-        XCTAssertTrue(app.buttons["add-server"].waitForExistence(timeout: 15), "Tools panel lives in System")
+        XCTAssertTrue(app.otherElements["tools-section"].waitForExistence(timeout: 15), "Tools panel lives in System")
         XCTAssertFalse(app.staticTexts["History"].exists, "history is cut in V3")
         app.terminate()
 
@@ -169,19 +169,19 @@ final class ParlorUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.lifetime = .keepAlways; add(shot)
     }
 
-    /// A token made in System drives the running app over HTTP, and a module needs the user's approval.
+    /// A token made in System drives the running app over HTTP, and a tool needs the user's approval.
     func testTokenDrivesAppAndModuleApproval() throws {
         try #"{"gateway":{"enabled":true,"port":11877}}"#.write(to: home.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
-        let dir = home.appendingPathComponent("modules/quiet")
+        let dir = home.appendingPathComponent("tools/quiet")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try #"{"name":"quiet","description":"Does nothing.","command":"python3","args":["server.py"]}"#.write(to: dir.appendingPathComponent("module.json"), atomically: true, encoding: .utf8)
+        try #"{"id":"quiet","description":"Does nothing.","command":"python3","args":["server.py"]}"#.write(to: dir.appendingPathComponent("tool.json"), atomically: true, encoding: .utf8)
         try "import sys, json\nfor l in sys.stdin:\n    m = json.loads(l)\n    if m.get('id') is None: continue\n    r = {'protocolVersion':'2025-03-26','capabilities':{'tools':{}},'serverInfo':{'name':'quiet','version':'1'}} if m['method']=='initialize' else {'tools':[]}\n    print(json.dumps({'jsonrpc':'2.0','id':m['id'],'result':r}), flush=True)\n".write(to: dir.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
         app.launchEnvironment["PARLOR_ROUTE"] = "system"
         app.launch()
 
         // Module: listed, waiting for approval.
         let approve = app.buttons["approve-quiet"]
-        XCTAssertTrue(approve.waitForExistence(timeout: 15), "unapproved module offers Approve")
+        XCTAssertTrue(approve.waitForExistence(timeout: 15), "unapproved tool offers Approve")
         approve.click()
         XCTAssertTrue(app.buttons["revoke-quiet"].waitForExistence(timeout: 10), "approved")
 

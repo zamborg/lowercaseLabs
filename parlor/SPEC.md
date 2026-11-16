@@ -19,7 +19,7 @@ Control    verbs, gateway, MCP        how the UI, other agents and outside clien
 
 - **Engine**: a backend. Adapter is `inprocess-mlx`, `http-openai`, `command` or `mcp-stdio`.
 - **Adapter**: one per wire protocol, registered in `AdapterRegistry`. The gateway resolves a host through the catalog (a host id, or `<host>/<model>` on a remote host; a bare model repo is `model_not_found`), takes that host's queue, then calls `adapter.chat` or `adapter.image`. Adapters also report `state`, `usage` and `residentBytes` for the memory budget, and `start`/`stop` a host (`hosts.stop` on an MLX host unloads that model only). A drop-in engine that names an existing adapter needs no Swift.
-- **Services**: every child process follows one policy. `RestartPolicy` (delays 1 s, 5 s, 30 s; `failed` after three crashes in ten minutes) and `IdleTimer` live in `ManagedService.swift`; host servers are `ManagedService`s (`host:<id>`, started on first use, stopped idle, run directly from the engine's `requires.binary` with literal arguments, no shell); MCP servers, modules and the image worker use the same policy and timer.
+- **Services**: every child process follows one policy. `RestartPolicy` (delays 1 s, 5 s, 30 s; `failed` after three crashes in ten minutes) and `IdleTimer` live in `ManagedService.swift`; host servers are `ManagedService`s (`host:<id>`, started on first use, stopped idle, run directly from the engine's `requires.binary` with literal arguments, no shell); MCP tool servers and the image worker use the same policy and timer.
 - **Host**: an engine plus a model, how it runs (`settings`) and how it is asked (`defaults`).
 - **Harness**: a program that runs an agent's turns over the harness protocol (section 4).
 - **Agent**: a folder: its harness, the hosts it uses for each need, tools, tier and config.
@@ -35,14 +35,13 @@ Source layout: `Packages/ParlorCore/Sources/ParlorCore/{Runplane,Agents,Control}
 Root `~/parlor`, or `$PARLOR_HOME`.
 
 ```
-settings.json               machine settings, tokens (hashes), module approvals, gateway
-mcp.json                    mounted MCP servers (Claude Desktop format)
+settings.json               machine settings, tokens (hashes), tool approvals, gateway
 engines/<id>/engine.json    an engine
 hosts/<id>.json             a host; hosts/<id>.bench.json holds its last 10 bench runs
 harnesses/<id>/harness.json a harness, beside its program
 agents/<id>/agent.json      an agent; persona.md is its system prompt; memory.md its memory
 chats/<id>/log.jsonl        a conversation; summary.md, conversation.json (room), tools.json
-modules/<name>/module.json  a small tool server you or a model wrote
+tools/<id>/tool.json        a tool server (MCP, stdio or http) beside its program
 media/YYYY-MM/  models/<org>/<name>/  workspaces/<agent>/  logs/
 ```
 
@@ -97,11 +96,11 @@ rewrites `persona.md`.
 `tool`, `images`. `summary.md` is the harness's rolling summary. `conversation.json` makes a chat a room: `participants` and a
 `scheduler` (`userDriven`, `roundRobin` or `mention`). `chats/<id>/tools.json` is the last tool set seen, for the "Tools updated" marker.
 
-### 2.7 Settings, mounts, modules
+### 2.7 Settings and tools
 
-`settings.json` is tolerant: unknown keys survive, bad values fall back. Hosts are never listed there; they are files. `mcp.json` is the Claude Desktop format with
-optional `lifecycle` and `idleMinutes`. A module is a folder with `module.json` and a program; it runs only after the user
-approves it and re-asks when the manifest changes. See `modules/CLAUDE.md`.
+`settings.json` is tolerant: unknown keys survive, bad values fall back. Hosts are never listed there; they are files. A tool is a folder `tools/<id>/` with `tool.json` (transport, command or url, env,
+`lifecycle`, `idleMinutes`, `tier`, optional settings schema) and its program; it runs only after the user approves it and
+re-asks when what it runs (`ToolSpec.codeKeys`) changes. See `tools/CLAUDE.md`.
 
 ## 3. Control
 
@@ -133,13 +132,15 @@ are refused). The UI, the in-process `parlor` provider, the HTTP server and the 
 | `harnesses.list`, `harnesses.read`, `harnesses.validate` | read | agent editor |
 | `harnesses.create`, `harnesses.update`, `harnesses.duplicate` | configure | always asks the user: a harness runs code. Built-in harnesses are read-only; duplicate to change |
 | `harnesses.delete` | destructive | Delete harness |
-| `schema.get` | read | the JSON Schema of agent, host, harness or engine |
-| `services.list`, `services.logs`, `modules.list` | read | System |
+| `schema.get` | read | the JSON Schema of agent, host, harness, engine or tool |
+| `services.list`, `services.logs` | read | System |
+| `tools.list`, `tools.read`, `tools.validate` | read | System, Tools |
+| `tools.create`, `tools.update`, `tools.enable` | configure | `create` always asks the user (a tool runs code); `update` asks when it changes what runs |
+| `tools.delete` | destructive | Remove tool |
 | `services.start`, `services.stop`, `services.restart` | act | Restart server |
 | `settings.get` | read | Performance |
 | `settings.set`, `settings.reset` | configure | Performance fields, Reset to defaults |
 | `tools.list` | read | Tools |
-| `tools.mount`, `tools.unmount`, `tools.enable` | configure | add, delete, enable or disable a server |
 | `home.paths`, `home.reveal` | read | Your data (reveal does nothing over the wire) |
 | `memory.read`, `memory.append`, `memory.replace` | none | an agent's own memory; another agent's needs configure |
 
@@ -157,11 +158,11 @@ Rules:
 `POST /v1/images/generations` and `/mcp` (streamable HTTP). Errors are OpenAI-shaped. A foreign `Origin` or `Host` is refused.
 A bearer token is required. Tokens are made in System, stored in the Keychain (names and hashes in `settings.json`), and have a
 name, a tier, an optional expiry and an optional host list; a scoped token is forbidden on other hosts. Processes the app
-launches (harnesses, modules, bench) get an ephemeral token at their manifest's or agent's tier.
+launches (harnesses, tools, bench) get an ephemeral token at their tool.json's or agent's tier.
 
 ### 3.3 Services
 
-One `Supervisor` creates every process (engines, MCP servers, modules, harnesses). Each shows in System with state, log and
+One `Supervisor` creates every process (engines, MCP tool servers, harnesses). Each shows in System with state, log and
 Start/Stop/Restart. `onDemand` starts on first use and stops when idle; a crash restarts with backoff and then shows failed.
 Logs rotate at 1 MB.
 
@@ -191,5 +192,5 @@ all of this behind a small API; see `harnesses/CLAUDE.md`.
 `Tests/` runs without weights: a scripted model and a fake OpenAI server stand in. They cover nouns and schema checks, the
 catalog, the gateway (scopes, errors, disconnects), the harness wire format, rooms, every verb in the table above at its
 stated tier (`CommandTests.testEveryVerbInTheSpecExistsAtItsTier` parses this file), drop-in engines and harnesses, and the
-memory, services and module lifecycles. `parlor-cli bench` runs the same cache-pattern check through the gateway on real
+memory, services and tool lifecycles. `parlor-cli bench` runs the same cache-pattern check through the gateway on real
 models.

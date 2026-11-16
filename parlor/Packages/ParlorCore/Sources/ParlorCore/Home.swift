@@ -23,7 +23,7 @@ public struct ParlorHome: Sendable {
         }
         return root.appendingPathComponent("models")
     }
-    public var modulesDir: URL { root.appendingPathComponent("modules") }
+    public var toolsDir: URL { root.appendingPathComponent("tools") }
     /// Working directory of an external harness: `workspaces/<agent>/`.
     public var workspacesDir: URL { root.appendingPathComponent("workspaces") }
     public var harnessesDir: URL { root.appendingPathComponent("harnesses") }
@@ -31,7 +31,6 @@ public struct ParlorHome: Sendable {
     public var logsDir: URL { root.appendingPathComponent("logs") }
     /// Derived data that is safe to delete (cached tool lists of on-demand servers).
     public var cacheDir: URL { root.appendingPathComponent(".cache") }
-    public var mcpConfig: URL { root.appendingPathComponent("mcp.json") }
     public var settingsFile: URL { root.appendingPathComponent("settings.json") }
     /// Present once the starter agents have been created (or an existing home was adopted).
     public var seededMarker: URL { root.appendingPathComponent(".parlor-seeded") }

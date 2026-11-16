@@ -177,28 +177,30 @@ final class CoreTests: XCTestCase {
         await engine.shutdown()
     }
 
-    @MainActor func testDisableAndDeleteServers() async throws {
+    @MainActor func testDisableAndDeleteTools() async throws {
         let home = tempHome(); try home.ensure()
-        try MCPConfigFile(mcpServers: ["flaky": MCPServerConfig(command: "/usr/bin/false")]).save(home.mcpConfig)
+        let dir = home.toolsDir.appendingPathComponent("flaky")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try #"{"id":"flaky","command":"/usr/bin/false"}"#.write(to: dir.appendingPathComponent("tool.json"), atomically: true, encoding: .utf8)
         let engine = ParlorEngine(home: home, runtime: scriptedLLM())
         await engine.start()
-        XCTAssertNotNil(engine.configuredServers["flaky"])
+        XCTAssertEqual(engine.toolList.first?.approved, false, "a dropped-in tool waits for approval")
+        engine.approveTool("flaky")
         for _ in 0..<50 where !engine.servers.contains(where: { $0.id == "flaky" }) { try await Task.sleep(nanoseconds: 100_000_000) }
-        XCTAssertTrue(engine.servers.contains { $0.id == "flaky" }, "enabled server is mounted (and here failing); startup did not block on it")
+        XCTAssertTrue(engine.servers.contains { $0.id == "flaky" }, "approved tool is mounted (and here failing); startup did not block on it")
 
-        engine.setServer("flaky", enabled: false)
+        engine.setTool("flaky", enabled: false)
         for _ in 0..<30 where engine.servers.contains(where: { $0.id == "flaky" }) { try await Task.sleep(nanoseconds: 100_000_000) }
-        XCTAssertEqual(engine.configuredServers["flaky"]?.disabled, true, "kept in mcp.json, marked disabled")
-        XCTAssertFalse(engine.servers.contains { $0.id == "flaky" }, "disabled server is unmounted")
-        XCTAssertEqual(MCPConfigFile.load(home.mcpConfig).mcpServers["flaky"]?.command, "/usr/bin/false", "settings survive")
+        XCTAssertEqual(engine.toolStore.raw("flaky")?["enabled"]?.boolValue, false, "kept on disk, marked off")
+        XCTAssertFalse(engine.servers.contains { $0.id == "flaky" }, "a disabled tool is unmounted")
+        XCTAssertEqual(engine.toolStore.raw("flaky")?["command"]?.stringValue, "/usr/bin/false", "settings survive")
 
-        engine.setServer("flaky", enabled: true)
+        engine.setTool("flaky", enabled: true)
         for _ in 0..<30 where !engine.servers.contains(where: { $0.id == "flaky" }) { try await Task.sleep(nanoseconds: 100_000_000) }
         XCTAssertTrue(engine.servers.contains { $0.id == "flaky" }, "re-enabled")
 
-        engine.deleteServer("flaky")
-        XCTAssertNil(engine.configuredServers["flaky"])
-        XCTAssertNil(MCPConfigFile.load(home.mcpConfig).mcpServers["flaky"], "removed from disk")
+        engine.deleteTool("flaky")
+        XCTAssertNil(engine.toolStore.raw("flaky"))
         for _ in 0..<30 where engine.servers.contains(where: { $0.id == "flaky" }) { try await Task.sleep(nanoseconds: 100_000_000) }
         XCTAssertFalse(engine.servers.contains { $0.id == "flaky" })
         await engine.shutdown()

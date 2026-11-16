@@ -129,7 +129,7 @@ public actor MLXRuntime: LanguageModelRuntime {
         container: ModelContainer, request: LLMRequest, slots: SlotCache,
         continuation: AsyncThrowingStream<LLMEvent, Error>.Continuation
     ) async throws {
-        let specs: [ToolSpec]? = request.tools.isEmpty ? nil : request.tools.map(Self.spec)
+        let specs: [MLXLMCommon.ToolSpec]? = request.tools.isEmpty ? nil : request.tools.map(Self.spec)
         let chat = request.messages.map(Self.chatMessage)
         var ctx: [String: any Sendable] = [:]
         ctx["enable_thinking"] = request.thinking
@@ -206,7 +206,7 @@ public actor MLXRuntime: LanguageModelRuntime {
 
     // MARK: conversions
 
-    static func spec(_ t: ToolDef) -> ToolSpec {
+    static func spec(_ t: ToolDef) -> MLXLMCommon.ToolSpec {
         let params = (t.schema.any as? [String: Any]) ?? ["type": "object", "properties": [String: Any]()]
         let fn: [String: any Sendable] = [
             "name": t.wireName,

@@ -16,8 +16,8 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
     /// Model providers besides the built-in MLX one.
     /// Access tokens: names and hashes only; the secret is shown once when it is made.
     public var tokens: [APIToken] = []
-    /// Module name → manifest hash the user approved.
-    public var moduleApprovals: [String: String] = [:]
+    /// Tool id → fingerprint of what it runs, as the user approved it.
+    public var toolApprovals: [String: String] = [:]
 
     public init() {}
 
@@ -33,7 +33,7 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case llm, image, loop, memoryBudgetFraction, cacheSlotsPerModel, gateway, tokens, moduleApprovals
+        case llm, image, loop, memoryBudgetFraction, cacheSlotsPerModel, gateway, tokens, toolApprovals
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -41,7 +41,7 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
         try c.encode(llm, forKey: .llm); try c.encode(image, forKey: .image); try c.encode(loop, forKey: .loop)
         try c.encode(memoryBudgetFraction, forKey: .memoryBudgetFraction); try c.encode(cacheSlotsPerModel, forKey: .cacheSlotsPerModel)
         try c.encode(gateway, forKey: .gateway)
-        try c.encode(tokens, forKey: .tokens); try c.encode(moduleApprovals, forKey: .moduleApprovals)
+        try c.encode(tokens, forKey: .tokens); try c.encode(toolApprovals, forKey: .toolApprovals)
     }
 
     public init(from decoder: Decoder) throws {
@@ -50,7 +50,7 @@ public struct ParlorSettings: Codable, Equatable, Sendable {
         cacheSlotsPerModel = try c.decodeIfPresent(Int.self, forKey: .cacheSlotsPerModel) ?? cacheSlotsPerModel
         gateway = try c.decodeIfPresent(Gateway.self, forKey: .gateway) ?? gateway
         tokens = try c.decodeIfPresent([APIToken].self, forKey: .tokens) ?? tokens
-        moduleApprovals = try c.decodeIfPresent([String: String].self, forKey: .moduleApprovals) ?? moduleApprovals
+        toolApprovals = try c.decodeIfPresent([String: String].self, forKey: .toolApprovals) ?? toolApprovals
         llm = try c.decodeIfPresent(LLM.self, forKey: .llm) ?? llm
         image = try c.decodeIfPresent(Image.self, forKey: .image) ?? image
         loop = try c.decodeIfPresent(Loop.self, forKey: .loop) ?? loop

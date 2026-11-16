@@ -36,7 +36,15 @@ final class ServiceTests: XCTestCase {
         try fakeServer.write(toFile: script, atomically: true, encoding: .utf8)
     }
 
-    private func write(_ servers: [String: MCPServerConfig]) throws { try MCPConfigFile(mcpServers: servers).save(home.mcpConfig) }
+    private var servers: [String: MCPServerConfig] = [:]
+    private func write(_ s: [String: MCPServerConfig]) throws { servers = s }
+    /// A manager whose tool list is whatever the test wrote.
+    private func mgr(_ hub: ToolHub) async -> MCPManager {
+        let m = MCPManager(hub: hub, home: home)
+        let snapshot = servers
+        await m.setToolProvider { snapshot }
+        return m
+    }
     private func fake(_ mode: String = "ok", lifecycle: String? = nil, idle: Int? = nil) -> MCPServerConfig {
         MCPServerConfig(command: "python3", args: [script, mode], lifecycle: lifecycle, idleMinutes: idle)
     }
@@ -49,7 +57,7 @@ final class ServiceTests: XCTestCase {
 
     func testStartStopRestartAndLog() async throws {
         try write(["fake": fake()])
-        let hub = ToolHub(), m = MCPManager(hub: hub, home: home)
+        let hub = ToolHub(); let m = await mgr(hub)
         await m.reload()
         let s0 = await state(m, "fake")
         XCTAssertEqual(s0, .running)
@@ -68,14 +76,14 @@ final class ServiceTests: XCTestCase {
         await m.restart("fake")
         let pid2 = await m.pid("fake")
         XCTAssertNotEqual(pid1, pid2)
-        let log = ServiceLog.tail(home: home, service: "mcp:fake", lines: 20)
+        let log = ServiceLog.tail(home: home, service: "tool:fake", lines: 20)
         XCTAssertTrue(log.contains("fake server up"), log)
         await m.stopAll()
     }
 
     func testBrokenCommandShowsFailedWithError() async throws {
         try write(["bad": MCPServerConfig(command: "/definitely/not/a/command")])
-        let m = MCPManager(hub: ToolHub(), home: home)
+        let m = await mgr(ToolHub())
         await m.reload()
         guard case .failed(let msg)? = await state(m, "bad") else { return XCTFail("expected failed, got \(String(describing: await state(m, "bad")))") }
         XCTAssertFalse(msg.isEmpty)
@@ -83,7 +91,7 @@ final class ServiceTests: XCTestCase {
 
     func testCrashRestartsWithBackoffThenFails() async throws {
         try write(["flaky": fake("crash")])
-        let hub = ToolHub(), m = MCPManager(hub: hub, home: home)
+        let hub = ToolHub(); let m = await mgr(hub)
         await m.setRestartDelays([0.1, 0.1, 0.1])
         await m.reload()
         let failed = await wait(20) { if case .failed? = await self.state(m, "flaky") { return true }; return false }
@@ -102,7 +110,7 @@ final class ServiceTests: XCTestCase {
     func testOnDemandStartsOnFirstCallAndSleepsWhenIdle() async throws {
         try write(["lazy": fake(lifecycle: "onDemand", idle: 1)])
         let hub = ToolHub()
-        let m = MCPManager(hub: hub, home: home)
+        let m = await mgr(hub)
         await m.setIdleUnit(0.5)
         await m.reload()
         // First run has no tool cache: it starts once to learn the tools, then sleeps.
@@ -122,7 +130,7 @@ final class ServiceTests: XCTestCase {
         let again = await hub.allTools().map(\.qualified)
         XCTAssertEqual(again, ["lazy.echo"])
         // After an app restart the cached list is used with no process started.
-        let m2 = MCPManager(hub: ToolHub(), home: home)
+        let m2 = await mgr(ToolHub())
         await m2.reload()
         let pid2 = await m2.pid("lazy")
         XCTAssertNil(pid2)
@@ -144,7 +152,7 @@ final class ServiceTests: XCTestCase {
 }
 
 @MainActor
-final class ModuleTests: XCTestCase {
+final class ToolTests: XCTestCase {
     private func makeEngine() async throws -> ParlorEngine {
         let home = tempHome()
         try home.ensure()
@@ -154,15 +162,15 @@ final class ModuleTests: XCTestCase {
     }
 
     private func write(_ e: ParlorEngine, _ name: String, manifest: String, server: String) throws {
-        let dir = e.home.modulesDir.appendingPathComponent(name)
+        let dir = e.home.toolsDir.appendingPathComponent(name)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try manifest.write(to: dir.appendingPathComponent("module.json"), atomically: true, encoding: .utf8)
+        try manifest.write(to: dir.appendingPathComponent("tool.json"), atomically: true, encoding: .utf8)
         try server.write(to: dir.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
     }
 
     /// The nth Python block in the guide, verbatim.
     private func guideServer(_ n: Int = 0) -> String {
-        var rest = Substring(Seeds.moduleGuide)
+        var rest = Substring(Seeds.toolGuide)
         var block = ""
         for _ in 0...n {
             let a = rest.range(of: "```python\n")!, b = rest.range(of: "\n```", range: a.upperBound..<rest.endIndex)!
@@ -179,37 +187,37 @@ final class ModuleTests: XCTestCase {
 
     func testModuleNeedsApprovalThenRunsAndReapprovesOnChange() async throws {
         let e = try await makeEngine()
-        let manifest = #"{"version":1,"name":"dice","description":"Roll dice.","command":"python3","args":["server.py"],"needs":{"tier":"none"},"settings":{"type":"object","properties":{"maxDice":{"type":"integer","default":3,"description":"Most dice"}}}}"#
+        let manifest = #"{"id":"dice","title":"Dice","description":"Roll dice.","command":"python3","args":["server.py"],"tier":"none","settings":{"type":"object","properties":{"maxDice":{"type":"integer","default":3,"description":"Most dice"}}}}"#
         try write(e, "dice", manifest: manifest, server: guideServer())
         await e.start()
-        XCTAssertTrue(FileManager.default.fileExists(atPath: e.home.modulesDir.appendingPathComponent("CLAUDE.md").path), "guide is seeded")
-        let m = try XCTUnwrap(e.modules.first)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: e.home.toolsDir.appendingPathComponent("CLAUDE.md").path), "guide is seeded")
+        let m = try XCTUnwrap(e.toolList.first)
         XCTAssertFalse(m.approved)
-        XCTAssertNil(m.error)
+        XCTAssertNil(m.error, m.error ?? "")
         var tools = await e.hub.allTools().map(\.qualified)
         XCTAssertFalse(tools.contains("dice.roll"), "nothing runs before approval")
 
-        e.approveModule("dice")
+        e.approveTool("dice")
         let up = await waitFor { await e.hub.allTools().map(\.qualified).contains("dice.roll") }
         XCTAssertTrue(up, "mounts after approval")
         let r = await e.hub.call(wireName: "dice__roll", arguments: .object(["sides": .int(6), "count": .int(2)]))
         XCTAssertFalse(r.isError, r.text); XCTAssertTrue(r.text.contains("="), r.text)
         // Settings reach the module: maxDice is 3 by default.
         let big = await e.hub.call(wireName: "dice__roll", arguments: .object(["count": .int(5)]))
-        XCTAssertTrue(big.isError, "schema default of 3 was passed in PARLOR_MODULE_SETTINGS")
-        e.setModuleValues("dice", ["maxDice": .int(10)])
+        XCTAssertTrue(big.isError, "schema default of 3 was passed in PARLOR_TOOL_SETTINGS")
+        e.setToolValues("dice", ["maxDice": .int(10)])
         let applied = await waitFor {
             let r = await e.hub.call(wireName: "dice__roll", arguments: .object(["count": .int(5)])); return !r.isError
         }
         XCTAssertTrue(applied, "changed settings restart the module with the new values")
         await e.refreshServices()
-        XCTAssertTrue(e.services.contains { $0.id == "module:dice" })
-        XCTAssertTrue(FileManager.default.fileExists(atPath: ServiceLog.url(home: e.home, service: "module:dice").path) || true)
+        XCTAssertTrue(e.services.contains { $0.id == "tool:dice" })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ServiceLog.url(home: e.home, service: "tool:dice").path) || true)
 
-        // Editing the manifest revokes the approval and stops it.
-        try write(e, "dice", manifest: manifest.replacingOccurrences(of: "Roll dice.", with: "Roll dice. Now sneakier."), server: guideServer())
-        e.reloadModules()
-        XCTAssertFalse(try XCTUnwrap(e.modules.first).approved, "a changed manifest must be approved again")
+        // Editing the command revokes the approval and stops it.
+        try write(e, "dice", manifest: manifest.replacingOccurrences(of: "python3", with: "python"), server: guideServer())
+        e.reloadToolList()
+        XCTAssertFalse(try XCTUnwrap(e.toolList.first).approved, "a changed command must be approved again")
         await e.mcp_reloadForTests()
         tools = await e.hub.allTools().map(\.qualified)
         XCTAssertFalse(tools.contains("dice.roll"))
@@ -232,24 +240,24 @@ final class ModuleTests: XCTestCase {
             elif m["method"] == "tools/list": send({"jsonrpc":"2.0","id":m["id"],"result":{"tools":[{"name":"seen","description":"Verbs visible to me","inputSchema":{"type":"object"}}]}})
             elif m["method"] == "tools/call": send({"jsonrpc":"2.0","id":m["id"],"result":{"content":[{"type":"text","text":",".join(listed())}],"isError":False}})
         """
-        try write(e, "probe", manifest: #"{"name":"probe","command":"python3","args":["server.py"],"needs":{"tier":"read"}}"#, server: probe)
+        try write(e, "probe", manifest: #"{"id":"probe","command":"python3","args":["server.py"],"tier":"read"}"#, server: probe)
         await e.start()
-        e.approveModule("probe")
+        e.approveTool("probe")
         let up = await waitFor { await e.hub.allTools().map(\.qualified).contains("probe.seen") }
         XCTAssertTrue(up)
         let r = await e.hub.call(wireName: "probe__seen", arguments: .object([:]))
         XCTAssertFalse(r.isError, r.text)
         XCTAssertTrue(r.text.contains("agents.list"), r.text)
-        XCTAssertFalse(r.text.contains("agents.update"), "a read-tier module cannot see configure verbs: \(r.text)")
+        XCTAssertFalse(r.text.contains("agents.update"), "a read-tier tool cannot see configure verbs: \(r.text)")
         await e.shutdown()
     }
 
     /// The no-helper example in the guide also works.
     func testGuideRawProtocolExampleWorks() async throws {
         let e = try await makeEngine()
-        try write(e, "echo", manifest: #"{"name":"echo","command":"python3","args":["server.py"]}"#, server: guideServer(1))
+        try write(e, "echo", manifest: #"{"id":"echo","command":"python3","args":["server.py"]}"#, server: guideServer(1))
         await e.start()
-        e.approveModule("echo")
+        e.approveTool("echo")
         let up = await waitFor { await e.hub.allTools().map(\.qualified).contains("echo.echo") }
         XCTAssertTrue(up)
         let r = await e.hub.call(wireName: "echo__echo", arguments: .object(["text": .string("hi")]))
@@ -261,7 +269,7 @@ final class ModuleTests: XCTestCase {
     func testHelperDerivesSchemaCoercesAndReportsErrors() async throws {
         let e = try await makeEngine()
         let server = """
-        from parlor_module import serve
+        from parlor_tool import serve
         def add(a: int, b: float = 1.5) -> str:
             \"\"\"Add numbers.\"\"\"
             return str(a + b)
@@ -269,9 +277,9 @@ final class ModuleTests: XCTestCase {
             raise RuntimeError("nope")
         serve("calc", [add, boom])
         """
-        try write(e, "calc", manifest: #"{"name":"calc","command":"python3","args":["server.py"]}"#, server: server)
+        try write(e, "calc", manifest: #"{"id":"calc","command":"python3","args":["server.py"]}"#, server: server)
         await e.start()
-        e.approveModule("calc")
+        e.approveTool("calc")
         let up = await waitFor { await e.hub.allTools().map(\.qualified).contains("calc.add") }
         XCTAssertTrue(up)
         let t = await e.hub.allTools().first { $0.qualified == "calc.add" }!
@@ -286,13 +294,13 @@ final class ModuleTests: XCTestCase {
 
     func testBadManifestIsReportedNotRun() async throws {
         let e = try await makeEngine()
-        try write(e, "oops", manifest: #"{"name":"other","command":"python3"}"#, server: "")
-        try write(e, "nocmd", manifest: #"{"name":"nocmd"}"#, server: "")
+        try write(e, "oops", manifest: #"{"id":"other","command":"python3"}"#, server: "")
+        try write(e, "nocmd", manifest: #"{"id":"nocmd"}"#, server: "")
         await e.start()
-        let by = Dictionary(uniqueKeysWithValues: e.modules.map { ($0.name, $0) })
+        let by = Dictionary(uniqueKeysWithValues: e.toolList.map { ($0.id, $0) })
         XCTAssertNotNil(by["oops"]?.error); XCTAssertNotNil(by["nocmd"]?.error)
-        e.approveModule("oops")
-        XCTAssertFalse(e.modules.first { $0.name == "oops" }!.approved)
+        e.approveTool("oops")
+        XCTAssertFalse(e.toolList.first { $0.id == "oops" }!.approved)
         await e.shutdown()
     }
 }

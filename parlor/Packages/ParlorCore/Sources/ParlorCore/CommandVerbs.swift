@@ -281,9 +281,9 @@ extension CommandCenter {
             let h = self.engine.home
             return .object(["root": .string(h.root.path), "agents": .string(h.agentsDir.path), "chats": .string(h.chatsDir.path),
                             "models": .string(h.modelsDir.path), "media": .string(h.mediaDir.path), "logs": .string(h.logsDir.path),
-                            "modules": .string(h.modulesDir.path), "mcp_json": .string(h.mcpConfig.path), "settings_json": .string(h.settingsFile.path)])
+                            "tools": .string(h.toolsDir.path), "settings_json": .string(h.settingsFile.path)])
         }
-        add("home.reveal", .read, "Show a folder in Finder. Does nothing when called over the wire.", props: [("what", "string", "root, agents, chats, models, media, logs or modules")]) { a, c in
+        add("home.reveal", .read, "Show a folder in Finder. Does nothing when called over the wire.", props: [("what", "string", "root, agents, chats, models, media, logs or tools")]) { a, c in
             .object(["revealed": .bool(false), "note": .string("Finder is only opened from the app's own buttons.")])
         }
     }
@@ -315,58 +315,12 @@ extension CommandCenter {
                 self.engine.updateSettings { $0 = s }
             } else {
                 let keep = self.engine.settings
-                self.engine.updateSettings { $0 = ParlorSettings(); $0.tokens = keep.tokens; $0.moduleApprovals = keep.moduleApprovals; $0.gateway = keep.gateway }
+                self.engine.updateSettings { $0 = ParlorSettings(); $0.tokens = keep.tokens; $0.toolApprovals = keep.toolApprovals; $0.gateway = keep.gateway }
             }
             return self.engine.settings.publicJSON
         }
     }
 
-    // MARK: tools
-
-    func registerTools() {
-        add("tools.list", .read, "Mounted tool servers and the tools they offer.") { _, _ in
-            let servers = await self.engine.hub.allStatuses()
-            let tools = await self.engine.hub.allTools()
-            return .object([
-                "servers": .array(servers.map { s in
-                    var state = "ready"
-                    switch s.state { case .connecting: state = "starting"; case .failed(let e): state = "failed: " + e; case .stopped: state = "stopped"; case .ready: break }
-                    return .object(["id": .string(s.id), "kind": .string(s.kind), "state": .string(state), "tools": .int(s.toolCount)])
-                }),
-                "tools": .array(tools.map { .object(["name": .string($0.qualified), "description": .string($0.description)]) }),
-            ])
-        }
-        add("modules.list", .read, "Modules in modules/: what each needs and whether the user has approved it. Approval is only given in the app.") { _, _ in
-            .array(self.engine.modules.map { m in
-                .object(["name": .string(m.name), "approved": .bool(m.approved), "error": m.error.map { .string($0) } ?? .null,
-                         "description": .string(m.manifest?.description ?? ""), "tier": .string(m.manifest?.tier.rawValue ?? "none"),
-                         "command": .string(([m.manifest?.command ?? ""] + (m.manifest?.args ?? [])).joined(separator: " "))])
-            })
-        }
-        add("tools.mount", .configure, "Add an MCP server to mcp.json (stdio command or http url).",
-            props: [("id", "string", "Name"), ("command", "string", "Executable"), ("args", "strings", "Arguments"), ("url", "string", "HTTP endpoint instead of a command"),
-                    ("cwd", "string", "Working directory"), ("lifecycle", "string", "always or onDemand"), ("idle_minutes", "integer", "Idle stop for onDemand")], required: ["id"]) { a, _ in
-            let id = try a.string("id")
-            guard id.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else { throw CommandError("\"id\" may contain letters, digits, - and _ only.") }
-            guard a.optString("command") != nil || a.optString("url") != nil else { throw CommandError("Give a \"command\" or a \"url\".") }
-            if let l = a.optString("lifecycle"), !["always", "onDemand"].contains(l) { throw CommandError("\"lifecycle\" is always or onDemand.") }
-            var f = MCPConfigFile.load(self.engine.home.mcpConfig)
-            f.mcpServers[id] = MCPServerConfig(command: a.optString("command"), args: a.strings("args"), cwd: a.optString("cwd"), url: a.optString("url"),
-                                               lifecycle: a.optString("lifecycle"), idleMinutes: a.optInt("idle_minutes"))
-            try self.engine.saveMCPConfig(f)
-            return .object(["mounted": .string(id)])
-        }
-        add("tools.unmount", .configure, "Remove a server from mcp.json.", props: [("id", "string", "Name")], required: ["id"]) { a, _ in
-            let id = try a.string("id")
-            guard self.engine.configuredServers[id] != nil else { throw CommandError("No mounted server \"\(id)\".") }
-            self.engine.deleteServer(id); return .object(["unmounted": .string(id)])
-        }
-        add("tools.enable", .configure, "Turn a mounted server on or off without losing its settings.", props: [("id", "string", "Name"), ("enabled", "boolean", "On or off")], required: ["id", "enabled"]) { a, _ in
-            let id = try a.string("id")
-            guard self.engine.configuredServers[id] != nil else { throw CommandError("No mounted server \"\(id)\".") }
-            self.engine.setServer(id, enabled: a.bool("enabled", default: true)); return .object(["id": .string(id), "enabled": .bool(a.bool("enabled", default: true))])
-        }
-    }
 }
 
 // MARK: settings table
@@ -438,9 +392,9 @@ extension ParlorSettings {
     /// The settings as JSON without secrets (token hashes) or approvals.
     var publicJSON: JSON {
         var s = self
-        s.tokens = []; s.moduleApprovals = [:]
+        s.tokens = []; s.toolApprovals = [:]
         guard let d = try? JSONEncoder().encode(s), var j = try? JSONDecoder().decode(JSON.self, from: d), case .object(var o) = j else { return .null }
-        o["tokens"] = nil; o["moduleApprovals"] = nil
+        o["tokens"] = nil; o["toolApprovals"] = nil
         j = .object(o)
         return j
     }

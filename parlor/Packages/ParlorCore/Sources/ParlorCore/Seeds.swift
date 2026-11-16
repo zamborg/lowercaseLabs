@@ -20,11 +20,10 @@ enum Seeds {
       room (several agents and a scheduler).
     - `media/YYYY-MM/` generated images, referenced from chat logs by relative path.
     - `models/<org>/<name>/` downloaded weights (the Library screen manages them).
-    - `mcp.json` mounted MCP servers, same format as Claude Desktop. Optional per server: `"lifecycle": "onDemand"`
-      and `"idleMinutes": 10`.
-    - `modules/<name>/` small tools you or a model write; see `modules/CLAUDE.md`. They run only after you approve them.
+    - `tools/<id>/tool.json` tool servers (MCP over stdio or http): a program you or a model write, or a server you
+      add; see `tools/CLAUDE.md`. They run only after you approve them.
     - `workspaces/<agent>/` a harness's working folder.
-    - `settings.json` machine settings, access tokens (hashes only), module approvals and the gateway.
+    - `settings.json` machine settings, access tokens (hashes only), tool approvals and the gateway.
     - `logs/` one log per service, rotated at 1 MB.
 
     ## The gateway
@@ -42,14 +41,14 @@ enum Seeds {
     - Models must already be downloaded before a host can serve them.
     """
 
-    /// Bump when `moduleGuide` or `moduleHelper` change; the app rewrites both when this marker is missing.
-    static let moduleMarker = "parlor-modules-v3"
+    /// Bump when `toolGuide` or `toolHelper` change; the app rewrites both when this marker is missing.
+    static let toolMarker = "parlor-tools-v1"
 
-    static let moduleHelper = """
-    # \(moduleMarker): managed by parlor. Edits here are overwritten. See CLAUDE.md in this folder.
+    static let toolHelper = """
+    # \(toolMarker): managed by parlor. Edits here are overwritten. See CLAUDE.md in this folder.
     # Write a parlor tool server as plain Python functions:
     #
-    #   from parlor_module import serve, settings
+    #   from parlor_tool import serve, settings
     #   def add(a: int, b: int) -> str:
     #       "Add two numbers."
     #       return str(a + b)
@@ -57,7 +56,7 @@ enum Seeds {
     import sys, json, os, inspect, urllib.request
 
     # The values the user chose in System, defaults filled in.
-    settings = json.loads(os.environ.get("PARLOR_MODULE_SETTINGS") or "{}")
+    settings = json.loads(os.environ.get("PARLOR_TOOL_SETTINGS") or "{}")
 
     _TYPES = {int: "integer", float: "number", str: "string", bool: "boolean", list: "array", dict: "object"}
 
@@ -85,7 +84,7 @@ enum Seeds {
         sys.stdout.flush()
 
     def parlor(verb, **args):
-        \"\"\"Call one of parlor's own verbs (needs `needs.tier` above none in module.json). Returns text.\"\"\"
+        \"\"\"Call one of parlor's own verbs (needs a `tier` above none in tool.json). Returns text.\"\"\"
         req = urllib.request.Request(
             os.environ["PARLOR_URL"],
             data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": verb, "arguments": args}}).encode(),
@@ -129,21 +128,22 @@ enum Seeds {
                 _send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(e)}})
     """
 
-    static let moduleGuide = """
-    <!-- \(moduleMarker) -->
-    # Writing a parlor module
+    static let toolGuide = """
+    <!-- \(toolMarker) -->
+    # Writing a parlor tool
 
-    A module gives agents new tools. It is a folder in `modules/`:
+    A tool gives agents new abilities. It is a folder in `tools/`:
 
     ```
-    modules/<name>/module.json     the manifest (required)
-    modules/<name>/server.py       your code
-    modules/<name>/settings.json   values the user chose (written by the app; you only read them)
-    modules/parlor_module.py       a helper that handles the protocol (provided; do not edit)
+    tools/<id>/tool.json     the manifest (required)
+    tools/<id>/server.py     your code
+    tools/parlor_tool.py     a helper that handles the protocol (provided; do not edit)
     ```
 
-    The folder name and `"name"` must match and use letters, digits, `-` or `_`. The app lists the module in
-    System. **It does not run until the user approves it**, and asks again if `module.json` changes.
+    The folder name and `"id"` must match and use letters, digits, `-` or `_`. The app lists the tool in the
+    Library. **It does not run until the user approves it**, and asks again if its command, arguments, environment,
+    url or tier change. A tool made through `parlor.tools.create` shows the user everything first and is approved by
+    their yes.
 
     ## The short way: plain functions
 
@@ -151,7 +151,7 @@ enum Seeds {
 
     ```python
     import random
-    from parlor_module import serve, settings
+    from parlor_tool import serve, settings
 
     def roll(sides: int = 6, count: int = 1) -> str:
         \"\"\"Roll dice and return each result and the total.\"\"\"
@@ -166,29 +166,30 @@ enum Seeds {
     Each function becomes a tool named after the function. Its docstring is the description and its type hints
     (`int`, `float`, `str`, `bool`) are the schema; parameters with a default are optional. Return a string (or
     anything JSON can hold). Raise an exception to report an error. Do not `print` to stdout; use `sys.stderr`
-    for logs (the app keeps them in `logs/module-<name>.log`).
+    for logs (the app keeps them in `logs/tool-<id>.log`).
 
-    `module.json`:
+    `tool.json`:
 
     ```json
-    { "version": 1, "name": "dice", "description": "Roll dice.",
-      "command": "python3", "args": ["server.py"],
-      "needs": { "network": false, "files": "none", "tier": "none" },
+    { "version": 1, "id": "dice", "title": "Dice", "description": "Roll dice.",
+      "transport": "stdio", "command": "python3", "args": ["server.py"], "tier": "none",
+      "lifecycle": "onDemand", "idleMinutes": 10, "enabled": true,
       "settings": { "type": "object", "properties": { "maxDice": { "type": "integer", "default": 20, "description": "Most dice per roll" } } },
-      "lifecycle": "onDemand" }
+      "values": {} }
     ```
 
-    - `needs` is what the user reads before approving: `network` (true or false), `files` (`none` or the folder you
-      touch), `tier` (`none`, `read`, `act`, `configure`: how much of the parlor app itself you may control).
-    - `settings` is a JSON Schema; the app shows a form. In Python it is the `settings` dict, defaults filled in.
-    - `lifecycle` is `always` or `onDemand` (starts on first use, stops when idle).
-    - The program runs with its folder as the working directory and can `import parlor_module`.
+    - `transport` is `stdio` (a program) or `http` (a `url` of a running MCP server).
+    - `tier` (`none`, `read`, `act`, `configure`) is how much of the parlor app itself the tool may control.
+    - `settings` is a JSON Schema; the app shows a form and stores the user's choices in `values`. In Python it is
+      the `settings` dict, defaults filled in.
+    - `lifecycle` is `always` or `onDemand` (starts on first use, stops after `idleMinutes`).
+    - The program runs with its folder as the working directory and can `import parlor_tool`.
 
-    Tools reach agents as `<name>.<tool>`, here `dice.roll`. An agent needs `dice.*` (or `*`) in its `tools`.
+    Tools reach agents as `<id>.<tool>`, here `dice.roll`. An agent needs `dice.*` (or `*`) in its `tools`.
 
     ## Calling back into parlor (optional)
 
-    If `needs.tier` is above `none`, `from parlor_module import parlor` and call
+    If `tier` is above `none`, `from parlor_tool import parlor` and call
     `parlor("conversations.list")` or `parlor("conversations.post", id="room-1", text="hi")`. You see only the verbs
     your tier allows, and destructive ones ask the user.
 
@@ -221,10 +222,10 @@ enum Seeds {
     ```
 
     ## Checklist
-    1. `module.json` parses and `name` matches the folder.
+    1. `tool.json` parses and `id` matches the folder (`parlor.tools.validate` checks a draft).
     2. `python3 server.py` waits for input without errors.
     3. Nothing but protocol on stdout.
-    4. Tell the user to open System and approve the module.
+    4. Tell the user to open the Library and approve the tool (unless it was made with `parlor.tools.create`).
     """
 
 

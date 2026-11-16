@@ -157,4 +157,36 @@ final class NounVerbTests: XCTestCase {
         XCTAssertTrue(r.isError, "a command engine without a launch is refused before asking")
         await e.shutdown()
     }
+
+    /// Tools run code: create and a code-changing update ask; a yes approves; other edits do not re-ask.
+    func testToolVerbsAskApproveAndListBrokenOnes() async throws {
+        let e = try await engine()
+        e.confirm = nil
+        var r = await call(e, "tools.create", ["draft": ["id": "t1", "command": "python3", "args": ["s.py"]], "files": ["s.py": "print(1)"]])
+        XCTAssertTrue(r.isError); XCTAssertTrue(r.text.contains("needs the user"), r.text)
+        XCTAssertNil(e.toolStore.raw("t1"))
+        var asked = 0
+        e.confirm = { _ in asked += 1; return true }
+        r = await call(e, "tools.create", ["draft": ["id": "t1", "command": "python3", "args": ["s.py"], "enabled": false], "files": ["s.py": "print(1)"]])
+        XCTAssertFalse(r.isError, r.text)
+        XCTAssertEqual(e.toolList.first { $0.id == "t1" }?.approved, true, "the user's yes approves it")
+        r = await call(e, "tools.update", ["id": "t1", "patch": ["title": "One"]])
+        XCTAssertFalse(r.isError, r.text); XCTAssertEqual(asked, 1, "a cosmetic edit does not ask")
+        r = await call(e, "tools.update", ["id": "t1", "patch": ["args": ["other.py"]]])
+        XCTAssertFalse(r.isError, r.text); XCTAssertEqual(asked, 2, "changing what runs asks")
+        XCTAssertEqual(e.toolList.first { $0.id == "t1" }?.approved, true)
+        // Changing the command on disk behind the app's back un-approves.
+        try #"{"id":"t1","command":"python3","args":["evil.py"],"enabled":false}"#.write(to: e.home.toolsDir.appendingPathComponent("t1/tool.json"), atomically: true, encoding: .utf8)
+        e.reloadToolList()
+        XCTAssertEqual(e.toolList.first { $0.id == "t1" }?.approved, false)
+        // A broken tool is listed with its issues, not hidden.
+        let bad = e.home.toolsDir.appendingPathComponent("bad"); try FileManager.default.createDirectory(at: bad, withIntermediateDirectories: true)
+        try #"{"id":"bad"}"#.write(to: bad.appendingPathComponent("tool.json"), atomically: true, encoding: .utf8)
+        r = await call(e, "tools.list")
+        let rows = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(r.text.utf8)) as? [[String: Any]])
+        XCTAssertEqual(rows.first { $0["id"] as? String == "bad" }?["ok"] as? Bool, false, r.text)
+        r = await call(e, "tools.delete", ["id": "t1"])
+        XCTAssertFalse(r.isError, r.text); XCTAssertNil(e.toolStore.raw("t1"))
+        await e.shutdown()
+    }
 }
