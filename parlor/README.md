@@ -59,6 +59,15 @@ UI tests (`-only-testing:ParlorUITests`) need Developer Mode: `sudo DevToolsSecu
 Debug-only env hooks for screenshots: `PARLOR_DEMO=1` (scripted model), `PARLOR_ROUTE=agent:<id>|models|tools`,
 `PARLOR_MODE=edit`, `PARLOR_AUTOSEND`, `PARLOR_AUTODOWNLOAD=repo@language,repo@image`.
 
+## Character chat
+
+The **Character (scene harness)** template runs an agent through `harnesses/character.py`: it plays the agent as a person
+(not an assistant), keeps their look in `appearance:` and the story in `scenario:`, and has a small "art director" step decide
+when a picture is worth taking and write the image prompt, restating the appearance each time so the face stays consistent.
+Pictures come when the user asks to see something, or every few replies (`images: auto|ask|off`, `image_every:`). Any
+GGUF model works with it: download a GGUF repo from the Models screen (needs `llama-server`), then add sampler flags to the
+provider's `service` command in `settings.json` (for example `--temp 1.17 --min-p 0.075 --top-k 50 --repeat-penalty 1.1`).
+
 ## Packaging
 
 ```bash

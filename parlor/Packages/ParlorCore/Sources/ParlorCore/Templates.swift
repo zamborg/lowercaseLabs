@@ -16,14 +16,20 @@ public struct AgentTemplate: Identifiable, Sendable {
     public var withImage: Bool
     /// Runs the agent's turns in the sample external harness.
     public var scripted: Bool
+    /// A file in `harnesses/` that runs the agent's turns (instead of the built-in loop).
+    public var harness: String?
+    /// Extra front-matter keys the harness reads.
+    public var extra: [String: String]
 
     public init(id: String, title: String, blurb: String, kind: Agent.Kind = .assistant, group: String? = nil,
                 persona: @escaping @Sendable (String) -> String, languageModel: String = Defaults.languageModel,
                 tools: [String] = ["*"], contextTokens: Int = 16384, temperature: Double = 0.5,
-                thinking: Bool = false, withImage: Bool = true, scripted: Bool = false) {
+                thinking: Bool = false, withImage: Bool = true, scripted: Bool = false,
+                harness: String? = nil, extra: [String: String] = [:]) {
         self.id = id; self.title = title; self.blurb = blurb; self.kind = kind; self.group = group; self.persona = persona
         self.languageModel = languageModel; self.tools = tools; self.contextTokens = contextTokens
         self.temperature = temperature; self.thinking = thinking; self.withImage = withImage; self.scripted = scripted
+        self.harness = harness; self.extra = extra
     }
 }
 
@@ -34,6 +40,13 @@ public enum AgentTemplates {
         AgentTemplate(id: "character", title: "Character", blurb: "A persona to talk with, with the image tool.", kind: .character,
                       persona: { "You are \($0). Describe who this character is and how they speak." },
                       languageModel: Defaults.characterModel, tools: ["image.generate"], contextTokens: 8192, temperature: 0.9),
+        AgentTemplate(id: "scene", title: "Character (scene harness)", blurb: "Plays a person in a story, keeps their look consistent and takes pictures when the moment calls for it.",
+                      kind: .character, group: "Characters",
+                      persona: { "You are \($0). Describe who this character is: their history, voice, habits and what they want." },
+                      languageModel: Defaults.characterModel, tools: ["image.generate"], contextTokens: 8192, temperature: 0.9,
+                      harness: "character.py",
+                      extra: ["appearance": "Describe how they look: age, hair, eyes, build, usual clothes, one distinctive detail.",
+                              "scenario": "Where and when this is, and what is going on.", "images": "auto"]),
         AgentTemplate(id: "researcher", title: "Researcher", blurb: "Looks things up with its tools before answering, and says how sure it is.",
                       persona: { "You are \($0), a careful researcher. Use your tools to gather facts before you answer. Say what you found, which tool it came from and how sure you are. If you could not find something, say so rather than guess." },
                       contextTokens: 32768, temperature: 0.3, thinking: true, withImage: false),

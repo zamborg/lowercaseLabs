@@ -249,10 +249,11 @@ public final class ParlorEngine {
     private func seedHarnessFiles() {
         let fm = FileManager.default
         try? fm.createDirectory(at: home.harnessesDir, withIntermediateDirectories: true)
-        for (name, text) in [("CLAUDE.md", Seeds.harnessGuide), ("openai_loop.py", Seeds.harnessSample)] {
+        for (name, text) in [("CLAUDE.md", Seeds.harnessGuide), ("openai_loop.py", Seeds.harnessSample), ("character.py", Seeds.harnessCharacter)] {
             let url = home.harnessesDir.appendingPathComponent(name)
             let current = try? String(contentsOf: url, encoding: .utf8)
-            if current == nil || !(current!.contains(Seeds.harnessMarker)) { try? text.write(to: url, atomically: true, encoding: .utf8) }
+            // Missing, or one of ours (marked) that differs: rewrite. A file without the marker is the user's and stays.
+            if current == nil || (current!.contains(Seeds.harnessMarker) && current != text) { try? text.write(to: url, atomically: true, encoding: .utf8) }
         }
     }
 
@@ -478,7 +479,8 @@ public final class ParlorEngine {
             imageModel: t.withImage ? Defaults.imageModel : nil, tools: t.tools, contextTokens: t.contextTokens,
             temperature: t.temperature, thinking: t.thinking, color: agents.count % 6)
         if let g = t.group { a.group = g }
-        if t.scripted { a.harness = "python3 '\(home.harnessesDir.appendingPathComponent("openai_loop.py").path)'" }
+        if let file = t.harness ?? (t.scripted ? "openai_loop.py" : nil) { a.harness = "python3 '\(home.harnessesDir.appendingPathComponent(file).path)'" }
+        for (k, v) in t.extra.sorted(by: { $0.key < $1.key }) { a.extra.append(ExtraField(key: k, value: .scalar(v))) }
         save(a)
         selection = a.id
         return a
