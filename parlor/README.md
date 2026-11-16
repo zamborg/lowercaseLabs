@@ -68,6 +68,16 @@ Pictures come when the user asks to see something, or every few replies (`images
 GGUF model works with it: download a GGUF repo from the Models screen (needs `llama-server`), then add sampler flags to the
 provider's `service` command in `settings.json` (for example `--temp 1.17 --min-p 0.075 --top-k 50 --repeat-penalty 1.1`).
 
+### Stable Diffusion image models
+
+Besides Z-Image, the Models screen (Image tab) downloads a single-file Stable Diffusion checkpoint (SDXL, Illustrious, Pony and
+similar) from a repo such as `Ine007/waiNSFWIllustrious_v140`, and draws with it through stable-diffusion.cpp's `sd-cli`
+(bundled in the app, fetched by `scripts/fetch-sd.sh`; or put `sd-cli` in `~/.local/bin`). One `sd-cli` run per image, so nothing stays in
+memory. Sampling lives in `parlor-image.json` beside the weights: V-prediction checkpoints (a name with `vpred` or `v-pred`) get
+`prediction: v`; defaults are Euler a, 28 steps (20 for `detail: fast`), CFG 6, CLIP skip 2, 832×1216 portrait, with quality
+tags added to the prompt and a negative prompt. Set an agent's `image_model:` to the repo id. The character harness writes
+Danbooru-style tags for these models automatically. Gated repos need `hf auth login` and access granted on the model page.
+
 ## Packaging
 
 ```bash

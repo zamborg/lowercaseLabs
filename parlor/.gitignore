@@ -6,3 +6,4 @@ ImageWorker/.swiftpm/
 .DS_Store
 Packages/ParlorCore/.build/
 dist/
+build-sd/

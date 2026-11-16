@@ -5,7 +5,8 @@ import Observation
 public enum ModelKind: String, Codable, Sendable, CaseIterable { case language, image }
 
 /// `mlx`: safetensors run in-process. `gguf`: a llama.cpp model, served through an auto-registered provider.
-public enum ModelFormat: String, Codable, Sendable { case mlx, gguf }
+/// `sdcpp`: a single-file Stable Diffusion (SDXL-family) checkpoint, drawn by stable-diffusion.cpp.
+public enum ModelFormat: String, Codable, Sendable { case mlx, gguf, sdcpp }
 
 public struct InstalledModel: Identifiable, Hashable, Sendable {
     public var repo: String
@@ -135,8 +136,17 @@ public final class ModelLibrary: @unchecked Sendable {
         return total
     }
 
-    /// MLX models of a kind. GGUF models are served by their own provider and are not listed here.
-    public func installed(kind: ModelKind) -> [InstalledModel] { installed.filter { $0.kind == kind && $0.format == .mlx } }
+    /// Models an agent can pick for a kind. GGUF language models are served by their own provider and are not listed here;
+    /// image models include stable-diffusion.cpp checkpoints.
+    public func installed(kind: ModelKind) -> [InstalledModel] {
+        installed.filter { $0.kind == kind && ($0.format == .mlx || (kind == .image && $0.format == .sdcpp)) }
+    }
+
+    /// The image model used when an agent names none: the built-in (MLX) one first.
+    public var defaultImage: InstalledModel? {
+        let all = installed(kind: .image)
+        return all.first { $0.format == .mlx } ?? all.first
+    }
 
     public func fit(bytes: Int64?) -> ModelFit {
         guard let bytes else { return .unknown }
@@ -188,6 +198,8 @@ public final class ModelLibrary: @unchecked Sendable {
         var bytes: Int64; var weightBytes: Int64; var files: [String]
         /// `.gguf` files with sizes, for repos that ship llama.cpp weights.
         var gguf: [(path: String, size: Int64)] = []
+        /// `.safetensors` files at the repo root with sizes: single-file checkpoints (Stable Diffusion style).
+        var rootSafetensors: [(path: String, size: Int64)] = []
     }
 
     /// Sizes and file names from the repo's tree. Nil when the network call fails.
@@ -201,8 +213,22 @@ public final class ModelLibrary: @unchecked Sendable {
             bytes: files.reduce(0) { $0 + ($1.size ?? 0) },
             weightBytes: files.filter { $0.path.hasSuffix(".safetensors") }.reduce(0) { $0 + ($1.size ?? 0) },
             files: files.map(\.path),
-            gguf: files.filter { $0.path.lowercased().hasSuffix(".gguf") }.map { ($0.path, $0.size ?? 0) })
+            gguf: files.filter { $0.path.lowercased().hasSuffix(".gguf") }.map { ($0.path, $0.size ?? 0) },
+            rootSafetensors: files.filter { !$0.path.contains("/") && $0.path.hasSuffix(".safetensors") }.map { ($0.path, $0.size ?? 0) })
     }
+
+    /// The single-file Stable Diffusion checkpoint of a repo, if it has one: a root `.safetensors` over 1.5 GB that is
+    /// not a VAE, LoRA or ControlNet. A `fp16` file is preferred, else the smallest.
+    static func chooseCheckpoint(_ files: [(path: String, size: Int64)]) -> (path: String, size: Int64)? {
+        let ok = files.filter { f in
+            let n = f.path.lowercased()
+            return f.size > 1_500_000_000 && !["vae", "lora", "controlnet", "refiner", "ema"].contains { n.contains($0) }
+        }
+        return ok.first { $0.path.lowercased().contains("fp16") } ?? ok.min { $0.size < $1.size }
+    }
+
+    /// stable-diffusion.cpp's CLI, bundled with the app or installed by the user.
+    static var sdBinaryPath: String? { SDCppImage.binaryURL()?.path }
 
     /// The GGUF file (or all shards of a split file) to download: a 4-bit K-quant when offered, else the smallest.
     /// Vision projectors (`mmproj`) are never the model.
@@ -233,11 +259,14 @@ public final class ModelLibrary: @unchecked Sendable {
         if i.weightBytes == 0, kind == .language, !i.gguf.isEmpty {
             return llamaServerPath == nil ? "GGUF model: needs llama.cpp's llama-server (brew install llama.cpp)." : nil
         }
+        if kind == .image, !repo.lowercased().contains("z-image"), Self.chooseCheckpoint(i.rootSafetensors) != nil {
+            return sdBinaryPath == nil ? "Stable Diffusion checkpoint: needs stable-diffusion.cpp's sd-cli (bundled with the app)." : nil
+        }
         if i.weightBytes == 0 {
             let hint = repo.hasPrefix("mlx-community/") ? "" : " Look for an MLX conversion under mlx-community."
             return "No safetensors weights (PyTorch or GGUF only)." + hint
         }
-        if kind == .image, !repo.lowercased().contains("z-image") { return "The image worker runs Z-Image models only." }
+        if kind == .image, !repo.lowercased().contains("z-image") { return "The image worker runs Z-Image models and single-file Stable Diffusion checkpoints only." }
         return nil
     }
 
@@ -271,6 +300,13 @@ public final class ModelLibrary: @unchecked Sendable {
                     let total = chosen.reduce(Int64(0)) { $0 + $1.size }
                     self?.update(repo) { $0.totalBytes = total }
                 }
+                // An image repo with a single-file Stable Diffusion checkpoint: fetch just that file.
+                var checkpoint: String?
+                if let info, kind == .image, !repo.lowercased().contains("z-image"), let c = Self.chooseCheckpoint(info.rootSafetensors) {
+                    checkpoint = c.path
+                    globs = [c.path, "*.md"]
+                    self?.update(repo) { $0.totalBytes = c.size }
+                }
                 let started = Date()
                 _ = try await HubClient().downloadSnapshot(
                     of: id, to: dir, matching: globs, progressHandler: { progress in
@@ -281,7 +317,9 @@ public final class ModelLibrary: @unchecked Sendable {
                             if let total = $0.totalBytes, total > 0 { $0.bytesPerSecond = f * Double(total) / elapsed }
                         }
                     })
-                let marker = Marker(repo: repo, kind: kind, format: ggufFiles.isEmpty ? nil : .gguf, file: ggufFiles.first)
+                let format: ModelFormat? = !ggufFiles.isEmpty ? .gguf : (checkpoint != nil ? .sdcpp : nil)
+                let marker = Marker(repo: repo, kind: kind, format: format, file: ggufFiles.first ?? checkpoint)
+                if checkpoint != nil { SDCppImage.Config.writeDefault(in: dir, file: checkpoint!) }
                 try JSONEncoder().encode(marker).write(to: dir.appendingPathComponent(".parlor-model.json"))
                 self?.finish(repo, nil)
                 if !ggufFiles.isEmpty, let m = self?.installed.first(where: { $0.repo == repo }) { self?.onGGUFInstalled?(m) }
@@ -289,7 +327,13 @@ public final class ModelLibrary: @unchecked Sendable {
                 self?.finish(repo, .paused)
             } catch {
                 if Task.isCancelled { self?.finish(repo, .paused) }
-                else { self?.finish(repo, .failed(error.localizedDescription)) }
+                else {
+                    var why = error.localizedDescription
+                    if why.contains("401") || why.contains("403") || why.lowercased().contains("gated") || why.lowercased().contains("restricted") {
+                        why += " This repo needs a Hugging Face login with access granted: accept its terms on the model page, then run `hf auth login`."
+                    }
+                    self?.finish(repo, .failed(why))
+                }
             }
         }
     }

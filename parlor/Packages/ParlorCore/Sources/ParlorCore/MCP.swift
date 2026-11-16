@@ -233,6 +233,16 @@ enum Media {
         return save(data: data, ext: ext, home: home)
     }
 
+    /// A fresh `media/YYYY-MM/<id>.<ext>` path for something else to write into: the file URL and its home-relative path.
+    static func reserve(ext: String, home: ParlorHome) -> (url: URL, path: String) {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM"
+        let sub = "media/" + f.string(from: Date())
+        let dir = home.root.appendingPathComponent(sub)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let name = UUID().uuidString.prefix(8).lowercased() + "." + ext
+        return (dir.appendingPathComponent(String(name)), sub + "/" + name)
+    }
+
     static func save(data: Data, ext: String, home: ParlorHome) -> String? {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM"
         let sub = "media/" + f.string(from: Date())

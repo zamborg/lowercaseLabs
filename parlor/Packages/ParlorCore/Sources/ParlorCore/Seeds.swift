@@ -398,8 +398,10 @@ enum Seeds {
         user_name:    what the character calls the person talking to them.
         images:       auto (default: pictures when the moment calls for it) | ask (only when the user asks) | off
         image_every:  in auto mode, the fewest replies between unprompted pictures (default 4)
-        image_style:  the look of the pictures (default: a natural photograph)
-        image_detail: fast (default, about 30 s) | detailed (about 70 s)
+        image_style:  the look of the pictures (default: a natural photograph; none for tag models)
+        image_prompt_style: natural | tags. Tags (Danbooru-style, for Illustrious/Pony/SDXL checkpoints) is chosen by itself
+                      when the agent's image_model looks like one of those
+        image_detail: fast | detailed (Z-Image: about 30 s / 70 s. Stable Diffusion: 20 / 28 steps). Default fast, detailed for tag models
         seed:         a number; the same seed keeps pictures of the character more alike (default: from the agent id)
 
     For pictures the agent needs the image tool (`tools: [image.generate]` or `*`). Memory (memory/<id>.md) is part of the card.
@@ -431,6 +433,17 @@ enum Seeds {
 
     When true, the prompt is one paragraph of 45 to 90 words in plain descriptive English: no lists, no quotes, no negations (never "no", "without", "not"), no text or logos in the picture. Order it: the subject and exact look, expression and pose, clothing, setting and time of day, light, camera (lens, distance, angle), style.
     Always restate the character's fixed appearance in the same words every time (including gender and age) so the face stays recognisable. Show only what is happening in the story. For a selfie, frame the character holding a phone toward the camera, close and a little off-centre. Use portrait for one person and landscape for places and wide scenes."""
+
+    ART_DIRECTOR_TAGS = """You are the art director for a character chat. Decide whether the latest moment deserves a picture and, if it does, write the prompt for an anime-style Stable Diffusion XL model trained on Danbooru tags (Illustrious).
+
+    Reply with JSON only: {"image": true or false, "prompt": "...", "shape": "portrait" or "square" or "landscape"}
+
+    image is true when the user asked to see something or someone (a photo, a selfie, "show me", "what do you look like"), or when the scene clearly changed place, outfit, mood or action in a way worth seeing. Small talk is false.
+
+    When true, the prompt is a single line of Danbooru-style tags separated by commas, lowercase, no sentences, no negations. Start with the subject count (1girl, 1boy, 2girls), then the character's fixed appearance as tags (hair colour and length and style, eye colour, skin, build, distinguishing marks), then expression, clothing, pose and action, setting, time of day, lighting, and last the framing (portrait, upper body, cowboy shot, from side, close-up, looking at viewer). 25 to 45 tags. Use underscores-free tags with spaces, like "short hair" and "green eyes". Always restate the character's fixed appearance with the same tags every time so the character stays recognisable. Show only what is happening in the story. Use portrait for one person and landscape for places and wide scenes.
+    Do not include quality tags (masterpiece, best quality); the app adds them."""
+
+    TAG_MODEL = re.compile(r"illustrious|wai|pony|noob|sdxl|animagine|anime|checkpoint|\.safetensors", re.I)
 
     ASKED = re.compile(r"\b(selfie|photo|photograph|pic|picture|pics|show me|let me see|see you|draw|what do you look like|your face)\b", re.I)
 
@@ -555,17 +568,25 @@ enum Seeds {
         return since + 1 >= int(a.get("image_every") or 4), False
 
 
+    def tag_mode(a):
+        mode = (a.get("image_prompt_style") or "").lower()
+        if mode in ("tags", "natural"):
+            return mode == "tags"
+        return bool(TAG_MODEL.search(a.get("image_model") or ""))
+
+
     def art_direct(start, reply, forced):
         """One small model call: should there be a picture, and what is it? Returns (prompt, shape) or None."""
         a = start["agent"]
+        tags = tag_mode(a)
         recent = history(start, 2500)[-6:]
         convo = "\n".join(("%s: %s" % ("User" if m["role"] == "user" else a["name"], m["content"])) for m in recent)
-        style = a.get("image_style") or "natural photograph, soft cinematic light, shallow depth of field, 85mm lens"
+        style = a.get("image_style") or ("" if tags else "natural photograph, soft cinematic light, shallow depth of field, 85mm lens")
         user = ("Character: %s\nFixed appearance: %s\nVisual style: %s\n\nRecent conversation:\n%s\n%s: %s\n\n%s"
-                % (a["name"], a.get("appearance") or "(not described; invent one detail-rich look and keep it)", style, convo,
+                % (a["name"], a.get("appearance") or "(not described; invent one detail-rich look and keep it)", style or "(the model's own)", convo,
                    a["name"], reply, "The user asked to see something, so image must be true." if forced else "Decide."))
         body = {"model": a["model"], "stream": False, "temperature": 0.3, "max_tokens": 360,
-                "messages": [{"role": "system", "content": ART_DIRECTOR}, {"role": "user", "content": user}]}
+                "messages": [{"role": "system", "content": ART_DIRECTOR_TAGS if tags else ART_DIRECTOR}, {"role": "user", "content": user}]}
         with post(body) as resp:
             raw = json.loads(resp.read())["choices"][0]["message"]["content"]
         raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.S)
@@ -578,7 +599,8 @@ enum Seeds {
         if not (data.get("image") is True or forced) or (not prompt and not forced):
             return None
         if not prompt:  # forced but the model gave nothing usable: build one from what we know
-            prompt = "%s. %s. %s." % (a.get("appearance") or a["name"], reply.replace("*", "")[:200], style)
+            prompt = ("1girl, solo, %s, looking at viewer" % (a.get("appearance") or a["name"])) if tags else \
+                "%s. %s. %s." % (a.get("appearance") or a["name"], reply.replace("*", "")[:200], style)
         shape = data.get("shape") if data.get("shape") in ("portrait", "square", "landscape") else "portrait"
         return prompt, shape
 
@@ -607,7 +629,7 @@ enum Seeds {
         prompt, shape = shot
         seed = int(a["seed"]) if str(a.get("seed", "")).isdigit() else int(hashlib.sha1(a["id"].encode()).hexdigest()[:8], 16) % 100000
         call = {"id": "pic-" + turn, "name": IMAGE_TOOL,
-                "arguments": {"prompt": prompt, "shape": shape, "detail": a.get("image_detail") or "fast", "seed": seed}}
+                "arguments": {"prompt": prompt, "shape": shape, "detail": a.get("image_detail") or ("detailed" if tag_mode(a) else "fast"), "seed": seed}}
         log("picture:", prompt)
         send({"type": "status", "turn": turn, "text": "Taking a picture"})
         send({"type": "message", "turn": turn, "role": "assistant", "text": "", "toolCalls": [call]})

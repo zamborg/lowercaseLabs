@@ -496,6 +496,12 @@ folder `format: gguf`, and registers a provider `llama-<slug>` with a `service` 
 `llama-server -m <file> --alias <slug> --port <8100+> --jinja -c 32768 -ngl 99`. Agents use it as `llama-<slug>/<slug>`.
 GGUF models are not listed as MLX models; deleting one removes its provider. An edited provider entry is left alone.
 
+**Stable Diffusion image models (stable-diffusion.cpp):** an image repo with a single root `.safetensors` checkpoint over 1.5 GB (not a
+VAE, LoRA or ControlNet; `fp16` preferred) downloads as `format: sdcpp` with a `parlor-image.json` (sampler, scheduler, steps,
+cfg, clip skip, sizes per shape, `prediction`, quality-tag prefix, negative prompt, vae, extra args). `image.generate` runs
+`sd-cli` once per image (`Resources/SD/sd-cli`, `PARLOR_SD`, or `~/.local/bin`), writes `media/YYYY-MM/<id>.png`, and accepts
+an optional `negative`. These models appear in the agent's `image_model` choices; the MLX model stays the default.
+
 **MLX specifics (step 2):**
 - Several resident models, LRU, under `memoryBudgetFraction` × physical RAM; the budget counts services too.
 - `cacheSlotsPerModel` prompt-cache slots per model. A request takes the slot with the longest common token

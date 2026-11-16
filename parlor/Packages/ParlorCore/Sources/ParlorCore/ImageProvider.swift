@@ -56,7 +56,7 @@ public actor ImageProvider: ToolProvider {
     public func stop() { shutdownNow() }
 
     private func resolveModel() -> (String, URL)? {
-        guard let repo = modelRepo ?? library.installed(kind: .image).first?.repo,
+        guard let repo = modelRepo ?? library.defaultImage?.repo,
               let dir = library.installedDirectory(for: repo) else { return nil }
         return (repo, dir)
     }
@@ -69,6 +69,7 @@ public actor ImageProvider: ToolProvider {
                 "shape": .object(["type": .string("string"), "enum": .array([.string("square"), .string("portrait"), .string("landscape")]), "description": .string("Image shape. Default square.")]),
                 "detail": .object(["type": .string("string"), "enum": .array([.string("fast"), .string("detailed")]), "description": .string("fast takes about 30 seconds, detailed about 70. Default fast.")]),
                 "seed": .object(["type": .string("integer"), "description": .string("Optional seed for repeatable results.")]),
+                "negative": .object(["type": .string("string"), "description": .string("Optional: what to keep out of the picture (Stable Diffusion models only).")]),
             ]),
             "required": .array([.string("prompt")]),
         ])
@@ -85,11 +86,14 @@ public actor ImageProvider: ToolProvider {
         // Render time scales with pixel count: ~30 s at 512², ~70 s at 768² on an M1 Max.
         let (w, h) = cfg.size(shape: shape, detailed: detailed)
         let seed = arguments.objectValue?["seed"]?.intValue ?? Int.random(in: 0..<100_000)
-        guard let repo = modelRepo ?? library.installed(kind: .image).first?.repo else {
+        guard let repo = modelRepo ?? library.defaultImage?.repo else {
             return ToolOutput(text: "No image model is downloaded. Ask the user to download one in Models.", isError: true)
         }
         guard let dir = library.installedDirectory(for: repo) else {
             return ToolOutput(text: "Image model \(repo) is not downloaded.", isError: true)
+        }
+        if let m = library.installed.first(where: { $0.repo == repo }), m.format == .sdcpp, let file = m.file {
+            return await generateSD(model: m, file: file, arguments: arguments, prompt: prompt, shape: shape, detailed: detailed, seed: seed)
         }
         idleTask?.cancel()
         activeCalls += 1
@@ -110,6 +114,34 @@ public actor ImageProvider: ToolProvider {
             return ToolOutput(text: "Image generation failed: \(out.text)", isError: true)
         }
         return ToolOutput(text: "The image was generated and is already displayed to the user inline; do not write a placeholder like [image] or a link in your reply, just comment on it naturally. (\(w)x\(h), seed \(seed), prompt: \(prompt))", images: [rel])
+    }
+
+    /// Draw with a Stable Diffusion checkpoint: one `sd-cli` run per image, so nothing stays in memory afterwards.
+    private func generateSD(model m: InstalledModel, file: String, arguments: JSON, prompt: String, shape: String, detailed: Bool, seed: Int) async -> ToolOutput {
+        guard let exe = SDCppImage.binaryURL() else {
+            return ToolOutput(text: "Image model \(m.repo) needs stable-diffusion.cpp's sd-cli, which was not found.", isError: true)
+        }
+        let cfg = SDCppImage.Config.load(dir: m.directory, file: file)
+        let (w, h) = cfg.size(shape: shape)
+        let steps = detailed ? cfg.steps : min(cfg.fastSteps, cfg.steps)
+        let negative = arguments.objectValue?["negative"]?.stringValue
+        let rel = Media.reserve(ext: "png", home: home)
+        let args = SDCppImage.arguments(config: cfg, model: m.directory.appendingPathComponent(file).path, prompt: prompt, negative: negative,
+                                        width: w, height: h, seed: seed, steps: steps, output: rel.url.path)
+        activeCalls += 1
+        runningModel = m.repo
+        defer { activeCalls -= 1; runningModel = nil; lastUsed = Date() }
+        do {
+            try await SDCppImage.render(exe: exe, arguments: args, home: home)
+        } catch {
+            lastError = error.localizedDescription
+            return ToolOutput(text: "Image generation failed: \(error.localizedDescription)", isError: true)
+        }
+        guard FileManager.default.fileExists(atPath: rel.url.path) else {
+            return ToolOutput(text: "Image generation failed: sd-cli wrote no image.", isError: true)
+        }
+        lastError = nil
+        return ToolOutput(text: "The image was generated and is already displayed to the user inline; do not write a placeholder like [image] or a link in your reply, just comment on it naturally. (\(w)x\(h), seed \(seed), prompt: \(SDCppImage.finalPrompt(prompt, config: cfg)))", images: [rel.path])
     }
 
     // MARK: worker process
