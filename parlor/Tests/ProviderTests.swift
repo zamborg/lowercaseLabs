@@ -78,18 +78,16 @@ final class ProviderTests: XCTestCase {
         return (text, calls, stats)
     }
 
-    func router(_ fake: FakeOpenAI, key: String? = nil, locality: ProviderConfig.Locality = .local, home: ParlorHome = tempHome()) -> ProviderRouter {
-        let r = ProviderRouter(inner: DemoRuntime())
-        r.configure([ProviderConfig(id: "fake", baseURL: "http://127.0.0.1:\(fake.port)/v1", keyRef: key, locality: locality, enabled: true)], home: home)
-        return r
+    func client(_ fake: FakeOpenAI, key: String? = nil, locality: OpenAIEndpoint.Locality = .local, home: ParlorHome = tempHome()) -> OpenAIClient {
+        OpenAIClient(config: OpenAIEndpoint(id: "fake", baseURL: "http://127.0.0.1:\(fake.port)/v1", keyRef: key, locality: locality, enabled: true), home: home)
     }
 
     func testProviderStreamsTextToolCallsAndUsage() async throws {
         let fake = FakeOpenAI(); try await fake.start()
         setenv("PARLOR_KEY_FAKEKEY", "sk-test-123", 1)
-        let r = router(fake, key: "fakekey")
+        let r = client(fake, key: "fakekey")
         let req = LLMRequest(messages: [LLMMessage(role: .system, text: "sys"), LLMMessage(role: .user, text: "say hi")], temperature: 0.2, maxTokens: 50)
-        let a = try await collect(r.generate(model: "fake/model-x", request: req))
+        let a = try await collect(r.generate(model: "model-x", request: req))
         XCTAssertEqual(a.text, "Hello from fake")
         XCTAssertEqual(a.stats?.promptTokens, 11)
         XCTAssertEqual(a.stats?.completionTokens, 3)
@@ -97,13 +95,13 @@ final class ProviderTests: XCTestCase {
         let sent = try XCTUnwrap(fake.requests.first)
         XCTAssertEqual(sent.path, "/v1/chat/completions")
         XCTAssertEqual(sent.auth, "Bearer sk-test-123")
-        XCTAssertEqual(sent.body["model"] as? String, "model-x", "the provider prefix is stripped")
+        XCTAssertEqual(sent.body["model"] as? String, "model-x", "the model name goes out as given")
         XCTAssertEqual(sent.body["stream"] as? Bool, true)
         XCTAssertEqual(sent.body["max_tokens"] as? Int, 50)
 
         // Tools out, tool calls back with arguments assembled from fragments, then a tool result goes in.
         let tool = ToolDef(server: "echo", name: "say", description: "Echo", schema: .object(["type": .string("object")]))
-        let b = try await collect(r.generate(model: "fake/model-x", request: LLMRequest(messages: [LLMMessage(role: .user, text: "use the tool")], tools: [tool])))
+        let b = try await collect(r.generate(model: "model-x", request: LLMRequest(messages: [LLMMessage(role: .user, text: "use the tool")], tools: [tool])))
         let call = try XCTUnwrap(b.calls.first)
         XCTAssertEqual(call.name, "echo__say")
         XCTAssertEqual(call.id, "call_1")
@@ -114,7 +112,7 @@ final class ProviderTests: XCTestCase {
             LLMMessage(role: .user, text: "use the tool"),
             LLMMessage(role: .assistant, text: "", toolCalls: [call]),
             LLMMessage(role: .tool, text: "echo: hi", toolCallID: call.id, toolName: call.name)], tools: [tool])
-        _ = try await collect(r.generate(model: "fake/model-x", request: followUp))
+        _ = try await collect(r.generate(model: "model-x", request: followUp))
         let wire = try XCTUnwrap(fake.requests.last?.body["messages"] as? [[String: Any]])
         XCTAssertEqual(wire.map { $0["role"] as? String }, ["user", "assistant", "tool"])
         XCTAssertEqual(((wire[1]["tool_calls"] as? [[String: Any]])?.first?["id"] as? String), "call_1")
@@ -124,28 +122,18 @@ final class ProviderTests: XCTestCase {
 
     func testProviderErrorsOffSwitchAndCancellation() async throws {
         let fake = FakeOpenAI(); try await fake.start()
-        let r = router(fake)
+        let r = client(fake)
         do {
-            _ = try await collect(r.generate(model: "fake/broken", request: LLMRequest(messages: [LLMMessage(role: .user, text: "x")])))
+            _ = try await collect(r.generate(model: "broken", request: LLMRequest(messages: [LLMMessage(role: .user, text: "x")])))
             XCTFail("expected an error")
         } catch { XCTAssertTrue(error.localizedDescription.contains("500") && error.localizedDescription.contains("model exploded"), error.localizedDescription) }
 
-        // MLX names fall through to the inner runtime, with or without the mlx/ prefix.
-        let a = try await collect(r.generate(model: "mlx-community/Some-Model", request: LLMRequest(messages: [LLMMessage(role: .user, text: "yo")])))
-        XCTAssertTrue(a.text.contains("(demo) You said: yo"))
-        let b = try await collect(r.generate(model: "mlx/mlx-community/Some-Model", request: LLMRequest(messages: [LLMMessage(role: .user, text: "yo")])))
-        XCTAssertTrue(b.text.contains("(demo)"))
-
-        // A remote provider starts off.
-        let remote = ProviderConfig(id: "cloud", baseURL: "https://example.invalid/v1", locality: .remote)
+        // A remote endpoint starts off.
+        let remote = OpenAIEndpoint(id: "cloud", baseURL: "https://example.invalid/v1", locality: .remote)
         XCTAssertFalse(remote.enabled)
-        r.configure([remote], home: tempHome())
-        do { _ = try await collect(r.generate(model: "cloud/x", request: LLMRequest(messages: [LLMMessage(role: .user, text: "x")]))); XCTFail() }
-        catch { XCTAssertTrue(error.localizedDescription.contains("is off")) }
 
         // Cancelling stops the server's stream promptly.
-        r.configure([ProviderConfig(id: "fake", baseURL: "http://127.0.0.1:\(fake.port)/v1")], home: tempHome())
-        let task = Task { try await self.collect(r.generate(model: "fake/m", request: LLMRequest(messages: [LLMMessage(role: .user, text: "slow please")]))) }
+        let task = Task { try await self.collect(r.generate(model: "m", request: LLMRequest(messages: [LLMMessage(role: .user, text: "slow please")]))) }
         try await Task.sleep(nanoseconds: 400_000_000)
         task.cancel()
         _ = try? await task.value
@@ -186,26 +174,24 @@ final class ProviderTests: XCTestCase {
         let probe = LoopbackServer { _ in .init(status: 200) }
         try await probe.start(port: 0); let port = Int(probe.port); probe.stop()
 
-        let r = ProviderRouter(inner: DemoRuntime())
-        r.configure([ProviderConfig(id: "svc", baseURL: "http://127.0.0.1:\(port)/v1", service: .init(command: "python3 '\(script.path)' \(port)", idleMinutes: 1, startupSeconds: 30))], home: home)
-        let p = try XCTUnwrap(r.provider("svc"))
+        let p = OpenAIClient(config: OpenAIEndpoint(id: "svc", baseURL: "http://127.0.0.1:\(port)/v1", service: .init(command: "python3 '\(script.path)' \(port)", idleMinutes: 1, startupSeconds: 30)), home: home)
         let proc = try XCTUnwrap(p.process)
         XCTAssertEqual(proc.snapshot().state, .stopped, "not started until something asks")
         proc.idleSecondsOverride = 1
-        let out = try await collect(r.generate(model: "svc/svc-model", request: LLMRequest(messages: [LLMMessage(role: .user, text: "hi")])))
+        let out = try await collect(p.generate(model: "svc-model", request: LLMRequest(messages: [LLMMessage(role: .user, text: "hi")])))
         XCTAssertEqual(out.text, "from service")
         XCTAssertEqual(proc.snapshot().state, .running)
         XCTAssertNotNil(proc.snapshot().pid)
-        XCTAssertTrue(ServiceLog.tail(home: home, service: "provider:svc", lines: 5).contains("fake server up"), "stderr goes to logs/provider-svc.log")
+        XCTAssertTrue(ServiceLog.tail(home: home, service: "host:svc", lines: 5).contains("fake server up"), "stderr goes to logs/host-svc.log")
         let models = try await p.models()
         XCTAssertEqual(models.map(\.qualified), ["svc/svc-model"])
         let deadline = Date().addingTimeInterval(15)
         while proc.snapshot().state != .stopped, Date() < deadline { try await Task.sleep(nanoseconds: 300_000_000) }
         XCTAssertEqual(proc.snapshot().state, .stopped, "stops when idle")
         // And it comes back on the next request.
-        let again = try await collect(r.generate(model: "svc/svc-model", request: LLMRequest(messages: [LLMMessage(role: .user, text: "hi")])))
+        let again = try await collect(p.generate(model: "svc-model", request: LLMRequest(messages: [LLMMessage(role: .user, text: "hi")])))
         XCTAssertEqual(again.text, "from service")
-        r.stopAll()
+        proc.stop()
     }
 
     // MARK: runtime API

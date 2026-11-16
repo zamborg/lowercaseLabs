@@ -64,10 +64,8 @@ final class SupervisorTests: XCTestCase {
         let probe = LoopbackServer { _ in .init(status: 200) }
         try await probe.start(port: 0); let port = Int(probe.port); probe.stop()
 
-        let r = ProviderRouter(inner: DemoRuntime())
-        r.configure([ProviderConfig(id: "svc", baseURL: "http://127.0.0.1:\(port)/v1",
-                                    service: .init(command: "python3 '\(script.path)' \(port)", idleMinutes: 0, startupSeconds: 30))], home: home)
-        let proc = try XCTUnwrap(r.provider("svc")?.process)
+        let proc = try XCTUnwrap(OpenAIClient(config: OpenAIEndpoint(id: "svc", baseURL: "http://127.0.0.1:\(port)/v1",
+                                    service: .init(command: "python3 '\(script.path)' \(port)", idleMinutes: 0, startupSeconds: 30)), home: home).process)
         try await proc.ensureRunning()
         XCTAssertEqual(proc.snapshot().state, .running)
         let pid = try XCTUnwrap(proc.snapshot().pid)
@@ -82,7 +80,7 @@ final class SupervisorTests: XCTestCase {
         XCTAssertEqual(proc.snapshot().state, .running, "the next use starts it again")
         XCTAssertNotEqual(proc.snapshot().pid, pid)
         XCTAssertEqual(proc.snapshot().restarts, 1)
-        r.stopAll()
+        proc.stop()
     }
 }
 

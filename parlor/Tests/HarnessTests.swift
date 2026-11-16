@@ -107,7 +107,7 @@ final class HarnessTests: XCTestCase {
         XCTAssertEqual(room.lastStats?.completionTokens, 5)
 
         // The log survives a reload from disk.
-        let reloaded = Room(agentID: "mabel", deps: RoomDeps(home: e.home, hub: e.hub, llm: DemoRuntime(), external: e.externalHarness, library: e.library))
+        let reloaded = Room(agentID: "mabel", deps: RoomDeps(home: e.home, hub: e.hub, external: e.externalHarness, library: e.library))
         XCTAssertEqual(reloaded.messages.count, room.messages.count)
         await e.shutdown()
     }

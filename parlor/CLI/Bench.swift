@@ -19,7 +19,7 @@ enum Bench {
         for slots in [1, 4] {
             engine.updateSettings { $0.cacheSlotsPerModel = slots; $0.llm.promptCache = true; $0.llm.maxReplyTokens = 40 }
             try? await Task.sleep(nanoseconds: 300_000_000)
-            await engine.runtime.unload()
+            await engine.unloadModels()
             engine.room(for: a.id).reset(); engine.room(for: b.id).reset()
             out("— \(slots) cache slot\(slots == 1 ? "" : "s"), alternating A B A B A B")
             var cached = 0, secs = 0.0
@@ -52,7 +52,7 @@ enum Bench {
         var seconds: [[Double]] = []
         for cache in [true, false] {
             engine.updateSettings { $0.llm.promptCache = cache; $0.llm.maxReplyTokens = 60 }
-            await engine.runtime.unload()
+            await engine.unloadModels()
             let room = engine.room(for: a.id)
             room.reset()
             out("— prompt cache \(cache ? "ON" : "OFF")")

@@ -35,8 +35,11 @@ public final class ParlorEngine {
     var watcher: FolderWatcher?
     var reloadTask: Task<Void, Never>?
     let mlx: MLXRuntime?
-    /// Sends `provider/model` names to their provider and everything else to MLX.
-    public let router: ProviderRouter
+    /// One adapter per wire protocol; the gateway is the only caller.
+    public let adapters = AdapterRegistry()
+    let mlxAdapter: MLXAdapter
+    let openAIAdapter: OpenAIAdapter
+    let imageBox = ImageBox()
     /// The routes the gateway serves under `/v1` (the one server also serves `/mcp`).
     public internal(set) var gateway: GatewayRoutes!
     var gatewayForHarness = false
@@ -69,13 +72,12 @@ public final class ParlorEngine {
         self.library = lib
         let base: LanguageModelRuntime
         if let runtime { self.mlx = nil; base = runtime } else { let m = MLXRuntime(library: lib); self.mlx = m; base = m }
-        let router = ProviderRouter(inner: base)
-        self.router = router
+        self.mlxAdapter = MLXAdapter(runtime: base, mlx: self.mlx)
+        self.openAIAdapter = OpenAIAdapter(home: home)
         let envBox = EnvBox()
         let external = ExternalHarness(home: home) { agent in await envBox.provider?(agent) ?? [:] }
         self.externalHarness = external
-        self.deps = RoomDeps(home: home, hub: hub, llm: QueuedRuntime(inner: router, queues: queues, key: { router.queueKey($0) }),
-                             external: external, library: lib)
+        self.deps = RoomDeps(home: home, hub: hub, external: external, library: lib)
         envBox.provider = { [weak self] agent in await self?.harnessEnvironment(agent) ?? [:] }
         self.mcp = MCPManager(hub: hub, home: home)
         deps.agentLookup = { [weak self] id in self?.agent(id) }
@@ -87,9 +89,9 @@ public final class ParlorEngine {
         self.commands = CommandCenter(engine: self)
         self.endpoint = ParlorMCPEndpoint(engine: self)
         self.gateway = GatewayRoutes(engine: self)
+        adapters.register(mlxAdapter); adapters.register(openAIAdapter)
+        adapters.register(CommandImageAdapter(image: imageBox)); adapters.register(MCPImageAdapter(image: imageBox))
     }
-
-    public var runtime: LanguageModelRuntime { deps.llm }
 
     // MARK: settings
 
@@ -161,6 +163,7 @@ public final class ParlorEngine {
                                 catalog: { [weak self] in await MainActor.run { self?.catalog ?? Catalog(models: [], engines: [], hosts: []) } },
                                 hostFor: { [weak self] agent in await self?.defaultImageHost(for: agent) })
         image = img
+        imageBox.provider = img
         deps.image = img
         await applySettings()
         let provider = CommandProvider(center: commands)
@@ -186,10 +189,8 @@ public final class ParlorEngine {
         watcher?.stop()
         endpoint.stop()
         externalHarness.stopAll()
-        router.stopAll()
         await mcp.stopAll()
-        await image?.shutdown()
-        await deps.llm.unload()
+        for a in adapters.all { await a.shutdown() }
     }
 
     func seedIfEmpty() {

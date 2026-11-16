@@ -97,6 +97,53 @@ final class GatewayTests: XCTestCase {
         await e.shutdown()
     }
 
+    /// With the real runtime a bare model repo is not a reference: only hosts are.
+    @MainActor
+    func testBareRepoIsNotFoundOnTheRealRuntime() async throws {
+        let home = tempHome(); try home.ensure()
+        try #"{"gateway":{"enabled":true,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
+        let e = ParlorEngine(home: home)
+        await e.start()
+        let t = e.endpoint.issueEphemeral(name: "t", tier: .none)
+        let (s, o) = try await http(e, "POST", "/v1/chat/completions", token: t, body: ["model": "mlx-community/Qwen3-4B-4bit", "messages": [["role": "user", "content": "x"]]])
+        XCTAssertEqual(s, 404)
+        XCTAssertEqual((o["error"] as? [String: Any])?["code"] as? String, "model_not_found")
+        await e.shutdown()
+    }
+
+    private final class Resident: LanguageModelRuntime, @unchecked Sendable {
+        let lock = NSLock(); var loaded: String?
+        init(_ m: String) { loaded = m }
+        func generate(model: String, request: LLMRequest) -> AsyncThrowingStream<LLMEvent, Error> {
+            AsyncThrowingStream { $0.yield(.text("ok")); $0.finish() }
+        }
+        func loadedModel() async -> String? { lock.lock(); defer { lock.unlock() }; return loaded }
+        func unload() async { lock.lock(); loaded = nil; lock.unlock() }
+    }
+
+    /// `hosts.stop` acts on that host's model only.
+    @MainActor
+    func testStoppingOneHostLeavesAnothersModelLoaded() async throws {
+        let home = tempHome(); try home.ensure()
+        for r in ["Aaa/alpha", "Bbb/beta"] {
+            let dir = home.modelsDir.appendingPathComponent(r)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data(count: 8).write(to: dir.appendingPathComponent("m.safetensors"))
+            try JSONEncoder().encode(ModelLibrary.Marker(repo: r, kind: .language, format: .mlxLM, file: nil)).write(to: dir.appendingPathComponent(".parlor-model.json"))
+        }
+        let rt = Resident("Aaa/alpha")
+        let e = ParlorEngine(home: home, runtime: rt)
+        await e.start()
+        let caller = Caller.local
+        _ = await e.commands.call("hosts.stop", .object(["id": .string("beta")]), caller: caller)
+        let still = await rt.loadedModel()
+        XCTAssertEqual(still, "Aaa/alpha", "stopping beta must not unload alpha")
+        _ = await e.commands.call("hosts.stop", .object(["id": .string("alpha")]), caller: caller)
+        let gone = await rt.loadedModel()
+        XCTAssertNil(gone)
+        await e.shutdown()
+    }
+
     /// A client that goes away frees the host: generation stops within a second.
     @MainActor
     func testClientDisconnectCancelsGeneration() async throws {

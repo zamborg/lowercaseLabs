@@ -12,7 +12,7 @@ extension ParlorEngine {
         await supervisor.register(source: "image") { [weak self] in await self?.imageEntries() ?? [] }
         await supervisor.register(source: "mcp") { [weak self] in await self?.mcpEntries() ?? [] }
         await supervisor.register(source: "servers") { [weak self] in await self?.serverEntries() ?? [] }
-        await supervisor.register(source: "providers") { [weak self] in await self?.providerEntries() ?? [] }
+        await supervisor.register(source: "hosts") { [weak self] in await self?.hostProcessEntries() ?? [] }
         await supervisor.register(source: "harnesses") { [weak self] in await self?.harnessEntries() ?? [] }
     }
 
@@ -23,8 +23,8 @@ extension ParlorEngine {
     }
 
     func llmEntries() async -> [ServiceEntry] {
-        var loaded: [String] = []
-        if let mlx { loaded = await mlx.loadedModels() } else if let m = await deps.llm.loadedModel() { loaded = [m] }
+        await mlxAdapter.refresh()
+        let loaded = mlxAdapter.loadedModels
         let bytes = await mlx?.residentBytes()
         let depth = await queues.depth
         let info = ServiceInfo(
@@ -90,21 +90,21 @@ extension ParlorEngine {
         return [server]
     }
 
-    /// Providers that run a server process (llama.cpp and friends).
-    func providerEntries() -> [ServiceEntry] {
-        router.all.compactMap { p -> ServiceEntry? in
+    /// Hosts that run a server process (llama.cpp and friends).
+    func hostProcessEntries() -> [ServiceEntry] {
+        openAIAdapter.all.compactMap { p -> ServiceEntry? in
             guard let proc = p.process else { return nil }
             let s = proc.snapshot()
             let id = p.config.id
             let enabled = p.config.enabled
             let info = ServiceInfo(
-                id: "provider:" + id, kind: "provider", title: id,
+                id: "host:" + id, kind: "host", title: id,
                 detail: s.external ? "already running · \(p.config.baseURL)" : (p.config.service?.command ?? ""),
                 state: s.state, memoryBytes: s.pid.flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: s.lastUsed, queueDepth: nil,
                 lifecycle: "onDemand", restarts: s.restarts, canStart: !s.state.isAlive && enabled, canStop: s.state.isAlive, canRestart: enabled,
-                logURL: ServiceLog.url(home: home, service: "provider:" + id))
+                logURL: ServiceLog.url(home: home, service: "host:" + id))
             let start: @MainActor @Sendable () async throws -> Void = {
-                guard enabled else { throw CommandError("Provider \(id) is off.") }
+                guard enabled else { throw CommandError("Host \(id) is off.") }
                 try await proc.ensureRunning()
             }
             return ServiceEntry(info: info, start: start, stop: { proc.stop() }, restart: { proc.stop(); try await start() })
@@ -138,16 +138,17 @@ extension ParlorEngine {
     // MARK: language model control
 
     public func loadedModels() async -> [String] {
-        if let mlx { return await mlx.loadedModels() }
-        return (await deps.llm.loadedModel()).map { [$0] } ?? []
+        await mlxAdapter.refresh()
+        return mlxAdapter.loadedModels
     }
 
-    public func unloadModels() async { await deps.llm.unload(); await refreshLoaded() }
+    public func unloadModels() async { await mlxAdapter.unloadAll(); await refreshLoaded() }
 
-    /// Warm a model by asking it for one token.
+    /// Warm a model: its host serves one token.
     public func loadModel(_ repo: String) async throws {
-        let req = LLMRequest(messages: [LLMMessage(role: .user, text: "Hi")], temperature: 0, maxTokens: 1, priority: .background)
-        for try await _ in deps.llm.generate(model: repo, request: req) {}
+        guard let h = catalog.host(forModel: repo) else { throw CommandError("No host serves \(repo). Hosts: " + catalog.hosts.map(\.id).joined(separator: ", ") + ".") }
+        guard let e = catalog.engine(h.spec.engine), let a = adapters[e.adapter] else { throw CommandError("Host \(h.id) has no adapter.") }
+        try await a.start(h)
         await refreshLoaded()
     }
 

@@ -55,28 +55,57 @@ public final class GatewayRoutes {
 
     // MARK: resolving a request's model
 
-    struct ChatTarget { var route: String; var host: HostInfo?; var engine: EngineManifest? }
+    struct ChatTarget { var host: HostInfo; var engine: EngineManifest; var model: String?; var synthetic = false }
 
-    /// A host id, `<host>/<model>` on a remote host, or a model repo.
+    /// A host id, or `<host>/<model>` on a remote host. A model repo is not a reference: agents and clients name hosts.
     func resolveChat(_ model: String) -> ChatTarget? {
         let cat = engine.catalog
         if let h = cat.host(model), let e = cat.engine(h.spec.engine), e.capabilities.contains("chat") {
-            switch e.adapter {
-            case "inprocess-mlx": return h.spec.model.map { ChatTarget(route: $0, host: h, engine: e) }
-            default:
-                if e.remote {
-                    let first = h.spec.models?.first
-                    return first.map { ChatTarget(route: h.id + "/" + $0, host: h, engine: e) }
-                }
-                return ChatTarget(route: h.id + "/" + h.id, host: h, engine: e)
-            }
+            if e.remote { return h.spec.models?.first.map { ChatTarget(host: h, engine: e, model: $0) } }
+            return ChatTarget(host: h, engine: e, model: nil)
         }
         if let slash = model.firstIndex(of: "/"), let h = cat.host(String(model[..<slash])), let e = cat.engine(h.spec.engine), e.remote {
-            return ChatTarget(route: model, host: h, engine: e)
+            return ChatTarget(host: h, engine: e, model: String(model[model.index(after: slash)...]))
         }
-        guard engine.runtimeKnowsModel(model) else { return nil }
-        let h = cat.resolve(model)
-        return ChatTarget(route: model, host: h, engine: h.flatMap { cat.engine($0.spec.engine) })
+        // A substitute runtime (tests) serves any name as an in-memory host.
+        if engine.mlx == nil, let e = cat.engines.first(where: { $0.adapter == engine.mlxAdapter.id && $0.capabilities.contains("chat") }) {
+            return ChatTarget(host: HostInfo(spec: HostSpec(id: model, engine: e.id, model: model), isAuto: true), engine: e, model: nil, synthetic: true)
+        }
+        return nil
+    }
+
+    /// The one in-process way to ask a host for a completion: the host's queue, then its adapter.
+    public func chatStream(_ request: LLMRequest, host: String) -> AsyncThrowingStream<LLMEvent, Error> {
+        guard let t = resolveChat(host) else {
+            return AsyncThrowingStream { $0.finish(throwing: ParlorError.message("No host \"\(host)\".")) }
+        }
+        return stream(request, t)
+    }
+
+    func stream(_ request: LLMRequest, _ t: ChatTarget) -> AsyncThrowingStream<LLMEvent, Error> {
+        guard let adapter = engine.adapters[t.engine.adapter] else {
+            return AsyncThrowingStream { $0.finish(throwing: ParlorError.message("Engine \(t.engine.id) names the adapter \(t.engine.adapter), which this app does not have.")) }
+        }
+        let queues = engine.queues
+        let key = t.host.id
+        let label = t.model ?? t.host.spec.model ?? t.host.id
+        return AsyncThrowingStream { cont in
+            let task = Task {
+                let queue = await queues.queue(key)
+                let ticket: LLMQueue.Ticket
+                do { ticket = try await queue.acquire(model: label, priority: request.priority) }
+                catch { cont.finish(throwing: error); return }
+                do {
+                    for try await ev in adapter.chat(request, host: t.host, engine: t.engine, model: t.model) { cont.yield(ev) }
+                    await queue.release(ticket)
+                    cont.finish()
+                } catch {
+                    await queue.release(ticket)
+                    cont.finish(throwing: error)
+                }
+            }
+            cont.onTermination = { _ in task.cancel() }
+        }
     }
 
     // MARK: memory budget
@@ -84,35 +113,27 @@ public final class GatewayRoutes {
     struct OverBudget: LocalizedError { var errorDescription: String? }
 
     /// Make room for a host before it starts: stop idle hosts (least recently used first) until it fits the budget.
-    func admit(_ host: HostInfo?, cost: Int64) async throws {
-        guard let host, cost > 0 else { return }
+    func admit(_ host: HostInfo, cost: Int64) async throws {
+        guard cost > 0 else { return }
         let limit = Int64(Double(SystemMemory.totalBytes) * engine.settings.memoryBudgetFraction)
+        let cat = engine.catalog
         func used() async -> Int64 {
             var total: Int64 = 0
-            for p in engine.router.all {
-                if let s = p.process?.snapshot(), s.state.isAlive, let pid = s.pid, let b = ProcessMemory.footprint(pid: pid) { total += Int64(b) }
-            }
-            for pid in await engine.image?.workerPIDs() ?? [] { if let b = ProcessMemory.footprint(pid: pid) { total += Int64(b) } }
-            if let m = engine.mlx { total += Int64(max(0, await m.residentBytes())) }
+            for a in engine.adapters.all { total += await a.residentBytes() }
             return total
         }
         // Already running: its memory is already counted.
-        if let s = engine.router.provider(host.id)?.process?.snapshot(), s.state.isAlive { return }
-        if await engine.image?.hasWorker(host.id) == true { return }
+        if let e = cat.engine(host.spec.engine), let a = engine.adapters[e.adapter], await a.usage(of: host).alive { return }
         var current = await used()
         if current + cost <= limit { return }
-        let idle = engine.router.all.compactMap { p -> (String, Date)? in
-            guard p.config.id != host.id, let s = p.process?.snapshot(), s.state.isAlive, s.active == 0 else { return nil }
-            return (p.config.id, s.lastUsed ?? .distantPast)
-        }.sorted { $0.1 < $1.1 }
-        for (id, _) in idle {
-            engine.router.provider(id)?.process?.stop()
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            current = await used()
-            if current + cost <= limit { return }
+        var idle: [(host: HostInfo, adapter: Adapter, last: Date)] = []
+        for h in cat.hosts where h.id != host.id {
+            guard let e = cat.engine(h.spec.engine), let a = engine.adapters[e.adapter], !a.managesOwnBudget else { continue }
+            let u = await a.usage(of: h)
+            if u.alive, u.active == 0 { idle.append((h, a, u.lastUsed ?? .distantPast)) }
         }
-        for id in await engine.image?.idleWorkers() ?? [] where id != host.id {
-            await engine.image?.stop(host: id)
+        for v in idle.sorted(by: { $0.last < $1.last }) {
+            await v.adapter.stop(v.host)
             try? await Task.sleep(nanoseconds: 300_000_000)
             current = await used()
             if current + cost <= limit { return }
@@ -150,15 +171,15 @@ public final class GatewayRoutes {
         guard let target = resolveChat(model) else {
             return Self.error(404, "The model \"\(model)\" is not a host or an installed model. GET /v1/models lists what is available.", code: "model_not_found")
         }
-        let scopeID = target.host?.id ?? engine.router.queueKey(target.route)
+        let scopeID = target.host.id
         if !caller.mayUse(host: scopeID) {
             return Self.error(403, "This token may not use host \"\(scopeID)\".", type: "permission_error", code: "host_forbidden")
         }
-        if let h = target.host, let why = engine.catalog.problem(host: h.id) {
+        if !target.synthetic, let why = engine.catalog.problem(host: target.host.id) {
             return Self.error(503, why, type: "server_error", code: "model_unavailable")
         }
-        let cost = target.host.flatMap { h in h.spec.model.flatMap { engine.catalog.model($0)?.bytes } } ?? 0
-        if target.engine?.adapter != "inprocess-mlx" {
+        let cost = target.host.spec.model.flatMap { engine.catalog.model($0)?.bytes } ?? 0
+        if engine.adapters[target.engine.adapter]?.managesOwnBudget != true {
             do { try await admit(target.host, cost: cost) } catch { return Self.error(503, error.localizedDescription, type: "server_error", code: "over_budget") }
         }
 
@@ -168,9 +189,9 @@ public final class GatewayRoutes {
             if let v = (k == "max_tokens" ? (o["max_completion_tokens"] ?? o["max_tokens"]) : o[k]) { asked[k] = v }
         }
         if asked["repetition_penalty"] == nil, let v = o["repeat_penalty"] { asked["repetition_penalty"] = v }
-        var merged = target.host?.spec.defaults ?? [:]
+        var merged = target.host.spec.defaults
         for (k, v) in asked { merged[k] = v }
-        let honoured = Set(target.engine?.params ?? ["temperature", "top_p", "max_tokens"])
+        let honoured = Set(target.engine.params)
         let ignored = merged.keys.filter { !honoured.contains($0) }.sorted()
         var tuning = LLMTuning(settings: engine.settings.llm)
         var temperature = 0.7
@@ -193,10 +214,10 @@ public final class GatewayRoutes {
         let thinking = o["chat_template_kwargs"]?.objectValue?["enable_thinking"] == .bool(true)
         let request = LLMRequest(messages: messages, tools: OpenAIWire.parseTools(o["tools"]), temperature: temperature,
                                  maxTokens: maxTokens, thinking: thinking, tuning: tuning, priority: priority, sampling: extra)
-        let events = engine.runtime.generate(model: target.route, request: request)
+        let events = self.stream(request, target)
         let id = "chatcmpl-" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(24)
         let created = Int(Date().timeIntervalSince1970)
-        let parlorInfo: JSON = .object(["host": .string(target.host?.id ?? ""), "ignored": .array(ignored.map { .string($0) })])
+        let parlorInfo: JSON = .object(["host": .string(target.host.id), "ignored": .array(ignored.map { .string($0) })])
 
         // Pull the first event before answering, so a model that cannot load is a clean 404/503 rather than a broken stream.
         let pump = Pump(events.makeAsyncIterator(), first: nil)
@@ -283,9 +304,11 @@ public final class GatewayRoutes {
             let p = size.lowercased().split(separator: "x").compactMap { Int($0) }
             if p.count == 2 { r.width = p[0]; r.height = p[1] }
         }
-        guard let image = engine.image else { return Self.error(503, "The image service is not running.", type: "server_error") }
+        guard let e = cat.engine(host.spec.engine), let adapter = engine.adapters[e.adapter] else {
+            return Self.error(503, "Host \(host.id) names an adapter this app does not have.", type: "server_error")
+        }
         do {
-            let res = try await image.generate(host: host.id, r)
+            let res = try await adapter.image(r, host: host, engine: e)
             var item: [String: JSON] = ["url": .string(res.url.absoluteString), "parlor_path": .string(res.path),
                                         "revised_prompt": .string(res.prompt), "seed": .int(res.seed), "width": .int(res.width), "height": .int(res.height)]
             if o["response_format"]?.stringValue == "b64_json", let d = try? Data(contentsOf: res.url) { item["b64_json"] = .string(d.base64EncodedString()) }

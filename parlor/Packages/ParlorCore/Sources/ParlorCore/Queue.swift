@@ -94,38 +94,3 @@ public actor HostQueues {
         return n
     } }
 }
-
-/// Puts the host queues in front of any runtime, so chats, rooms, summaries and outside clients share each host's line.
-public final class QueuedRuntime: LanguageModelRuntime, @unchecked Sendable {
-    public let inner: LanguageModelRuntime
-    public let queues: HostQueues
-    private let key: @Sendable (String) -> String
-
-    public init(inner: LanguageModelRuntime, queues: HostQueues = HostQueues(), key: @escaping @Sendable (String) -> String = { _ in "mlx" }) {
-        self.inner = inner; self.queues = queues; self.key = key
-    }
-    public convenience init(inner: LanguageModelRuntime, queue: LLMQueue) { self.init(inner: inner, queues: HostQueues(single: queue)) }
-
-    public func loadedModel() async -> String? { await inner.loadedModel() }
-    public func unload() async { await inner.unload() }
-
-    public func generate(model: String, request: LLMRequest) -> AsyncThrowingStream<LLMEvent, Error> {
-        AsyncThrowingStream { cont in
-            let task = Task {
-                let queue = await queues.queue(key(model))
-                let ticket: LLMQueue.Ticket
-                do { ticket = try await queue.acquire(model: model, priority: request.priority) }
-                catch { cont.finish(throwing: error); return }
-                do {
-                    for try await ev in inner.generate(model: model, request: request) { cont.yield(ev) }
-                    await queue.release(ticket)
-                    cont.finish()
-                } catch {
-                    await queue.release(ticket)
-                    cont.finish(throwing: error)
-                }
-            }
-            cont.onTermination = { _ in task.cancel() }
-        }
-    }
-}

@@ -103,6 +103,12 @@ public actor ImageProvider: ToolProvider {
     /// Stop one host's worker (the gateway does this to make room).
     public func stop(host id: String) { stopWorker(id) }
     public func hasWorker(_ id: String) -> Bool { workers[id] != nil }
+    /// A host's worker as the budget sees it: nil when none runs.
+    public func workerUsage(host id: String) async -> (active: Int, lastUsed: Date?, bytes: Int64)? {
+        guard let w = workers[id] else { return nil }
+        let pid = await w.conn.pid
+        return (w.active, lastUsed, Int64(pid.flatMap { ProcessMemory.footprint(pid: $0) } ?? 0))
+    }
     public func idleWorkers() -> [String] { workers.filter { $0.value.active == 0 }.map(\.key) }
     public func workerPIDs() async -> [Int32] {
         var out: [Int32] = []

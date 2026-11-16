@@ -46,10 +46,10 @@ final class GGUFTests: XCTestCase {
         XCTAssertEqual(host.id, "flint-q4-gguf")
         XCTAssertEqual(host.spec.engine, "llama.cpp")
         XCTAssertEqual(engine.catalog.status(host: host.id), .ready)
-        let p = try XCTUnwrap(engine.router.provider("flint-q4-gguf"))
+        let p = try XCTUnwrap(engine.openAIAdapter.client("flint-q4-gguf"))
         XCTAssertTrue(p.config.service!.command.contains(#"'\''"#), "quotes in the path are escaped for the shell")
         XCTAssertTrue(p.config.service!.command.contains("'--port'"))
-        XCTAssertNil(engine.modelProblem(for: { var a = Seeds.mabel(); a.chatHost = "Org/Flint-Q4-GGUF"; return a }()))
+        XCTAssertNil(engine.catalog.problem(host: host.id))
         await engine.shutdown()
     }
 }

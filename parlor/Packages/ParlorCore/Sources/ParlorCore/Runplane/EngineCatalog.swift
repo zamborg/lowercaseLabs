@@ -6,17 +6,15 @@ extension ParlorEngine {
     /// Everything that decides availability, as one value. Rebuilt from what is loaded; nothing else answers "is it there?".
     public var catalog: Catalog {
         var states: [String: ServiceState] = [:]
-        for h in hostList where h.spec.engine != "mlx" {
-            if let proc = router.provider(h.id)?.process { states[h.id] = proc.snapshot().state }
+        for h in hostList {
+            if let e = engineList.first(where: { $0.id == h.spec.engine }), let s = adapters[e.adapter]?.state(of: h) { states[h.id] = s }
         }
-        // In-process hosts are running while their model is the one loaded.
-        for h in hostList where h.spec.engine == "mlx" { if let m = h.spec.model, m == loadedModel { states[h.id] = .running } }
         var dirs: [String: URL] = [:]
         for e in engineList { dirs[e.id] = e.directory }
         return Catalog(models: library.installed, engines: engineList, hosts: hostList, states: states, engineDirs: dirs)
     }
 
-    /// Reload engines and hosts from disk, recompute the auto hosts, and re-point the runtime at them.
+    /// Reload engines and hosts from disk, recompute the auto hosts, and tell every adapter, so a new host is live at once.
     public func reloadRunplane() {
         var engines = engineStore.list()
         for i in engines.indices { engines[i].directory = home.enginesDir.appendingPathComponent(engines[i].id) }
@@ -26,56 +24,7 @@ extension ParlorEngine {
         harnessList = harnesses
         hostList = HostRegistry.build(explicit: hostStore.list(), installed: library.installed, engines: engines)
         let cat = catalog
-        var alias: [String: String] = [:]
-        for m in library.installed {
-            guard let h = cat.host(forModel: m.repo), let e = cat.engine(h.spec.engine), e.adapter == "http-openai" else { continue }
-            alias[m.repo] = h.id + "/" + h.id
-        }
-        router.setAliases(alias)
-        router.configure(derivedProviders(cat), home: home)
-    }
-
-    /// Providers for hosts that run on an http-openai engine. Derived on every load and never written to settings.
-    func derivedProviders(_ cat: Catalog) -> [ProviderConfig] {
-        var out: [ProviderConfig] = []
-        var used: Set<Int> = [11500]
-        for h in cat.hosts.sorted(by: { $0.id < $1.id }) {
-            guard let e = cat.engine(h.spec.engine), e.adapter == "http-openai" else { continue }
-            if e.remote {
-                guard let url = h.spec.url, !url.isEmpty else { continue }
-                out.append(ProviderConfig(id: h.id, baseURL: url, keyRef: h.spec.keyRef, models: h.spec.models, locality: .remote, enabled: h.spec.enabled))
-                continue
-            }
-            guard h.spec.enabled, let launch = e.launch, let repo = h.spec.model, let m = cat.model(repo),
-                  let bin = cat.binary(for: e) ?? EngineBinary.find(launch.command, engineDir: e.directory) else { continue }
-            var port = 8100 + Int(Self.stableHash(h.id) % 800)
-            while used.contains(port) { port += 1 }
-            used.insert(port)
-            var values: [String: JSON] = ["host": .string(h.id), "port": .int(port), "model.dir": .string(m.directory.path)]
-            if let f = m.file { values["model.file"] = .string(m.directory.appendingPathComponent(f).path) }
-            for (k, v) in SchemaCheck.defaults(e.settings) { values["settings." + k] = v }
-            for (k, v) in h.spec.settings { values["settings." + k] = v }
-            let (args, missing) = ArgTemplate.expand(launch.args, values: values)
-            guard missing.isEmpty else { continue }
-            let cmd = ([bin.path] + args).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " ")
-            out.append(ProviderConfig(id: h.id, baseURL: "http://127.0.0.1:\(port)/v1", models: [h.id],
-                                      service: .init(command: cmd, idleMinutes: e.lifecycle.idleMinutes, startupSeconds: e.lifecycle.startupSeconds)))
-        }
-        return out
-    }
-
-    static func stableHash(_ s: String) -> UInt64 {
-        var h: UInt64 = 14695981039346656037
-        for b in s.utf8 { h = (h ^ UInt64(b)) &* 1099511628211 }
-        return h
-    }
-
-    /// Whether a name could be served: an installed MLX model, or anything under a substitute runtime.
-    func runtimeKnowsModel(_ name: String) -> Bool {
-        if router.route(name) != nil { return true }
-        guard mlx != nil else { return true }
-        let repo = name.hasPrefix("mlx/") ? String(name.dropFirst(4)) : name
-        return catalog.isInstalled(repo)
+        for a in adapters.all { a.reconfigure(catalog: cat) }
     }
 
     /// The state of the host an agent chats on (nil when it names none that exists).

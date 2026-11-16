@@ -338,9 +338,8 @@ extension CommandCenter {
         add("hosts.stop", .act, "Unload a host's model from memory.", props: [("id", "string", "Host id")], required: ["id"]) { a, _ in
             let id = try a.string("id")
             guard let h = self.engine.catalog.host(id) else { throw CommandError("No host \"\(id)\".") }
-            if h.spec.engine == "mlx" { await self.engine.unloadModels() }
-            else if h.spec.engine == "z-image" { try? await self.engine.controlService("image", .stop) }
-            else { try? await self.engine.controlService("provider:" + id, .stop) }
+            if let e = self.engine.catalog.engine(h.spec.engine), let a = self.engine.adapters[e.adapter] { await a.stop(h) }
+            await self.engine.refreshLoaded()
             return .object(["status": .string(self.engine.catalog.status(host: id).label)])
         }
         add("hosts.test", .read, "Check a host can answer: its status, and for a remote host whether the server lists its models.", props: [("id", "string", "Host id")], required: ["id"]) { a, c in
@@ -363,8 +362,12 @@ extension CommandCenter {
         add("hosts.stats", .read, "Live numbers for a host: status, memory, and the last benchmark runs.", props: [("id", "string", "Host id")], required: ["id"]) { a, _ in
             let id = try a.string("id")
             guard self.engine.catalog.host(id) != nil else { throw CommandError("No host \"\(id)\". Hosts: \(self.ids(self.engine.catalog.hosts.map(\.id))).") }
-            await self.engine.refreshServices()
-            let mem = self.engine.services.first { $0.id == "provider:" + id || $0.id == "llm" || $0.id == "image" }?.memoryBytes
+            let host = self.engine.catalog.host(id)!
+            var mem: UInt64?
+            if let e = self.engine.catalog.engine(host.spec.engine), let a = self.engine.adapters[e.adapter] {
+                let b = await a.usage(of: host).bytes
+                mem = b > 0 ? UInt64(b) : nil
+            }
             return .object(["host": .string(id), "status": .string(self.engine.catalog.status(host: id).label),
                             "memory_bytes": mem.map { .int(Int($0)) } ?? .null, "bench": .array(self.benchRuns(id))])
         }
@@ -607,7 +610,7 @@ extension ParlorEngine {
         input.gatewayURL = deps.gatewayURL?() ?? ""
         let box = TryBox()
         defer { externalHarness.stop(agent: a.id) }
-        try await externalHarness.run(input, context: TurnContext(llm: deps.llm, tools: HubToolExecutor(hub: hub))) { ev in
+        try await externalHarness.run(input, context: TurnContext(tools: HubToolExecutor(hub: hub))) { ev in
             if case .message(let m) = ev, m.role == .assistant, !m.text.isEmpty { box.set(m.text) }
         }
         let text = box.text

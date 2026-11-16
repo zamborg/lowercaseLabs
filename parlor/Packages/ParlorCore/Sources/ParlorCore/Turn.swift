@@ -66,9 +66,8 @@ public protocol ToolExecutor: Sendable {
 }
 
 public struct TurnContext: Sendable {
-    public var llm: LanguageModelRuntime
     public var tools: ToolExecutor
-    public init(llm: LanguageModelRuntime, tools: ToolExecutor) { self.llm = llm; self.tools = tools }
+    public init(tools: ToolExecutor) { self.tools = tools }
 }
 
 /// Swap this to change how an agent thinks and acts. Everything else stays the same.

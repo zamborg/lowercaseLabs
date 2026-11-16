@@ -188,8 +188,9 @@ struct AgentEditorView: View {
         return set
     }
     private func remoteProvider(for model: String) -> String? {
-        guard let (p, _) = engine.router.route(model), p.config.locality == .remote else { return nil }
-        return p.config.id
+        let cat = engine.catalog
+        guard let h = cat.resolve(model), cat.engine(h.spec.engine)?.remote == true else { return nil }
+        return h.id
     }
     private func hostLabel(_ id: String) -> String {
         let cat = engine.catalog

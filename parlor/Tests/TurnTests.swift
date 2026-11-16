@@ -218,15 +218,20 @@ final class QueueTests: XCTestCase {
         await q.release(hold)
     }
 
-    func testQueuedRuntimeSerialisesTwoStreams() async throws {
+    @MainActor
+    func testHostQueueSerialisesTwoStreams() async throws {
+        let home = tempHome(); try home.ensure()
         let inFlight = Counter()
-        let slow = SlowRuntime(counter: inFlight)
-        let rt = QueuedRuntime(inner: slow)
-        async let a: Void = { for try await _ in rt.generate(model: "m", request: LLMRequest(messages: [])) {} }()
-        async let b: Void = { for try await _ in rt.generate(model: "m", request: LLMRequest(messages: [], priority: .room)) {} }()
+        let e = ParlorEngine(home: home, runtime: SlowRuntime(counter: inFlight))
+        await e.start()
+        let g = e.gateway!
+        let sa = g.chatStream(LLMRequest(messages: []), host: "m"), sb = g.chatStream(LLMRequest(messages: [], priority: .room), host: "m")
+        async let a: Void = { for try await _ in sa {} }()
+        async let b: Void = { for try await _ in sb {} }()
         _ = try await (a, b)
-        XCTAssertEqual(inFlight.maxSeen, 1, "never two generations at once")
+        XCTAssertEqual(inFlight.maxSeen, 1, "never two generations at once on one host")
         XCTAssertEqual(inFlight.total, 2)
+        await e.shutdown()
     }
 
     func testSlotsKeepAlternatingConversationsApart() {

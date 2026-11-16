@@ -18,6 +18,7 @@ Control    verbs, gateway, MCP        how the UI, other agents and outside clien
 ```
 
 - **Engine**: a backend. Adapter is `inprocess-mlx`, `http-openai`, `command` or `mcp-stdio`.
+- **Adapter**: one per wire protocol, registered in `AdapterRegistry`. The gateway resolves a host through the catalog (a host id, or `<host>/<model>` on a remote host; a bare model repo is `model_not_found`), takes that host's queue, then calls `adapter.chat` or `adapter.image`. Adapters also report `state`, `usage` and `residentBytes` for the memory budget, and `start`/`stop` a host (`hosts.stop` on an MLX host unloads that model only). A drop-in engine that names an existing adapter needs no Swift.
 - **Host**: an engine plus a model, how it runs (`settings`) and how it is asked (`defaults`).
 - **Harness**: a program that runs an agent's turns over the harness protocol (section 4).
 - **Agent**: a folder: its harness, the hosts it uses for each need, tools, tier and config.

@@ -40,6 +40,14 @@ public actor MLXRuntime: LanguageModelRuntime {
         residents = [:]
     }
 
+    public func residentBytes(of id: String) -> Int64 { residents[id]?.bytes ?? 0 }
+
+    /// Unload one model and leave the others resident.
+    public func unload(model id: String) async {
+        if residents[id]?.inFlight == 0 { residents[id] = nil }
+        scheduleSweep()
+    }
+
     /// Minutes of idleness before a model is unloaded. 0 keeps it loaded.
     public func setKeepAlive(minutes: Int) {
         keepAlive = TimeInterval(max(0, minutes) * 60)

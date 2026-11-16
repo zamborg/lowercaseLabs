@@ -118,7 +118,7 @@ public final class Room: Identifiable {
         do {
             activity = "Thinking"
             let input = makeInput(agent: agent, tools: tools, names: names, action: action)
-            let context = TurnContext(llm: deps.llm, tools: HubToolExecutor(hub: deps.hub))
+            let context = TurnContext(tools: HubToolExecutor(hub: deps.hub))
             try await deps.external.run(input, context: context) { [weak self] ev in
                 Task { @MainActor in self?.handle(ev) }
             }
@@ -291,7 +291,6 @@ public final class Room: Identifiable {
 public final class RoomDeps {
     public let home: ParlorHome
     public let hub: ToolHub
-    public var llm: LanguageModelRuntime
     public var external: ExternalHarness
     public var image: ImageProvider?
     public var library: ModelLibrary?
@@ -302,7 +301,7 @@ public final class RoomDeps {
     public var launch: (@MainActor (Agent) -> (command: String, config: [String: JSON])?)?
     /// The gateway's OpenAI base (`http://127.0.0.1:<port>/v1`); set by the engine.
     public var gatewayURL: (@MainActor () -> String)?
-    init(home: ParlorHome, hub: ToolHub, llm: LanguageModelRuntime, external: ExternalHarness, library: ModelLibrary? = nil) {
-        self.home = home; self.hub = hub; self.llm = llm; self.external = external; self.library = library
+    init(home: ParlorHome, hub: ToolHub, external: ExternalHarness, library: ModelLibrary? = nil) {
+        self.home = home; self.hub = hub; self.external = external; self.library = library
     }
 }

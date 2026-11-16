@@ -161,10 +161,8 @@ extension ParlorEngine {
     public func modelProblem(for a: Agent) -> String? {
         guard mlx != nil else { return nil }
         let cat = catalog
-        if let (p, _) = router.route(a.chatHost), cat.host(p.config.id) == nil { return p.config.enabled ? nil : "Provider \(p.config.id) is off." }
         guard let h = cat.resolve(a.chatHost) else {
-            let repo = a.chatHost.hasPrefix("mlx/") ? String(a.chatHost.dropFirst(4)) : a.chatHost
-            return "\(repo.split(separator: "/").last.map(String.init) ?? repo) is not downloaded."
+            return a.chatHost.isEmpty ? "\(a.name) has no chat host." : "There is no host \"\(a.chatHost)\". Hosts: " + cat.hosts(capability: "chat").map(\.id).joined(separator: ", ") + "."
         }
         return cat.problem(host: h.id)
     }
@@ -207,7 +205,8 @@ extension ParlorEngine {
     }
 
     public func refreshLoaded() async {
-        loadedModel = await deps.llm.loadedModel()
+        for a in adapters.all { await a.refresh() }
+        loadedModel = await mlxAdapter.runtime.loadedModel()
         queueDepth = await queues.depth
         if let image { imageWorkerState = await image.stateDescription() }
     }
