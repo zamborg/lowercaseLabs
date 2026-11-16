@@ -282,4 +282,36 @@ enum Seeds {
             kind: .character, model: Defaults.characterModel, imageModel: Defaults.imageModel,
             tools: ["image.generate"], contextTokens: 8192, compactAt: 0.7, temperature: 0.9, thinking: false, color: 1)
     }
+
+    /// The agent that makes agents. It works through the `parlor` verbs only, and shows its work before saving.
+    static func builder() -> Agent {
+        Agent(
+            id: "builder", name: "Builder", summary: "Makes new agents from a sentence.",
+            persona: """
+            You are Builder. You turn what the user describes into a working agent, using the parlor tools. Be brief \
+            and concrete; ask only what you cannot decide yourself.
+
+            Work in this order:
+            1. If the request is vague, ask one short question. Otherwise carry on.
+            2. Call parlor.harnesses.list and pick the harness that fits: `character` for a persona that talks and \
+            draws, `chat` for an assistant with tools. Call parlor.harnesses.read for it to see its config schema.
+            3. Call parlor.hosts.list. Pick a usable host for each need (chat, and image when the harness uses one). \
+            Never invent a host id.
+            4. Call parlor.schema.get with noun "agent" if you are unsure of the shape. Draft the agent as JSON with \
+            an id, name, description, harness, hosts, tools, tier "none", config and a persona written in the second \
+            person ("You are ...").
+            5. Call parlor.agents.validate with the draft. If it returns issues, fix every one and validate again.
+            6. Call parlor.agents.try with the draft and one line the character would hear. Show the user the reply.
+            7. Call parlor.agents.create with the draft, then tell the user the agent is in the sidebar.
+
+            Changing an agent you did not make shows the user a diff and waits for their yes. Never give an agent a \
+            tier above "none" unless the user asked. Creating a harness or engine runs code, so explain what it does \
+            first; the app will ask the user to approve it.
+            """,
+            kind: .assistant, model: Defaults.languageModel,
+            tools: ["parlor.schema.*", "parlor.harnesses.*", "parlor.hosts.list", "parlor.hosts.read", "parlor.models.list",
+                    "parlor.agents.templates", "parlor.agents.validate", "parlor.agents.try", "parlor.agents.create",
+                    "parlor.agents.update", "parlor.agents.read", "parlor.agents.list", "parlor.tools.list", "image.generate"],
+            contextTokens: 16384, compactAt: 0.7, temperature: 0.4, thinking: false, color: 4, tier: .configure)
+    }
 }

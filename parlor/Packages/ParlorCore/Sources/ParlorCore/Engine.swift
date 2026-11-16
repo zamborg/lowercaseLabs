@@ -30,10 +30,9 @@ public final class ParlorEngine {
     public private(set) var settings = ParlorSettings()
 
     private var rooms: [String: Room] = [:]
-    private let deps: RoomDeps
+    let deps: RoomDeps
     private var mcp: MCPManager!
     private var watcher: FolderWatcher?
-    @ObservationIgnored lazy var triggers = TriggerScheduler(engine: self)
     private var reloadTask: Task<Void, Never>?
     let mlx: MLXRuntime?
     /// Sends `provider/model` names to their provider and everything else to MLX.
@@ -44,10 +43,6 @@ public final class ParlorEngine {
     /// Runs agents that have a `harness:` command.
     public let externalHarness: ExternalHarness
     private var harnessTokens: [String: String] = [:]
-    /// Git history of the hand-editable state (`~/parlor/.git`).
-    public let history: HomeHistory
-    /// Who the next write is credited to in history. The command gate sets it for the length of a verb.
-    var actor = "ui"
     public var memory: MemoryStore { MemoryStore(home: home) }
     /// One queue per host.
     let queues = HostQueues()
@@ -70,7 +65,6 @@ public final class ParlorEngine {
     /// Pass a runtime to substitute the model (tests); nil uses MLX.
     public init(home: ParlorHome = .default, runtime: LanguageModelRuntime? = nil) {
         self.home = home
-        self.history = HomeHistory(root: home.root)
         let lib = ModelLibrary(home: home)
         self.library = lib
         let base: LanguageModelRuntime
@@ -106,7 +100,6 @@ public final class ParlorEngine {
         guard s != settings else { return }
         settings = s
         s.save(home.settingsFile)
-        noteChange("Changed settings")
         Task { await self.applySettings() }
     }
 
@@ -368,7 +361,6 @@ public final class ParlorEngine {
         library.onChange = { [weak self] in Task { @MainActor in self?.reloadRunplane() } }
         reloadRunplane()
         seedIfEmpty()
-        history.setup()
         reloadAgents()
         if selection == nil { selection = agents.first?.id }
         let img = ImageProvider(home: home, library: library,
@@ -394,13 +386,10 @@ public final class ParlorEngine {
         watcher = FolderWatcher(path: home.root) { [weak self] paths in
             Task { @MainActor in self?.filesChanged(paths) }
         }
-        triggers.start()
     }
 
     public func shutdown() async {
         watcher?.stop()
-        triggers.stop()
-        history.flush()
         endpoint.stop()
         externalHarness.stopAll()
         router.stopAll()
@@ -418,7 +407,7 @@ public final class ParlorEngine {
         // deleting every agent later does not bring them back.
         guard !fm.fileExists(atPath: home.seededMarker.path) else { return }
         if agentStore.ids().isEmpty {
-            for var a in [Seeds.mabel(), Seeds.pip()] {
+            for var a in [Seeds.mabel(), Seeds.pip(), Seeds.builder()] {
                 a.model = availableModel(a.model)
                 if a.imageModel != nil { a.imageModel = availableImageHost(a.imageModel!) }
                 write(a)
@@ -501,7 +490,6 @@ public final class ParlorEngine {
         let config = ConversationConfig(participants: ids.map { .agent($0) } + [.user], scheduler: scheduler, title: title.isEmpty ? "Room" : title)
         try? home.ensure()
         try? config.save(dir: home.chatDir(for: id))
-        noteChange("Created room \(id)")
         reloadConversations()
         return id
     }
@@ -527,15 +515,10 @@ public final class ParlorEngine {
         let personaURL = dir.appendingPathComponent("persona.md")
         let changed = agentStore.raw(a.id) != obj || (try? String(contentsOf: personaURL, encoding: .utf8)) != persona
         if changed {
-            history.willChange(actor: actor)
             try? agentStore.write(a.id, obj)
             try? persona.write(to: personaURL, atomically: true, encoding: .utf8)
-            noteChange("Edited agent \(a.id)")
         }
     }
-
-    /// Ask history to record the change, credited to whoever is acting.
-    public func noteChange(_ what: String) { history.record(actor: actor, what) }
 
     public func save(_ a: Agent) {
         write(a)
@@ -624,7 +607,6 @@ public final class ParlorEngine {
         try? FileManager.default.removeItem(at: home.agentsDir.appendingPathComponent(id))
         try? FileManager.default.removeItem(at: home.chatDir(for: id))
         rooms[id] = nil
-        noteChange("Deleted agent \(id)")
         reloadAgents()
     }
 
@@ -697,7 +679,6 @@ public final class ParlorEngine {
 
     public func saveMCPConfig(_ file: MCPConfigFile) throws {
         try file.save(home.mcpConfig)
-        noteChange("Changed mounted servers")
         configuredServers = file.mcpServers
         reloadTools()
     }
@@ -885,17 +866,11 @@ public final class ParlorEngine {
     }
 
     private func filesChanged(_ paths: [String]) {
-        triggers.filesChanged(paths)
         // FSEvents reports resolved paths (/private/var/…), so compare against resolved prefixes too.
         let prefixes = [home.agentsDir.path, Self.realPath(home.agentsDir.path)]
         let relevant = paths.contains { p in prefixes.contains { p.hasPrefix($0) } || p.hasSuffix("/mcp.json") }
         _ = relevant
         let chats = paths.filter { $0.contains("/chats/") }
-        let tracked = paths.contains { p in
-            !p.contains("/.git/") && (p.contains("/agents/") || p.contains("/memory/") || p.hasSuffix("/settings.json") || p.hasSuffix("/mcp.json")
-                                      || p.hasSuffix("/module.json") || p.hasSuffix("/conversation.json"))
-        }
-        if tracked { history.record(actor: "outside edit", "Edited outside the app") }
         reloadTask?.cancel()
         reloadTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 200_000_000)

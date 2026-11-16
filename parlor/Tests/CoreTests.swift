@@ -96,7 +96,7 @@ final class CoreTests: XCTestCase {
         let llm = scriptedLLM()
         let engine = ParlorEngine(home: home, runtime: llm)
         await engine.start()
-        XCTAssertEqual(engine.agents.map(\.id).sorted(), ["mabel", "pip"], "first run seeds two agents")
+        XCTAssertEqual(engine.agents.map(\.id).sorted(), ["builder", "mabel", "pip"], "first run seeds three agents")
         await engine.hub.register(MockTools(), status: ServerStatus(id: "mock", kind: "stdio", detail: "", state: .connecting, toolCount: 0, toolNames: []))
 
         // create an agent by writing a file the way Claude Code would, and see it appear live

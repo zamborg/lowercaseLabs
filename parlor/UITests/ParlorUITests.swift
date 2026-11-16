@@ -124,8 +124,8 @@ final class ParlorUITests: XCTestCase {
     func testStep7Screens() throws {
         app.launchEnvironment["PARLOR_ROUTE"] = "tools"          // an alias of system
         app.launch()
-        XCTAssertTrue(app.staticTexts["History"].waitForExistence(timeout: 15), "History section in System")
-        XCTAssertTrue(app.buttons["add-server"].exists, "Tools panel moved into System")
+        XCTAssertTrue(app.buttons["add-server"].waitForExistence(timeout: 15), "Tools panel lives in System")
+        XCTAssertFalse(app.staticTexts["History"].exists, "history is cut in V3")
         app.terminate()
 
         app.launchEnvironment["PARLOR_ROUTE"] = "agent:mabel"

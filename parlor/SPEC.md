@@ -404,8 +404,6 @@ MCP over streamable HTTP at `127.0.0.1:<parlorServer.port>/mcp`, bearer token. F
 | `home.paths` | read | Your data |
 | `home.reveal` | read | Reveal in Finder (UI only; does nothing over the wire) |
 | `memory.read`, `memory.append`, `memory.replace` | none | Memory in the agent editor (an agent's own; another agent's needs configure) |
-| `home.history` | read | System → History |
-| `home.restore` | destructive | System → History |
 
 Rules:
 - **Gate for step 5:** every UI action in the right-hand column calls the engine verb, and nothing else.

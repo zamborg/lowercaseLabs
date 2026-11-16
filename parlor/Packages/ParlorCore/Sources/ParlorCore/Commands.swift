@@ -60,11 +60,13 @@ public struct Args: Sendable {
 public final class CommandCenter {
     unowned let engine: ParlorEngine
     public private(set) var verbs: [String: Verb] = [:]
+    /// Agents made by a caller in this run, so its later edits need no diff approval.
+    var createdBy: [String: String] = [:]
 
     init(engine: ParlorEngine) {
         self.engine = engine
         registerAgents(); registerConversations(); registerModels(); registerServices()
-        registerSettings(); registerTools(); registerMemory()
+        registerSettings(); registerTools(); registerMemory(); registerNouns()
     }
 
     public var sorted: [Verb] { verbs.values.sorted { $0.name < $1.name } }
@@ -96,9 +98,6 @@ public final class CommandCenter {
             let ok = await ask("\(caller.name) wants to run \(v.qualified)\n\n" + arguments.text)
             guard ok else { return ToolOutput(text: "The user declined \(v.qualified).", isError: true) }
         }
-        let previous = engine.actor
-        engine.actor = caller.kind == .ui ? "ui" : (caller.kind == .local ? "local" : caller.name)
-        defer { engine.actor = previous }
         do {
             let r = try await v.run(Args(arguments), caller)
             return ToolOutput(text: r.pretty)

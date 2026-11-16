@@ -52,14 +52,14 @@ public final class Room: Identifiable {
         start(userText: trimmed, fallback: agent)
     }
 
-    /// Let the scheduler run without a user message (round robin, mentions, autonomous).
+    /// Let the scheduler run without a user message (round robin, mentions).
     public func run() { start(userText: nil, fallback: nil) }
 
     private func start(userText: String?, fallback: Agent?) {
         guard !isBusy else { return }
         errorText = nil
         isBusy = true
-        runPriority = userText != nil ? .user : (config.scheduler.kind == "autonomous" ? .background : .room)
+        runPriority = userText != nil ? .user : .room
         task = Task { [weak self] in
             guard let self else { return }
             await self.conversation(userText: userText, fallback: fallback)

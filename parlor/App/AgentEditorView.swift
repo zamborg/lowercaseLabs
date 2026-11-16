@@ -57,7 +57,6 @@ struct AgentEditorView: View {
         guard text.count <= MemoryStore.maxChars else { return }
         try? engine.memory.write(agentID, text)
         memoryLoaded = text
-        engine.noteChange("Edited memory of \(agentID)")
     }
 
     /// Flush the pending edit, then let the file name and chat folder follow the display name.

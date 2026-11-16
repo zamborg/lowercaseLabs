@@ -10,7 +10,7 @@ public struct Participant: Codable, Hashable, Sendable {
 }
 
 public struct SchedulerSpec: Codable, Hashable, Sendable {
-    /// `userDriven`, `roundRobin`, `mention` or `autonomous`. Only `userDriven` is implemented so far.
+    /// `userDriven`, `roundRobin` or `mention`.
     public var kind: String
     public var maxTurns: Int?
     public var stepBudget: Int?
@@ -26,8 +26,6 @@ public struct ConversationConfig: Codable, Hashable, Sendable {
     public var title: String?
     public var participants: [Participant]
     public var scheduler: SchedulerSpec
-    /// Clock and file triggers that start the scheduler with no user message.
-    public var triggers: [ConversationTrigger] = []
 
     public var agentIDs: [String] { participants.compactMap(\.agent) }
 
@@ -45,7 +43,6 @@ public struct ConversationConfig: Codable, Hashable, Sendable {
         title = try c.decodeIfPresent(String.self, forKey: .title)
         participants = try c.decodeIfPresent([Participant].self, forKey: .participants) ?? []
         scheduler = try c.decodeIfPresent(SchedulerSpec.self, forKey: .scheduler) ?? .userDriven
-        triggers = try c.decodeIfPresent([ConversationTrigger].self, forKey: .triggers) ?? []
     }
 
     /// Reads `conversation.json` in a chat folder; falls back to the one-to-one default for `agentID`.
@@ -129,22 +126,11 @@ public struct MentionScheduler: Scheduler {
     }
 }
 
-/// Agents keep going without a user message, in order, for at most `stepBudget` turns.
-public struct AutonomousScheduler: Scheduler {
-    public init() {}
-    public func next(_ s: SchedulerState) -> String? {
-        let ids = s.config.agentIDs
-        guard !ids.isEmpty, s.turnsThisRun < (s.config.scheduler.stepBudget ?? s.config.scheduler.maxTurns ?? 6) else { return nil }
-        return ids[s.turnsThisRun % ids.count]
-    }
-}
-
 public extension SchedulerSpec {
     func make() -> Scheduler {
         switch kind {
         case "roundRobin": return RoundRobinScheduler()
         case "mention": return MentionScheduler()
-        case "autonomous": return AutonomousScheduler()
         default: return UserDrivenScheduler()
         }
     }
@@ -154,7 +140,6 @@ public extension SchedulerSpec {
         case "userDriven": return 1
         case "roundRobin": return min(maxTurns ?? agentCount, 50)
         case "mention": return min(maxTurns ?? 8, 50)
-        case "autonomous": return min(stepBudget ?? maxTurns ?? 6, 50)
         default: return 1
         }
     }
@@ -162,7 +147,6 @@ public extension SchedulerSpec {
         switch kind {
         case "roundRobin": return "round robin"
         case "mention": return "by mention"
-        case "autonomous": return "autonomous"
         default: return "you drive"
         }
     }

@@ -85,7 +85,6 @@ struct RoomView: View {
 
     private var emptyText: String {
         switch info?.config.scheduler.kind {
-        case "autonomous": return "Press Run to let them talk."
         case "roundRobin": return "Say something, and each agent answers in turn. Or press Run."
         case "mention": return "Name an agent to hand them the floor."
         default: return "Say something to the room."
@@ -178,7 +177,6 @@ struct NewRoomSheet: View {
             Picker("", selection: $kind) {
                 Text("Round robin").tag("roundRobin")
                 Text("By mention").tag("mention")
-                Text("Autonomous").tag("autonomous")
                 Text("You drive").tag("userDriven")
             }.labelsHidden().pickerStyle(.segmented)
             Text(help).font(.caption).foregroundStyle(.secondary)
@@ -188,7 +186,7 @@ struct NewRoomSheet: View {
                 Button("Cancel") { dismiss() }
                 Button("Create") {
                     var spec = SchedulerSpec(kind: kind)
-                    if kind == "autonomous" { spec.stepBudget = turns } else if kind != "userDriven" { spec.maxTurns = turns }
+                    if kind != "userDriven" { spec.maxTurns = turns }
                     let ordered = engine.agents.map(\.id).filter { chosen.contains($0) }
                     let names = ordered.compactMap { engine.agent($0)?.name }
                     let id = engine.createRoom(title: title.isEmpty ? names.joined(separator: " & ") : title, agents: ordered, scheduler: spec)
@@ -206,7 +204,6 @@ struct NewRoomSheet: View {
         switch kind {
         case "roundRobin": return "Each agent answers in turn after you speak, or when you press Run."
         case "mention": return "The agent you name answers; if they name someone, that agent answers next."
-        case "autonomous": return "Press Run and the agents talk to each other for up to the turn limit."
         default: return "Only the first agent replies to each message."
         }
     }

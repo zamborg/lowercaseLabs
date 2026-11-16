@@ -66,7 +66,7 @@ public enum SchemaCheck {
             } else { out.append(Issue(path: path, message: "must be a list")) }
         case "object":
             guard let o = value.objectValue else { out.append(Issue(path: path, message: "must be an object")); break }
-            let props = s["properties"]?.objectValue ?? [:]
+            guard let props = s["properties"]?.objectValue else { break }   // no "properties": any keys are fine
             for (k, v) in o {
                 let p = path.isEmpty ? k : path + "." + k
                 if let ps = props[k] { out += validate(v, schema: ps, path: p) }

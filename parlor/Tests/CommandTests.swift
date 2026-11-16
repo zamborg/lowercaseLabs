@@ -123,6 +123,7 @@ final class CommandTests: XCTestCase {
         r = await call("agents.update", ["id": .string("mabel"), "temperature": .double(0.2), "description": .string("changed")])
         XCTAssertFalse(r.isError); XCTAssertEqual(e.agent("mabel")?.temperature, 0.2); XCTAssertEqual(e.agent("mabel")?.summary, "changed")
         // A token cannot grant more than it has.
+        e.confirm = { _ in true }   // changing an agent the token did not make shows a diff first
         let low = await e.commands.call("agents.update", .object(["id": .string("mabel"), "tier": .string("configure")]), caller: .token("x", .configure))
         XCTAssertFalse(low.isError)
         await e.shutdown()

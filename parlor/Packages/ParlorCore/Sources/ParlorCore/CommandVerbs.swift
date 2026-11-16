@@ -77,6 +77,17 @@ extension CommandCenter {
         guard await ask("\(caller.name) wants an agent to run this program for its turns:\n\n\(h)") else { throw CommandError("The user declined the harness.") }
     }
 
+    /// Changed keys as `- old` / `+ new` lines.
+    static func diff(_ a: JSON, _ b: JSON) -> String {
+        let x = a.objectValue ?? [:], y = b.objectValue ?? [:]
+        var out: [String] = []
+        for k in Set(x.keys).union(y.keys).sorted() where x[k] != y[k] {
+            func short(_ j: JSON?) -> String { let t = j?.text ?? "(unset)"; return t.count > 300 ? String(t.prefix(300)) + "…" : t }
+            out.append("\(k)\n  - \(short(x[k]))\n  + \(short(y[k]))")
+        }
+        return out.joined(separator: "\n")
+    }
+
     private func agent(_ id: String) throws -> Agent {
         guard let a = engine.agent(id) else { throw CommandError("No agent \"\(id)\".") }
         return a
@@ -107,7 +118,18 @@ extension CommandCenter {
             .array(self.engine.harnessList.flatMap { h in h.templates.map { t in
                 .object(["id": .string(t.id), "harness": .string(h.id), "title": .string(t.title), "description": .string(t.description), "tools": .strings(t.tools)]) } })
         }
-        add("agents.create", .configure, "Create an agent from a template (see agents.templates), then set any of the fields.", props: [("template", "string", "Template id; default assistant")] + fields) { a, c in
+        add("agents.create", .configure, "Create an agent: from a full `draft` (the agent.json shape plus persona; every problem is returned at once), or from a template (see agents.templates) plus fields.",
+            props: [("draft", "object", "A complete agent draft; see schema.get agent and agents.validate"), ("template", "string", "Template id; default assistant")] + fields) { a, c in
+            if let d = a.raw["draft"] {
+                let issues = self.agentIssues(d, caller: c)
+                if !issues.errors.isEmpty { throw ValidationError(issues: issues) }
+                if let h = d.objectValue?["harness"]?.stringValue, h.contains(" ") || h.contains("/") { try await self.confirmHarness(Args(.object(["harness": .string(h)])), c) }
+                let made = try self.engine.draftAgent(d)
+                if self.engine.agent(made.id) != nil { throw ValidationError(issues: [Issue(code: "exists", path: "id", message: "agent \"\(made.id)\" already exists", hint: "use agents.update, or pick another id")]) }
+                self.engine.save(made)
+                if c.kind == .agent || c.kind == .token { self.createdBy[made.id] = c.name }
+                return self.agentJSON(try self.agent(made.id), full: true)
+            }
             try await self.confirmHarness(a, c)
             let name = a.optString("name") ?? "New assistant"
             let kind = Agent.Kind(rawValue: a.optString("kind") ?? "assistant") ?? .assistant
@@ -124,13 +146,24 @@ extension CommandCenter {
             try self.apply(&made, a, caller: c)
             self.engine.save(made)
             let id = self.engine.renameToMatchName(made.id)
+            if c.kind == .agent || c.kind == .token { self.createdBy[id] = c.name }
             return self.agentJSON(try self.agent(id), full: true)
         }
         add("agents.update", .configure, "Change fields of an agent. Unknown or out-of-range values are refused.",
             props: [("id", "string", "Agent id")] + fields, required: ["id"]) { a, c in
             try await self.confirmHarness(a, c)
             var cur = try self.agent(try a.string("id"))
+            let before = self.agentJSON(cur, full: true)
             try self.apply(&cur, a, caller: c)
+            // An agent or token changing an agent it did not make shows the user a diff and waits.
+            if c.mustConfirmDestructive, self.createdBy[cur.id] != c.name {
+                let after = self.agentJSON(cur, full: true)
+                let diff = Self.diff(before, after)
+                if !diff.isEmpty {
+                    guard let ask = self.engine.confirm else { throw CommandError("Changing \(cur.name) needs the user. Nobody is available to confirm it.") }
+                    guard await ask("\(c.name) wants to change \(cur.name):\n\n" + diff) else { throw CommandError("The user declined the change.") }
+                }
+            }
             self.engine.save(cur)
             let id = self.engine.renameToMatchName(cur.id)
             return self.agentJSON(try self.agent(id), full: true)
@@ -175,13 +208,13 @@ extension CommandCenter {
         }
         add("conversations.create", .act, "Create a room from existing agents.",
             props: [("title", "string", "Room title"), ("agents", "strings", "Agent ids"),
-                    ("scheduler", "string", "userDriven, roundRobin, mention or autonomous"), ("max_turns", "integer", "Turn budget per run")],
+                    ("scheduler", "string", "userDriven, roundRobin or mention"), ("max_turns", "integer", "Turn budget per run")],
             required: ["agents"]) { a, _ in
             let ids = a.strings("agents") ?? []
             guard ids.count >= 1 else { throw CommandError("\"agents\" needs at least one agent id.") }
             for i in ids { _ = try self.agent(i) }
             let kind = a.optString("scheduler") ?? "roundRobin"
-            guard ["userDriven", "roundRobin", "mention", "autonomous"].contains(kind) else { throw CommandError("Unknown scheduler \"\(kind)\".") }
+            guard ["userDriven", "roundRobin", "mention"].contains(kind) else { throw CommandError("Unknown scheduler \"\(kind)\".") }
             let id = self.engine.createRoom(title: a.optString("title") ?? "Room", agents: ids, scheduler: SchedulerSpec(kind: kind, maxTurns: a.optInt("max_turns")))
             return .object(["id": .string(id)])
         }

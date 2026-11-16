@@ -21,7 +21,6 @@ extension CommandCenter {
             props: who + [("text", "string", "What to remember")], required: ["text"]) { a, c in
             let id = try self.memoryTarget(a, c)
             try self.engine.memory.append(id, try a.string("text"))
-            self.engine.noteChange("Memory of \(id)")
             return .object(["id": .string(id), "chars": .int(self.engine.memory.read(id).count)])
         }
         add("memory.replace", .none, "Rewrite an agent's whole memory (empty text clears it). Use it to condense.",
@@ -30,23 +29,7 @@ extension CommandCenter {
             let text = a.optString("text") ?? ""
             guard text.count <= MemoryStore.maxChars else { throw CommandError("Memory is limited to \(MemoryStore.maxChars) characters; this is \(text.count).") }
             try self.engine.memory.write(id, text)
-            self.engine.noteChange("Memory of \(id)")
             return .object(["id": .string(id), "chars": .int(text.trimmingCharacters(in: .whitespacesAndNewlines).count)])
-        }
-        add("home.history", .read, "Recent changes to agents, memory, settings and mounts, newest first. Each has a commit hash for home.restore.",
-            props: [("limit", "integer", "Default 20"), ("path", "string", "Only changes to this file, e.g. agents/mabel.md")]) { a, _ in
-            let entries = self.engine.history.log(limit: a.optInt("limit") ?? 20, path: a.optString("path"))
-            let f = ISO8601DateFormatter()
-            return .array(entries.map { e in
-                .object(["commit": .string(String(e.hash.prefix(10))), "by": .string(e.author), "at": .string(f.string(from: e.date)),
-                         "what": .string(e.subject), "files": .strings(e.files)])
-            })
-        }
-        add("home.restore", .configure, destructive: true, "Put files back as they were at a commit from home.history (all tracked files, or just the given paths). Recorded as a new step, so it can be undone too.",
-            props: [("commit", "string", "Hash from home.history"), ("paths", "strings", "Files relative to the parlor folder; empty restores everything tracked")], required: ["commit"]) { a, c in
-            let changed = try self.engine.history.restore(rev: try a.string("commit"), paths: a.strings("paths") ?? [], actor: c.name)
-            self.engine.reloadAgents()
-            return .object(["restored": .strings(changed)])
         }
     }
 }

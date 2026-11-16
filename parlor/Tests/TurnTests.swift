@@ -126,7 +126,7 @@ final class TurnTests: XCTestCase {
         let home = tempHome()
         let e1 = ParlorEngine(home: home, runtime: scriptedLLM())
         await e1.start()
-        XCTAssertEqual(e1.agents.map(\.id).sorted(), ["mabel", "pip"])
+        XCTAssertEqual(e1.agents.map(\.id).sorted(), ["builder", "mabel", "pip"])
         for a in e1.agents { e1.delete(a.id) }
         await e1.shutdown()
         let e2 = ParlorEngine(home: home, runtime: scriptedLLM())
@@ -336,17 +336,6 @@ final class RoomTests: XCTestCase {
         XCTAssertEqual(room.messages.filter { $0.role == .assistant }.compactMap(\.speaker), ["pip", "babe"])
         XCTAssertEqual(MentionScheduler.firstMention(in: "Mabelle and Pip", ids: ["mabel", "pip"], names: ["mabel": "Mabel", "pip": "Pip"], excluding: nil), "pip", "whole words only")
         XCTAssertNil(MentionScheduler.firstMention(in: "Pip said so", ids: ["pip"], names: ["pip": "Pip"], excluding: "pip"))
-        await e.shutdown()
-    }
-
-    @MainActor func testAutonomousRunStopsAtItsBudgetAndNeedsNoUserMessage() async throws {
-        let e = await roomEngine(roomLLM())
-        let id = e.createRoom(title: "Free", agents: ["mabel", "pip"], scheduler: SchedulerSpec(kind: "autonomous", stepBudget: 3))
-        let room = e.room(for: id)
-        XCTAssertTrue(room.messages.isEmpty)
-        await room.runAndWait()
-        XCTAssertEqual(room.messages.filter { $0.role == .assistant }.compactMap(\.speaker), ["mabel", "pip", "mabel"])
-        XCTAssertFalse(room.messages.contains { $0.role == .user })
         await e.shutdown()
     }
 
