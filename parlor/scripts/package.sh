@@ -7,7 +7,7 @@
 #   SIGN_ID=... NOTARY_PROFILE=parlor scripts/package.sh
 #                                               also notarizes and staples (profile from `xcrun notarytool store-credentials`)
 #
-# Output: dist/Parlor-<version>.dmg, dist/Parlor.app, dist/parlor-cli
+# Output: dist/Parlor-<version>.dmg, dist/Parlor.app, dist/parlor-cli (with the resource bundles it needs beside it)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
@@ -35,6 +35,8 @@ test -x "$APP/Contents/Resources/SD/sd-cli" || { echo "sd-cli missing from the a
 rm -rf "$OUT"; mkdir -p "$OUT"
 cp -R "$APP" "$OUT/Parlor.app"
 cp "$DD/Build/Products/Release/parlor-cli" "$OUT/parlor-cli"
+# The CLI finds its resources (harness Python, the MLX metal library) in bundles beside it.
+cp -R "$DD"/Build/Products/Release/*.bundle "$OUT/"
 APP="$OUT/Parlor.app"
 
 # 3. Sign inside out: worker and its bundles, sd-cli, then the app, then the CLI.
