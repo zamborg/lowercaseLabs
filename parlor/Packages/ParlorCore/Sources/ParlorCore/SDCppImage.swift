@@ -110,19 +110,8 @@ public enum SDCppImage {
     /// Run one render. Cancelling the task stops `sd-cli`. Throws with the tail of its output when it fails.
     static func render(exe: URL, arguments: [String], home: ParlorHome, timeout: TimeInterval = 1500) async throws {
         let log = ServiceLog.open(home: home, service: "image-sdcpp", banner: "sd-cli " + arguments.filter { !$0.hasPrefix("/") }.prefix(6).joined(separator: " "))
-        let p = Process()
-        p.executableURL = exe
-        p.arguments = arguments
-        p.currentDirectoryURL = exe.deletingLastPathComponent()
-        p.standardOutput = log; p.standardError = log
-        p.standardInput = FileHandle.nullDevice
-        let status: Int32 = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Int32, Error>) in
-                p.terminationHandler = { cont.resume(returning: $0.terminationStatus) }
-                do { try p.run() } catch { cont.resume(throwing: error); return }
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { if p.isRunning { p.terminate() } }
-            }
-        } onCancel: { if p.isRunning { p.terminate() } }
+        let launch = Launch(executable: exe, arguments: arguments, cwd: exe.deletingLastPathComponent())
+        let status = try await Supervisor.run(launch, output: log, timeout: timeout)
         try? log?.close()
         if Task.isCancelled { throw CancellationError() }
         guard status == 0 else {

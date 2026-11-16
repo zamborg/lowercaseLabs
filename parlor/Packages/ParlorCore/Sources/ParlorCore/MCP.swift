@@ -72,7 +72,7 @@ public actor MCPServerConnection: ToolProvider {
     private let config: MCPServerConfig
     private let home: ParlorHome
     private var client: Client?
-    private var process: Process?
+    private var process: ManagedProcess?
     private var logHandle: FileHandle?
     private var stopping = false
     private var startGate: StartGate?
@@ -89,7 +89,7 @@ public actor MCPServerConnection: ToolProvider {
         self.logName = logName ?? "mcp:\(id)"; self.onExit = onExit; self.onUse = onUse
     }
 
-    public var pid: Int32? { process?.isRunning == true ? process?.processIdentifier : nil }
+    public var pid: Int32? { process?.pid }
 
     /// Connect with a deadline so a hung or crashing server cannot block the app. Also fails at once when the
     /// process exits before it is ready (a bad command, a missing interpreter).
@@ -119,32 +119,20 @@ public actor MCPServerConnection: ToolProvider {
         if let urlString = config.url, let url = URL(string: urlString) {
             _ = try await client.connect(transport: HTTPClientTransport(endpoint: url))
         } else if let command = config.command {
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            // Login shell so Homebrew/uv/npm paths resolve the way they do in Terminal.
-            proc.arguments = ["-l", "-c", "exec \"$0\" \"$@\"", command] + (config.args ?? [])
-            var env = ProcessInfo.processInfo.environment
+            var env: [String: String] = [:]
             let extra = "/opt/homebrew/bin:/usr/local/bin:\(NSHomeDirectory())/.local/bin:\(NSHomeDirectory())/.cargo/bin"
-            env["PATH"] = extra + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+            env["PATH"] = extra + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin")
             for (k, v) in config.env ?? [:] { env[k] = v }
-            proc.environment = env
-            if let cwd = config.cwd {
-                proc.currentDirectoryURL = URL(fileURLWithPath: (cwd as NSString).expandingTildeInPath)
-            } else {
-                proc.currentDirectoryURL = home.root
-            }
+            let cwd = config.cwd.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) } ?? home.root
             let stdin = Pipe(), stdout = Pipe()
-            proc.standardInput = stdin
-            proc.standardOutput = stdout
             logHandle = ServiceLog.open(home: home, service: logName, banner: "start: " + ([command] + (config.args ?? [])).joined(separator: " "))
-            proc.standardError = logHandle ?? FileHandle.nullDevice
             let exit = onExit
-            proc.terminationHandler = { [weak self] p in
+            // Login shell so Homebrew/uv/npm paths resolve the way they do in Terminal.
+            let launch = Launch.program(command, config.args ?? [], environment: env, cwd: cwd)
+            process = try Supervisor.spawn(launch, streams: Streams(stdin: stdin, stdout: stdout, stderr: logHandle ?? FileHandle.nullDevice)) { [weak self] _, status in
                 guard let self else { return }
-                Task { await self.processEnded(status: p.terminationStatus, callback: exit) }
+                Task { await self.processEnded(status: status, callback: exit) }
             }
-            try proc.run()
-            process = proc
             let transport = StdioTransport(
                 input: FileDescriptor(rawValue: stdout.fileHandleForReading.fileDescriptor),
                 output: FileDescriptor(rawValue: stdin.fileHandleForWriting.fileDescriptor))
@@ -177,7 +165,7 @@ public actor MCPServerConnection: ToolProvider {
         stopping = true
         await client?.disconnect()
         client = nil
-        if let p = process, p.isRunning { p.terminate() }
+        process?.terminate(grace: 3)
         process = nil
     }
 

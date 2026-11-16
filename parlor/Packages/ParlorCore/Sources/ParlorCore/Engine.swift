@@ -7,6 +7,8 @@ public final class ParlorEngine {
     public let home: ParlorHome
     public let library: ModelLibrary
     public let hub = ToolHub()
+    public let supervisor = Supervisor()
+    private var servicesRegistered = false
     public private(set) var agents: [Agent] = []
     public private(set) var servers: [ServerStatus] = []
     /// Every server in `mcp.json`, including disabled ones.
@@ -600,129 +602,152 @@ public final class ParlorEngine {
 
     // MARK: services
 
+    /// The dashboard and the `services.*` verbs are projections of what each owner registers with the Supervisor.
+    /// Nothing here switches on an id prefix.
+    private func registerServicesIfNeeded() async {
+        guard !servicesRegistered else { return }
+        servicesRegistered = true
+        await supervisor.register(source: "llm") { [weak self] in await self?.llmEntries() ?? [] }
+        await supervisor.register(source: "image") { [weak self] in await self?.imageEntries() ?? [] }
+        await supervisor.register(source: "mcp") { [weak self] in await self?.mcpEntries() ?? [] }
+        await supervisor.register(source: "servers") { [weak self] in await self?.serverEntries() ?? [] }
+        await supervisor.register(source: "providers") { [weak self] in await self?.providerEntries() ?? [] }
+        await supervisor.register(source: "harnesses") { [weak self] in await self?.harnessEntries() ?? [] }
+    }
+
     /// Rebuild the dashboard rows. Called by the System screen on a timer and after every control action.
     public func refreshServices() async {
-        var out: [ServiceInfo] = []
-        let now = Date()
-        // Language models.
+        await registerServicesIfNeeded()
+        services = await supervisor.snapshot()
+    }
+
+    private func llmEntries() async -> [ServiceEntry] {
         var loaded: [String] = []
         if let mlx { loaded = await mlx.loadedModels() } else if let m = await deps.llm.loadedModel() { loaded = [m] }
         let bytes = await mlx?.residentBytes()
         let depth = await queue.depth
-        out.append(ServiceInfo(
+        let info = ServiceInfo(
             id: "llm", kind: "language model", title: "Language models",
             detail: loaded.isEmpty ? "loads on the first message" : loaded.map { $0.split(separator: "/").last.map(String.init) ?? $0 }.joined(separator: ", "),
             state: loaded.isEmpty ? .stopped : (depth > 0 ? .running : .idle),
             memoryBytes: bytes.flatMap { $0 > 0 ? UInt64($0) : nil }, lastUsed: nil, queueDepth: depth, lifecycle: "onDemand",
-            restarts: 0, canStart: false, canStop: !loaded.isEmpty, canRestart: false, logURL: nil))
-        // Image worker.
-        if let image {
-            let s = await image.serviceSnapshot()
-            out.append(ServiceInfo(
-                id: "image", kind: "image", title: "Image worker",
-                detail: s.model.map { "loaded · " + ($0.split(separator: "/").last.map(String.init) ?? $0) } ?? "starts when an agent draws",
-                state: s.state, memoryBytes: s.pid.flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: s.lastUsed, queueDepth: nil,
-                lifecycle: "onDemand", restarts: 0, canStart: !s.state.isAlive, canStop: s.state.isAlive, canRestart: false,
-                logURL: ServiceLog.url(home: home, service: "image")))
-        }
-        // Mounted MCP servers.
+            restarts: 0, canStart: false, canStop: !loaded.isEmpty, canRestart: false, logURL: nil)
+        return [ServiceEntry(info: info, stop: { [weak self] in await self?.unloadModels() })]
+    }
+
+    private func imageEntries() async -> [ServiceEntry] {
+        guard let image else { return [] }
+        let s = await image.serviceSnapshot()
+        let info = ServiceInfo(
+            id: "image", kind: "image", title: "Image worker",
+            detail: s.model.map { "loaded · " + ($0.split(separator: "/").last.map(String.init) ?? $0) } ?? "starts when an agent draws",
+            state: s.state, memoryBytes: s.pid.flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: s.lastUsed, queueDepth: nil,
+            lifecycle: "onDemand", restarts: 0, canStart: !s.state.isAlive, canStop: s.state.isAlive, canRestart: false,
+            logURL: ServiceLog.url(home: home, service: "image"))
+        return [ServiceEntry(info: info,
+                             start: { try await image.start() },
+                             stop: { await image.stop() },
+                             restart: { await image.stop(); try await image.start() })]
+    }
+
+    private func mcpEntries() async -> [ServiceEntry] {
+        var out: [ServiceEntry] = []
+        let now = Date()
+        let mcp = self.mcp!
         for m in await mcp.snapshot() {
             var state = m.state
             if state == .running, let t = m.lastUsed, now.timeIntervalSince(t) > 30 { state = .idle }
             let cfg = m.config
             let pid = await mcp.pid(m.id)
-            out.append(ServiceInfo(
-                id: (m.isModule ? "module:" : "mcp:") + m.id, kind: m.isModule ? "module" : "mcp", title: m.id,
+            let sid = (m.isModule ? "module:" : "mcp:") + m.id
+            let name = m.id
+            let info = ServiceInfo(
+                id: sid, kind: m.isModule ? "module" : "mcp", title: m.id,
                 detail: cfg.url ?? ([cfg.command ?? ""] + (cfg.args ?? [])).joined(separator: " "),
                 state: state, memoryBytes: pid.flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: m.lastUsed, queueDepth: nil,
                 lifecycle: cfg.isOnDemand ? "onDemand" : "always", restarts: m.restarts,
                 canStart: !state.isAlive && cfg.disabled != true, canStop: state.isAlive, canRestart: cfg.disabled != true,
-                logURL: ServiceLog.url(home: home, service: (m.isModule ? "module:" : "mcp:") + m.id)))
+                logURL: ServiceLog.url(home: home, service: sid))
+            out.append(ServiceEntry(info: info,
+                                    start: { await mcp.start(name) }, stop: { await mcp.stop(name) }, restart: { await mcp.restart(name) }))
         }
-        let ps = settings.parlorServer
-        let psState: ServiceState = !ps.enabled ? .stopped : (serverError.map { .failed($0) } ?? (endpoint.isRunning ? .running : .starting))
-        out.append(ServiceInfo(
-            id: "parlorServer", kind: "server", title: "Parlor server",
-            detail: ps.enabled ? "http://127.0.0.1:\(ps.port)/mcp · \(settings.tokens.count) token\(settings.tokens.count == 1 ? "" : "s")" : "off",
-            state: psState, memoryBytes: nil, lastUsed: nil, queueDepth: nil, lifecycle: "always", restarts: 0,
-            canStart: !ps.enabled, canStop: ps.enabled, canRestart: ps.enabled, logURL: nil))
-        let ra = settings.runtimeAPI
-        let raState: ServiceState = runtimeAPI.isRunning ? .running : (runtimeError.map { .failed($0) } ?? .stopped)
-        out.append(ServiceInfo(
-            id: "runtimeAPI", kind: "server", title: "Runtime API",
-            detail: runtimeAPI.isRunning ? "http://127.0.0.1:\(runtimeAPI.port)/v1 · OpenAI-compatible" : (ra.enabled ? "starting" : "off · starts with an external harness"),
-            state: raState, memoryBytes: nil, lastUsed: nil, queueDepth: nil, lifecycle: "always", restarts: 0,
-            canStart: !runtimeAPI.isRunning, canStop: runtimeAPI.isRunning, canRestart: runtimeAPI.isRunning, logURL: nil))
-        // Providers that run a server process (llama.cpp and friends).
-        for p in router.all where p.process != nil {
-            let s = p.process!.snapshot()
-            out.append(ServiceInfo(
-                id: "provider:" + p.config.id, kind: "provider", title: p.config.id,
-                detail: s.external ? "already running · \(p.config.baseURL)" : (p.config.service?.command ?? ""),
-                state: s.state, memoryBytes: s.pid.flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: s.lastUsed, queueDepth: nil,
-                lifecycle: "onDemand", restarts: 0, canStart: !s.state.isAlive && p.config.enabled, canStop: s.state.isAlive, canRestart: p.config.enabled,
-                logURL: ServiceLog.url(home: home, service: "provider:" + p.config.id)))
-        }
-        // External harness processes.
-        for id in externalHarness.running() {
-            out.append(ServiceInfo(
-                id: "harness:" + id, kind: "harness", title: agent(id)?.name ?? id,
-                detail: agent(id)?.harness ?? "", state: .running,
-                memoryBytes: externalHarness.pid(agent: id).flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: nil, queueDepth: nil,
-                lifecycle: "onDemand", restarts: 0, canStart: false, canStop: true, canRestart: true,
-                logURL: ServiceLog.url(home: home, service: "harness:" + id)))
-        }
-        services = out
+        return out
     }
 
-    public enum ServiceAction { case start, stop, restart }
+    private func serverEntries() -> [ServiceEntry] {
+        let ps = settings.parlorServer
+        let psState: ServiceState = !ps.enabled ? .stopped : (serverError.map { .failed($0) } ?? (endpoint.isRunning ? .running : .starting))
+        let server = ServiceEntry(
+            info: ServiceInfo(
+                id: "parlorServer", kind: "server", title: "Parlor server",
+                detail: ps.enabled ? "http://127.0.0.1:\(ps.port)/mcp · \(settings.tokens.count) token\(settings.tokens.count == 1 ? "" : "s")" : "off",
+                state: psState, memoryBytes: nil, lastUsed: nil, queueDepth: nil, lifecycle: "always", restarts: 0,
+                canStart: !ps.enabled, canStop: ps.enabled, canRestart: ps.enabled, logURL: nil),
+            start: { [weak self] in guard let self else { return }; self.updateSettings { $0.parlorServer.enabled = true }; await self.syncServer() },
+            stop: { [weak self] in guard let self else { return }; self.updateSettings { $0.parlorServer.enabled = false }; await self.syncServer() },
+            restart: { [weak self] in guard let self else { return }; self.endpoint.stop(); await self.syncServer() })
+        let ra = settings.runtimeAPI
+        let raState: ServiceState = runtimeAPI.isRunning ? .running : (runtimeError.map { .failed($0) } ?? .stopped)
+        let api = ServiceEntry(
+            info: ServiceInfo(
+                id: "runtimeAPI", kind: "server", title: "Runtime API",
+                detail: runtimeAPI.isRunning ? "http://127.0.0.1:\(runtimeAPI.port)/v1 · OpenAI-compatible" : (ra.enabled ? "starting" : "off · starts with an external harness"),
+                state: raState, memoryBytes: nil, lastUsed: nil, queueDepth: nil, lifecycle: "always", restarts: 0,
+                canStart: !runtimeAPI.isRunning, canStop: runtimeAPI.isRunning, canRestart: runtimeAPI.isRunning, logURL: nil),
+            start: { [weak self] in
+                guard let self else { return }
+                self.updateSettings { $0.runtimeAPI.enabled = true }; self.runtimeAPI.stop(); await self.syncRuntimeAPI()
+            },
+            stop: { [weak self] in
+                guard let self else { return }
+                self.updateSettings { $0.runtimeAPI.enabled = false }; self.runtimeForHarness = false; self.runtimeAPI.stop()
+            },
+            restart: { [weak self] in
+                guard let self else { return }
+                self.runtimeAPI.stop(); await self.syncRuntimeAPI(); if !self.runtimeAPI.isRunning { await self.ensureRuntimeAPI() }
+            })
+        return [server, api]
+    }
+
+    /// Providers that run a server process (llama.cpp and friends).
+    private func providerEntries() -> [ServiceEntry] {
+        router.all.compactMap { p -> ServiceEntry? in
+            guard let proc = p.process else { return nil }
+            let s = proc.snapshot()
+            let id = p.config.id
+            let enabled = p.config.enabled
+            let info = ServiceInfo(
+                id: "provider:" + id, kind: "provider", title: id,
+                detail: s.external ? "already running · \(p.config.baseURL)" : (p.config.service?.command ?? ""),
+                state: s.state, memoryBytes: s.pid.flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: s.lastUsed, queueDepth: nil,
+                lifecycle: "onDemand", restarts: s.restarts, canStart: !s.state.isAlive && enabled, canStop: s.state.isAlive, canRestart: enabled,
+                logURL: ServiceLog.url(home: home, service: "provider:" + id))
+            let start: @MainActor @Sendable () async throws -> Void = {
+                guard enabled else { throw CommandError("Provider \(id) is off.") }
+                try await proc.ensureRunning()
+            }
+            return ServiceEntry(info: info, start: start, stop: { proc.stop() }, restart: { proc.stop(); try await start() })
+        }
+    }
+
+    /// External harness processes. They start with the agent's next message, so the only verb is stop.
+    private func harnessEntries() -> [ServiceEntry] {
+        let ext = externalHarness
+        return ext.running().map { id in
+            let info = ServiceInfo(
+                id: "harness:" + id, kind: "harness", title: agent(id)?.name ?? id,
+                detail: agent(id)?.harness ?? "", state: .running,
+                memoryBytes: ext.pid(agent: id).flatMap { ProcessMemory.footprint(pid: $0) }, lastUsed: nil, queueDepth: nil,
+                lifecycle: "onDemand", restarts: 0, canStart: false, canStop: true, canRestart: true,
+                logURL: ServiceLog.url(home: home, service: "harness:" + id))
+            return ServiceEntry(info: info, stop: { ext.stop(agent: id) }, restart: { ext.stop(agent: id) })
+        }
+    }
 
     public func controlService(_ id: String, _ action: ServiceAction) async throws {
-        if id == "parlorServer" {
-            switch action {
-            case .start: updateSettings { $0.parlorServer.enabled = true }
-            case .stop: updateSettings { $0.parlorServer.enabled = false }
-            case .restart: endpoint.stop()
-            }
-            await syncServer(); await refreshServices(); return
-        }
-        if id == "runtimeAPI" {
-            switch action {
-            case .start: updateSettings { $0.runtimeAPI.enabled = true }; runtimeAPI.stop(); await syncRuntimeAPI()
-            case .stop: updateSettings { $0.runtimeAPI.enabled = false }; runtimeForHarness = false; runtimeAPI.stop()
-            case .restart: runtimeAPI.stop(); await syncRuntimeAPI(); if !runtimeAPI.isRunning { await ensureRuntimeAPI() }
-            }
-            await refreshServices(); return
-        }
-        if id.hasPrefix("provider:") {
-            let pid = String(id.dropFirst(9))
-            guard let p = router.provider(pid), let proc = p.process else { throw CommandError("No provider service \"\(pid)\". Use services.list.") }
-            switch action {
-            case .start: guard p.config.enabled else { throw CommandError("Provider \(pid) is off.") }; try await proc.ensureRunning()
-            case .stop: proc.stop()
-            case .restart: proc.stop(); try await proc.ensureRunning()
-            }
-            await refreshServices(); return
-        }
-        if id.hasPrefix("harness:") {
-            let aid = String(id.dropFirst(8))
-            guard externalHarness.running().contains(aid) else { throw CommandError("No running harness for \"\(aid)\". It starts with the agent's next message.") }
-            externalHarness.stop(agent: aid)
-            await refreshServices(); return
-        }
-        let isMCP = id.hasPrefix("mcp:") || id.hasPrefix("module:")
-        let name = id.split(separator: ":", maxSplits: 1).last.map(String.init) ?? id
-        guard id == "llm" || id == "image" || isMCP else { throw CommandError("No service \"\(id)\". Use services.list.") }
-        if isMCP, !(await mcp.snapshot().contains { $0.id == name }) { throw CommandError("No service \"\(id)\". Use services.list.") }
-        switch action {
-        case .start:
-            if id == "image" { try await image?.start() } else if isMCP { await mcp.start(name) }
-        case .stop:
-            if id == "llm" { await unloadModels() } else if id == "image" { await image?.stop() } else { await mcp.stop(name) }
-        case .restart:
-            if id == "image" { await image?.stop(); try await image?.start() } else if isMCP { await mcp.restart(name) }
-        }
-        await refreshServices(); await refreshLoaded()
+        await registerServicesIfNeeded()
+        defer { Task { await self.refreshServices(); await self.refreshLoaded() } }
+        try await supervisor.control(id, action)
     }
 
     public func startService(_ id: String) { Task { try? await controlService(id, .start) } }

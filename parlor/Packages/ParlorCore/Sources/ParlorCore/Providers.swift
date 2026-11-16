@@ -357,13 +357,14 @@ public final class ProviderProcess: @unchecked Sendable {
     let service: ProviderConfig.Service
     let home: ParlorHome
     private let lock = NSLock()
-    private var proc: Process?
+    private var proc: ManagedProcess?
     private var starting: Task<Void, Error>?
     private var _state: ServiceState = .stopped
     private var _lastUsed: Date?
     private var active = 0
     private var idleTask: Task<Void, Never>?
     private var external = false
+    private var _restarts = 0
     /// Tests shorten the idle window below one minute.
     var idleSecondsOverride: TimeInterval?
 
@@ -373,10 +374,10 @@ public final class ProviderProcess: @unchecked Sendable {
         self.config = config; self.service = service; self.home = home
     }
 
-    public struct Snapshot: Sendable { public var state: ServiceState; public var pid: Int32?; public var lastUsed: Date?; public var external: Bool }
+    public struct Snapshot: Sendable { public var state: ServiceState; public var pid: Int32?; public var lastUsed: Date?; public var external: Bool; public var restarts: Int }
     public func snapshot() -> Snapshot {
         lock.lock(); defer { lock.unlock() }
-        return Snapshot(state: _state, pid: proc?.isRunning == true ? proc?.processIdentifier : nil, lastUsed: _lastUsed, external: external)
+        return Snapshot(state: _state, pid: proc?.pid, lastUsed: _lastUsed, external: external, restarts: _restarts)
     }
 
     func touch() { lock.lock(); _lastUsed = Date(); lock.unlock() }
@@ -398,6 +399,7 @@ public final class ProviderProcess: @unchecked Sendable {
         if let s = starting { lock.unlock(); try await s.value; return }
         let t = Task { try await self.launch() }
         starting = t
+        if case .failed = _state { _restarts += 1 }
         _state = .starting
         lock.unlock()
         do { try await t.value } catch { lock.lock(); starting = nil; lock.unlock(); throw error }
@@ -411,27 +413,21 @@ public final class ProviderProcess: @unchecked Sendable {
             return
         }
         let log = ServiceLog.open(home: home, service: serviceID, banner: "starting: \(service.command)")
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = ["-l", "-c", "exec " + service.command]
-        var env = ProcessInfo.processInfo.environment
-        for (k, v) in service.env ?? [:] { env[k] = v }
-        p.environment = env
-        p.currentDirectoryURL = home.root
-        p.standardOutput = log; p.standardError = log
-        p.standardInput = FileHandle.nullDevice
-        p.terminationHandler = { [weak self] proc in
-            guard let self else { return }
-            self.lock.lock()
-            let wasStopping = self._state == .stopped
-            if self.proc === proc {
-                self.proc = nil
-                if !wasStopping { self._state = .failed("exited with status \(proc.terminationStatus)") }
+        let launch = Launch.shell(service.command, environment: service.env ?? [:], cwd: home.root)
+        let p: ManagedProcess
+        do {
+            p = try Supervisor.spawn(launch, streams: Streams(stdout: log, stderr: log)) { [weak self] proc, status in
+                guard let self else { return }
+                self.lock.lock()
+                let wasStopping = self._state == .stopped
+                if self.proc === proc {
+                    self.proc = nil
+                    if !wasStopping { self._state = .failed("exited with status \(status)") }
+                }
+                self.lock.unlock()
+                try? log?.write(contentsOf: Data("--- exited \(status)\n".utf8))
             }
-            self.lock.unlock()
-            try? log?.write(contentsOf: Data("--- exited \(proc.terminationStatus)\n".utf8))
-        }
-        do { try p.run() } catch {
+        } catch {
             lock.lock(); _state = .failed(error.localizedDescription); lock.unlock()
             throw ParlorError.message("Could not start \(config.id): \(error.localizedDescription)")
         }
@@ -480,8 +476,7 @@ public final class ProviderProcess: @unchecked Sendable {
         _state = .stopped; external = false
         lock.unlock()
         guard !wasExternal, let p, p.isRunning else { return }
-        p.terminate()
-        DispatchQueue.global().asyncAfter(deadline: .now() + 3) { if p.isRunning { kill(p.processIdentifier, SIGKILL) } }
+        p.terminate(grace: 3)
     }
 }
 

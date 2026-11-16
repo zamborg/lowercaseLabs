@@ -68,40 +68,32 @@ final class HarnessProcess: @unchecked Sendable {
     let command: String
     let agentID: String
     let lines = LineQueue()
-    private let process = Process()
+    private var process: ManagedProcess!
     private let stdin = Pipe()
     private let stdout = Pipe()
     private let writeLock = NSLock()
     private let turnLock = TurnLock()
 
     var isAlive: Bool { process.isRunning && !lines.isClosed }
-    var pid: Int32? { process.isRunning ? process.processIdentifier : nil }
+    var pid: Int32? { process.pid }
 
     init(agent: Agent, command: String, cwd: URL, environment: [String: String], home: ParlorHome) throws {
         self.command = command; self.agentID = agent.id
         try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
         let log = ServiceLog.open(home: home, service: "harness:" + agent.id, banner: "starting: \(command)")
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-l", "-c", "exec " + command]
-        process.currentDirectoryURL = cwd
-        var env = ProcessInfo.processInfo.environment
-        for (k, v) in environment { env[k] = v }
+        var env = environment
         env["PYTHONUNBUFFERED"] = "1"
-        process.environment = env
-        process.standardInput = stdin
-        process.standardOutput = stdout
-        process.standardError = log
         let q = lines
         stdout.fileHandleForReading.readabilityHandler = { h in
             let d = h.availableData
             if d.isEmpty { h.readabilityHandler = nil; q.close() } else { q.feed(d) }
         }
-        process.terminationHandler = { p in
-            try? log?.write(contentsOf: Data("--- exited \(p.terminationStatus)\n".utf8))
+        process = try Supervisor.spawn(Launch.shell(command, environment: env, cwd: cwd),
+                                       streams: Streams(stdin: stdin, stdout: stdout, stderr: log)) { _, status in
+            try? log?.write(contentsOf: Data("--- exited \(status)\n".utf8))
             // Give the reader a moment to drain what the child printed last.
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { q.close() }
         }
-        try process.run()
     }
 
     func send(_ j: JSON) {
@@ -116,11 +108,7 @@ final class HarnessProcess: @unchecked Sendable {
     func stop() {
         stdout.fileHandleForReading.readabilityHandler = nil
         try? stdin.fileHandleForWriting.close()
-        if process.isRunning {
-            process.terminate()
-            let p = process
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { if p.isRunning { kill(p.processIdentifier, SIGKILL) } }
-        }
+        process.terminate(grace: 2)
         lines.close()
     }
 }

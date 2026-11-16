@@ -45,26 +45,14 @@ public final class HomeHistory: @unchecked Sendable {
 
     @discardableResult
     private func git(_ args: [String], actor: String = "parlor", input: Data? = nil) -> (status: Int32, out: String) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: Self.gitPath)
-        p.arguments = ["-C", root.path] + args
-        var env = ProcessInfo.processInfo.environment
+        var env: [String: String] = [:]
         let name = actor.isEmpty ? "parlor" : actor
         env["GIT_AUTHOR_NAME"] = name; env["GIT_AUTHOR_EMAIL"] = "\(Agent.slug(name))@parlor.local"
         env["GIT_COMMITTER_NAME"] = "parlor"; env["GIT_COMMITTER_EMAIL"] = "parlor@parlor.local"
         env["GIT_CONFIG_GLOBAL"] = "/dev/null"; env["GIT_CONFIG_SYSTEM"] = "/dev/null"
         env["GIT_TERMINAL_PROMPT"] = "0"
-        p.environment = env
-        let out = Pipe()
-        p.standardOutput = out; p.standardError = out
-        p.standardInput = FileHandle.nullDevice
-        // Wait on a semaphore, not waitUntilExit: that spins the run loop, which re-enters the UI when called on the main thread.
-        let done = DispatchSemaphore(value: 0)
-        p.terminationHandler = { _ in done.signal() }
-        do { try p.run() } catch { return (-1, "") }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        done.wait()
-        return (p.terminationStatus, String(decoding: data, as: UTF8.self))
+        let r = Supervisor.runBlocking(Launch(executable: URL(fileURLWithPath: Self.gitPath), arguments: ["-C", root.path] + args, environment: env))
+        return (r.status, r.output)
     }
 
     /// Create the repository on first use and commit what is already there. Safe to call every launch.
