@@ -153,6 +153,38 @@ public final class ParlorEngine {
         return out
     }
 
+    // MARK: llama.cpp (GGUF) models
+
+    /// Provider id and model name an installed GGUF model is served as: `llama-<slug>/<slug>`.
+    public static func ggufNames(_ m: InstalledModel) -> (provider: String, model: String) {
+        let slug = Agent.slug(m.shortName)
+        return ("llama-" + slug, slug)
+    }
+
+    /// Give a GGUF model a provider that runs `llama-server` on it when first used. Keeps an entry the user has edited.
+    func registerGGUF(_ m: InstalledModel) {
+        guard m.format == .gguf, let file = m.file else { return }
+        let (id, name) = Self.ggufNames(m)
+        guard !settings.providers.contains(where: { $0.id == id }) else { return }
+        var used = Set(settings.providers.compactMap { URL(string: $0.baseURL)?.port })
+        used.insert(11500)
+        var port = 8100
+        while used.contains(port) { port += 1 }
+        let path = m.directory.appendingPathComponent(file).path.replacingOccurrences(of: "'", with: "'\\''")
+        let cmd = "llama-server -m '\(path)' --alias \(name) --port \(port) --jinja -c 32768 -ngl 99"
+        let entry = ProviderConfig(id: id, baseURL: "http://127.0.0.1:\(port)/v1", models: [name],
+                                   service: .init(command: cmd, idleMinutes: 30, startupSeconds: 600))
+        updateSettings { $0.providers.append(entry) }
+    }
+
+    func unregisterGGUF(_ m: InstalledModel) {
+        let id = Self.ggufNames(m).provider
+        updateSettings { $0.providers.removeAll { $0.id == id } }
+    }
+
+    /// Make sure every downloaded GGUF model has its provider (covers files placed by hand and settings edits).
+    func syncGGUFProviders() { for m in library.installed where m.format == .gguf { registerGGUF(m) } }
+
     public func setProviderEnabled(_ id: String, _ on: Bool) {
         updateSettings { if let i = $0.providers.firstIndex(where: { $0.id == id }) { $0.providers[i].enabled = on } }
     }
@@ -291,6 +323,9 @@ public final class ParlorEngine {
         deps.image = img
         settings = ParlorSettings.load(home.settingsFile)
         if !FileManager.default.fileExists(atPath: home.settingsFile.path) { settings.save(home.settingsFile) }
+        library.onGGUFInstalled = { [weak self] m in Task { @MainActor in self?.registerGGUF(m) } }
+        library.onGGUFRemoved = { [weak self] m in Task { @MainActor in self?.unregisterGGUF(m) } }
+        syncGGUFProviders()
         await applySettings()
         let provider = CommandProvider(center: commands)
         await hub.setTierRequirements(commands.tiers())

@@ -490,6 +490,12 @@ Semantics every provider MUST meet: streamed text arrives as `LLMEvent.text`, to
 and one `LLMEvent.stats` comes at the end. `cachedTokens` is 0 when the provider has no prompt cache.
 Cancellation stops generation promptly.
 
+**GGUF models (llama.cpp):** the Models screen accepts a repo that ships only `.gguf` weights (when `llama-server` is installed).
+It downloads one quantisation (a 4-bit K-quant when offered, else the smallest; split shards together; never `mmproj`), marks the
+folder `format: gguf`, and registers a provider `llama-<slug>` with a `service` that runs
+`llama-server -m <file> --alias <slug> --port <8100+> --jinja -c 32768 -ngl 99`. Agents use it as `llama-<slug>/<slug>`.
+GGUF models are not listed as MLX models; deleting one removes its provider. An edited provider entry is left alone.
+
 **MLX specifics (step 2):**
 - Several resident models, LRU, under `memoryBudgetFraction` × physical RAM; the budget counts services too.
 - `cacheSlotsPerModel` prompt-cache slots per model. A request takes the slot with the longest common token

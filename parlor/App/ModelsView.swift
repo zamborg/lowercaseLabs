@@ -60,7 +60,10 @@ struct ModelsView: View {
                         HStack {
                             Image(systemName: m.kind == .image ? "photo" : "text.bubble").frame(width: 22).foregroundStyle(.secondary)
                             VStack(alignment: .leading) {
-                                Text(m.shortName).fontWeight(.medium)
+                                HStack(spacing: 6) {
+                                    Text(m.shortName).fontWeight(.medium)
+                                    if m.format == .gguf { Text("llama.cpp").font(.caption2).padding(.horizontal, 6).padding(.vertical, 1).background(.secondary.opacity(0.2), in: Capsule()) }
+                                }
                                 Text(usedBy(m)).font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -80,7 +83,9 @@ struct ModelsView: View {
     }
 
     private func usedBy(_ m: InstalledModel) -> String {
-        let names = engine.agents.filter { $0.model == m.repo || $0.imageModel == m.repo }.map(\.name)
+        let served = m.format == .gguf ? ParlorEngine.ggufNames(m) : nil
+        let ggufName = served.map { $0.provider + "/" + $0.model }
+        let names = engine.agents.filter { $0.model == m.repo || $0.imageModel == m.repo || ($0.model == ggufName && ggufName != nil) }.map(\.name)
         return names.isEmpty ? "Not used by any agent" : "Used by " + names.joined(separator: ", ")
     }
 

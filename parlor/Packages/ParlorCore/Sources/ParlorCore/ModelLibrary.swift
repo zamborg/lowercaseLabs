@@ -4,11 +4,17 @@ import Observation
 
 public enum ModelKind: String, Codable, Sendable, CaseIterable { case language, image }
 
+/// `mlx`: safetensors run in-process. `gguf`: a llama.cpp model, served through an auto-registered provider.
+public enum ModelFormat: String, Codable, Sendable { case mlx, gguf }
+
 public struct InstalledModel: Identifiable, Hashable, Sendable {
     public var repo: String
     public var kind: ModelKind
     public var bytes: Int64
     public var directory: URL
+    public var format: ModelFormat = .mlx
+    /// The `.gguf` file inside `directory` (GGUF models only).
+    public var file: String? = nil
     public var id: String { repo }
     public var shortName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
 }
@@ -71,6 +77,10 @@ public final class ModelLibrary: @unchecked Sendable {
     public private(set) var installed: [InstalledModel] = []
     public private(set) var downloads: [String: DownloadState] = [:]
     private var tasks: [String: Task<Void, Never>] = [:]
+    /// Called when a GGUF model finishes downloading, so the engine can register a llama.cpp provider for it.
+    @ObservationIgnored public var onGGUFInstalled: (@Sendable (InstalledModel) -> Void)?
+    /// Called just before a GGUF model is deleted from disk.
+    @ObservationIgnored public var onGGUFRemoved: (@Sendable (InstalledModel) -> Void)?
 
     public init(home: ParlorHome) {
         self.home = home
@@ -101,18 +111,19 @@ public final class ModelLibrary: @unchecked Sendable {
             for dir in names where fm.fileExists(atPath: marker(dir).path) && Self.hasWeights(dir) {
                 guard let d = try? Data(contentsOf: marker(dir)),
                       let m = try? JSONDecoder().decode(Marker.self, from: d) else { continue }
-                found.append(InstalledModel(repo: m.repo, kind: m.kind, bytes: Self.size(of: dir), directory: dir))
+                found.append(InstalledModel(repo: m.repo, kind: m.kind, bytes: Self.size(of: dir), directory: dir,
+                                            format: m.format ?? .mlx, file: m.file))
             }
         }
         installed = found.sorted { $0.repo < $1.repo }
     }
 
-    struct Marker: Codable { var repo: String; var kind: ModelKind }
+    struct Marker: Codable { var repo: String; var kind: ModelKind; var format: ModelFormat? = nil; var file: String? = nil }
 
     /// A download that fetched only configs (for example a PyTorch-only repo) is not an installed model.
     static func hasWeights(_ dir: URL) -> Bool {
         guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) else { return false }
-        for case let u as URL in e where u.pathExtension == "safetensors" { return true }
+        for case let u as URL in e where u.pathExtension == "safetensors" || u.pathExtension == "gguf" { return true }
         return false
     }
 
@@ -124,7 +135,8 @@ public final class ModelLibrary: @unchecked Sendable {
         return total
     }
 
-    public func installed(kind: ModelKind) -> [InstalledModel] { installed.filter { $0.kind == kind } }
+    /// MLX models of a kind. GGUF models are served by their own provider and are not listed here.
+    public func installed(kind: ModelKind) -> [InstalledModel] { installed.filter { $0.kind == kind && $0.format == .mlx } }
 
     public func fit(bytes: Int64?) -> ModelFit {
         guard let bytes else { return .unknown }
@@ -172,7 +184,11 @@ public final class ModelLibrary: @unchecked Sendable {
         }
     }
 
-    struct RepoInfo: Sendable { var bytes: Int64; var weightBytes: Int64; var files: [String] }
+    struct RepoInfo: Sendable {
+        var bytes: Int64; var weightBytes: Int64; var files: [String]
+        /// `.gguf` files with sizes, for repos that ship llama.cpp weights.
+        var gguf: [(path: String, size: Int64)] = []
+    }
 
     /// Sizes and file names from the repo's tree. Nil when the network call fails.
     static func repoInfo(_ repo: String) async -> RepoInfo? {
@@ -184,12 +200,39 @@ public final class ModelLibrary: @unchecked Sendable {
         return RepoInfo(
             bytes: files.reduce(0) { $0 + ($1.size ?? 0) },
             weightBytes: files.filter { $0.path.hasSuffix(".safetensors") }.reduce(0) { $0 + ($1.size ?? 0) },
-            files: files.map(\.path))
+            files: files.map(\.path),
+            gguf: files.filter { $0.path.lowercased().hasSuffix(".gguf") }.map { ($0.path, $0.size ?? 0) })
+    }
+
+    /// The GGUF file (or all shards of a split file) to download: a 4-bit K-quant when offered, else the smallest.
+    /// Vision projectors (`mmproj`) are never the model.
+    static func chooseGGUF(_ files: [(path: String, size: Int64)]) -> [(path: String, size: Int64)] {
+        let models = files.filter { !$0.path.lowercased().contains("mmproj") }
+        guard !models.isEmpty else { return [] }
+        let prefs = ["q4_k_m", "q4_k_s", "q4_1", "q4_0", "q5_k_m", "q5_k_s", "q6_k", "q8_0", "iq4_xs"]
+        func rank(_ f: (path: String, size: Int64)) -> Int { prefs.firstIndex { f.path.lowercased().contains($0) } ?? prefs.count }
+        // Shards of one split model are named `name-00001-of-0000N.gguf`; they share a prefix and are fetched together.
+        func group(_ path: String) -> String {
+            path.replacingOccurrences(of: #"-\d{5}-of-\d{5}\.gguf$"#, with: ".gguf", options: [.regularExpression, .caseInsensitive])
+        }
+        let best = models.min { (rank($0), $0.size) < (rank($1), $1.size) }!
+        let g = group(best.path)
+        return models.filter { group($0.path) == g }
+    }
+
+    /// Where llama.cpp's server is installed, if anywhere (the app starts it through a login shell, so PATH locations count).
+    static var llamaServerPath: String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"]
+            .map { $0 + "/llama-server" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
     private struct TreeEntry: Decodable { var type: String; var path: String; var size: Int64? }
 
-    /// Parlor loads safetensors weights (MLX conversions); the image worker runs Z-Image only.
+    /// Parlor loads safetensors weights (MLX conversions) in-process and GGUF through llama.cpp; the image worker runs Z-Image only.
     static func unsupportedReason(_ i: RepoInfo, kind: ModelKind, repo: String) -> String? {
+        if i.weightBytes == 0, kind == .language, !i.gguf.isEmpty {
+            return llamaServerPath == nil ? "GGUF model: needs llama.cpp's llama-server (brew install llama.cpp)." : nil
+        }
         if i.weightBytes == 0 {
             let hint = repo.hasPrefix("mlx-community/") ? "" : " Look for an MLX conversion under mlx-community."
             return "No safetensors weights (PyTorch or GGUF only)." + hint
@@ -199,10 +242,10 @@ public final class ModelLibrary: @unchecked Sendable {
     }
 
     /// Fail early, before anything is written, when a repo can't run here.
-    func preflight(_ repo: String, kind: ModelKind) async throws -> Int64? {
+    func preflight(_ repo: String, kind: ModelKind) async throws -> RepoInfo? {
         guard let info = await Self.repoInfo(repo) else { return nil }   // check failed offline: let the download report it
         if let why = Self.unsupportedReason(info, kind: kind, repo: repo) { throw ParlorError.message("\(repo): \(why)") }
-        return info.weightBytes
+        return info
     }
 
     // MARK: downloads
@@ -214,10 +257,20 @@ public final class ModelLibrary: @unchecked Sendable {
         tasks[repo] = Task { [weak self] in
             do {
                 guard let id = Repo.ID(rawValue: repo) else { throw ParlorError.message("Bad repo id \(repo)") }
-                _ = try await self?.preflight(repo, kind: kind)
+                let info = try await self?.preflight(repo, kind: kind)
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 // Explicit extensions: an empty glob list makes the hub client try to write directory entries as files.
-                let globs = ["*.safetensors", "*.json", "*.jinja", "*.txt", "*.model", "*.tiktoken", "*.md"]
+                var globs = ["*.safetensors", "*.json", "*.jinja", "*.txt", "*.model", "*.tiktoken", "*.md"]
+                // A repo with only GGUF weights: fetch one quantisation of it (not every file in the repo).
+                var ggufFiles: [String] = []
+                if let info, info.weightBytes == 0, kind == .language {
+                    let chosen = Self.chooseGGUF(info.gguf)
+                    guard !chosen.isEmpty else { throw ParlorError.message("\(repo): no GGUF model file found.") }
+                    ggufFiles = chosen.map(\.path)
+                    globs = ggufFiles + ["*.md"]
+                    let total = chosen.reduce(Int64(0)) { $0 + $1.size }
+                    self?.update(repo) { $0.totalBytes = total }
+                }
                 let started = Date()
                 _ = try await HubClient().downloadSnapshot(
                     of: id, to: dir, matching: globs, progressHandler: { progress in
@@ -228,8 +281,10 @@ public final class ModelLibrary: @unchecked Sendable {
                             if let total = $0.totalBytes, total > 0 { $0.bytesPerSecond = f * Double(total) / elapsed }
                         }
                     })
-                try JSONEncoder().encode(Marker(repo: repo, kind: kind)).write(to: dir.appendingPathComponent(".parlor-model.json"))
+                let marker = Marker(repo: repo, kind: kind, format: ggufFiles.isEmpty ? nil : .gguf, file: ggufFiles.first)
+                try JSONEncoder().encode(marker).write(to: dir.appendingPathComponent(".parlor-model.json"))
                 self?.finish(repo, nil)
+                if !ggufFiles.isEmpty, let m = self?.installed.first(where: { $0.repo == repo }) { self?.onGGUFInstalled?(m) }
             } catch is CancellationError {
                 self?.finish(repo, .paused)
             } catch {
@@ -247,6 +302,7 @@ public final class ModelLibrary: @unchecked Sendable {
     }
 
     public func delete(_ repo: String) {
+        if let m = installed.first(where: { $0.repo == repo }), m.format == .gguf { onGGUFRemoved?(m) }
         try? FileManager.default.removeItem(at: directory(for: repo))
         refresh()
     }

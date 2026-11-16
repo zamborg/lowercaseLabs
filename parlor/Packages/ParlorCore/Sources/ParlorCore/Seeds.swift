@@ -59,6 +59,8 @@ enum Seeds {
     "providers": [{"id": "llama", "baseURL": "http://127.0.0.1:8081/v1", "models": ["qwen3-4b"],
                    "service": {"command": "llama-server -m ~/parlor/models/gguf/Qwen3-4B-Q4_K_M.gguf --port 8081 --jinja -c 8192"}}]
     ```
+    The Models screen can also download a GGUF-only repo (needs `llama-server`); parlor adds the provider for it itself
+    (`llama-<name>`, model `llama-<name>/<name>`).
     `service` is optional: parlor starts it on the first request and stops it when idle. Agents use a provider's model as
     `model: llama/qwen3-4b`. A provider with `"locality": "remote"` starts disabled; `keyRef` names a Keychain item for its API key.
     `"runtimeAPI": {"enabled": true, "port": 11500}` serves every model at `http://127.0.0.1:11500/v1` (OpenAI-compatible,
