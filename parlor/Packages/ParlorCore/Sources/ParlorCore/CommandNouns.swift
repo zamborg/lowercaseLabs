@@ -521,6 +521,7 @@ extension CommandCenter {
             if !issues.errors.isEmpty { throw ValidationError(issues: issues) }
             let agent = try self.engine.draftAgent(d)
             let reply = try await self.engine.tryTurn(agent, message: try a.string("message"))
+            self.tried.insert(d.pretty)
             return .object(["reply": .string(reply), "warnings": issues.json])
         }
     }

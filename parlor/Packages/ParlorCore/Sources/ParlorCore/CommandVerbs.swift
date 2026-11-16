@@ -123,12 +123,18 @@ extension CommandCenter {
             if let d = a.raw["draft"] {
                 let issues = self.agentIssues(d, caller: c)
                 if !issues.errors.isEmpty { throw ValidationError(issues: issues) }
+                if c.kind == .agent, !self.tried.contains(d.pretty) {
+                    throw CommandError("Call parlor.agents.try with this exact draft first and show the user its reply; then call agents.create with the same draft.")
+                }
                 if let h = d.objectValue?["harness"]?.stringValue, h.contains(" ") || h.contains("/") { try await self.confirmHarness(Args(.object(["harness": .string(h)])), c) }
                 let made = try self.engine.draftAgent(d)
                 if self.engine.agent(made.id) != nil { throw ValidationError(issues: [Issue(code: "exists", path: "id", message: "agent \"\(made.id)\" already exists", hint: "use agents.update, or pick another id")]) }
                 self.engine.save(made)
                 if c.kind == .agent || c.kind == .token { self.createdBy[made.id] = c.name }
                 return self.agentJSON(try self.agent(made.id), full: true)
+            }
+            if c.kind == .agent, a.optString("template") == nil {
+                throw CommandError("Pass the whole agent as `draft`: call parlor.agents.validate, then parlor.agents.try, then parlor.agents.create with the same draft.")
             }
             try await self.confirmHarness(a, c)
             let name = a.optString("name") ?? "New assistant"

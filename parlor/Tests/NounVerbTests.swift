@@ -124,6 +124,22 @@ final class NounVerbTests: XCTestCase {
         await e.shutdown()
     }
 
+    func testAnAgentMustTryADraftBeforeCreatingIt() async throws {
+        let e = try await engine()
+        var b = try XCTUnwrap(e.agent("builder"))
+        b.tier = .configure
+        e.save(b)
+        let me = Caller.agent(b)
+        _ = await call(e, "hosts.create", ["draft": ["id": "lm", "engine": "openai-remote", "url": "http://127.0.0.1:9/v1", "models": ["m"]]], as: .local)
+        let draft: [String: Any] = ["id": "rook", "name": "Rook", "harness": "chat", "hosts": ["chat": "lm/m"]]
+        var r = await call(e, "agents.create", ["draft": draft], as: me)
+        XCTAssertTrue(r.isError); XCTAssertTrue(r.text.contains("agents.try"), r.text)
+        r = await call(e, "agents.create", ["name": "Rook"], as: me)
+        XCTAssertTrue(r.isError); XCTAssertTrue(r.text.contains("draft"), r.text)
+        XCTAssertNil(e.agent("rook"))
+        await e.shutdown()
+    }
+
     func testEnginesAndHarnessesAlwaysAskBecauseTheyRunCode() async throws {
         let e = try await engine()
         e.confirm = nil

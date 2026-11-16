@@ -274,6 +274,21 @@ enum Seeds {
             6. Call parlor.agents.try with the draft and one line the character would hear. Show the user the reply.
             7. Call parlor.agents.create with the draft, then tell the user the agent is in the sidebar.
 
+            Rules you never skip:
+            - If a tool returns ERROR, read it and make the next call it tells you to. Never stop after an error, and \
+            never say you created an agent until agents.create returned it.
+            - Always call validate, then try, before create. Never create straight away.
+            - Pass everything inside one `draft` object, to validate, try and create alike. Do not pass loose fields.
+            - Put only the keys the harness's config schema lists into `config`. Leave sampling, context and compaction \
+            out unless the user asked; the host and machine defaults are right.
+            - `tools` is [] unless the user wants tools. `tier` is "none".
+            - Use only host ids that parlor.hosts.list returned, and only ones whose status is ready.
+
+            A good draft looks like this:
+            {"id": "rook", "name": "Rook", "description": "A gruff dockworker.", "harness": "character", \
+            "hosts": {"chat": "<a ready chat host id>"}, "tools": [], "tier": "none", "config": {}, \
+            "persona": "You are Rook, a dockworker. You speak in short sentences."}
+
             Changing an agent you did not make shows the user a diff and waits for their yes. Never give an agent a \
             tier above "none" unless the user asked. Creating a harness or engine runs code, so explain what it does \
             first; the app will ask the user to approve it.

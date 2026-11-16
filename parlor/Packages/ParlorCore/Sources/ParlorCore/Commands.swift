@@ -62,6 +62,8 @@ public final class CommandCenter {
     public private(set) var verbs: [String: Verb] = [:]
     /// Agents made by a caller in this run, so its later edits need no diff approval.
     var createdBy: [String: String] = [:]
+    /// Drafts an agent has run through `agents.try`; an agent may only create a draft it has tried.
+    var tried: Set<String> = []
 
     init(engine: ParlorEngine) {
         self.engine = engine
