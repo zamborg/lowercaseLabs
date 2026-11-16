@@ -5,71 +5,41 @@ enum Seeds {
     # parlor home
 
     This folder is the whole state of the parlor Mac app. Edit files here and the running app updates live.
+    Everything is a JSON file or a folder with one. Ask `parlor.schema.get` for the exact shape of any of them.
 
     ## Layout
-    - `agents/<id>.md` one agent per file. Frontmatter + persona body.
-    - `chats/<id>/log.jsonl` the single chat for that agent (append only; one JSON message per line).
-    - `chats/<id>/summary.md` rolling summary written by compaction.
+    - `agents/<id>/agent.json` one agent. `persona.md` is its system prompt, `memory.md` what it remembers across chats
+      (max 6000 characters; it edits it with `memory.append` / `memory.replace`).
+    - `harnesses/<id>/harness.json` how an agent thinks: a command that speaks the harness protocol (see `harnesses/CLAUDE.md`).
+      `chat` is the default; `character` plays a person and takes pictures.
+    - `hosts/<id>.json` a thing that serves a model: an engine plus a model, how it runs (`settings`) and how it is asked
+      (`defaults`). Installed models get a host automatically; write a file to override or add one.
+    - `engines/<id>/engine.json` a backend that can serve models: `inprocess-mlx`, `http-openai`, `command` or `mcp-stdio`.
+      Dropping a folder in adds an engine. Engines run code, so creating or changing one always asks the user.
+    - `chats/<id>/log.jsonl` the conversation (append only), `summary.md` its rolling summary, `conversation.json` makes it a
+      room (several agents and a scheduler).
     - `media/YYYY-MM/` generated images, referenced from chat logs by relative path.
-    - `models/<org>/<name>/` downloaded MLX weights (managed by the Models screen).
-    - `chats/<id>/conversation.json` optional; makes the folder a room (several agents, a scheduler). Its `triggers` list
-      (`{"every":"1d","at":"08:00"}` or `{"onFile":"workspaces/x/inbox/*"}`) starts a run with no user message.
-    - `memory/<id>.md` what an agent remembers across chats (max 6000 characters). It is added to its system prompt; the agent
-      edits it with `memory.append` / `memory.replace`.
+    - `models/<org>/<name>/` downloaded weights (the Library screen manages them).
     - `mcp.json` mounted MCP servers, same format as Claude Desktop. Optional per server: `"lifecycle": "onDemand"`
-      and `"idleMinutes": 10` start it on first use and stop it when idle.
-    - `modules/<name>/` small tools you or a model write; see `modules/CLAUDE.md`. They run only after you approve them in System.
-    - `harnesses/` a sample external harness and its guide; see `harnesses/CLAUDE.md`. `workspaces/<agent>/` is a harness's working folder.
-    - Everything under agents/, memory/, mcp.json, settings.json, modules/*/module.json and chats/*/conversation.json is
-      versioned in `.git` here (System → History restores it). Models, media, logs, workspaces and chat logs are not.
-    - Agent front matter `group: <name>` picks the sidebar section (default Assistants or Characters).
-    - `settings.json` machine settings, access tokens (hashes only), module approvals, `providers` and `gateway`.
-    - `logs/` one log per service (`mcp-<name>.log`, `image.log`, `module-<name>.log`), rotated at 1 MB.
+      and `"idleMinutes": 10`.
+    - `modules/<name>/` small tools you or a model write; see `modules/CLAUDE.md`. They run only after you approve them.
+    - `workspaces/<agent>/` a harness's working folder.
+    - `settings.json` machine settings, access tokens (hashes only), module approvals and the gateway.
+    - `logs/` one log per service, rotated at 1 MB.
 
-    ## Agent file
-    ```
-    ---
-    name: Mabel
-    description: Chief of staff.
-    kind: assistant            # assistant | character
-    model: mlx-community/Qwen3-4B-4bit
-    image_model: mlx-community/Z-Image-Turbo-bf16   # optional
-    tools:                     # server.tool, server.*, or *
-      - zass.*
-      - image.generate
-    context: 16384             # token budget
-    compact_at: 0.7            # compact when prompt passes this share of context
-    temperature: 0.6
-    thinking: false
-    color: 0                   # avatar palette 0-5
-    ---
-    The persona goes here, as the system prompt.
-    ```
-    The file name (without `.md`) is the agent id. To add an agent, write a new file. To remove one, delete it.
+    ## The gateway
+    One loopback server, `http://127.0.0.1:<port>`: `/v1/models`, `/v1/chat/completions`, `/v1/images/generations` (OpenAI
+    shaped) and `/mcp` (the `parlor.*` verbs). A bearer token is required; each token has a tier and may be limited to some hosts.
 
-    Optional agent key `tier: none|read|act|configure` lets the agent use the app's own `parlor.*` tools
-    (list or change agents, post in rooms, change settings). It defaults to `none`. Add `parlor.*` to `tools` too.
-
-    Optional agent key `harness: <command>` runs the agent's turns in your own program instead of the built-in loop
-    (see `harnesses/CLAUDE.md`).
-
-    ## Providers
-    `settings.json` may list other model servers that speak the OpenAI chat API (llama.cpp's `llama-server`, LM Studio, Ollama):
-    ```
-    "providers": [{"id": "llama", "baseURL": "http://127.0.0.1:8081/v1", "models": ["qwen3-4b"],
-                   "service": {"command": "llama-server -m ~/parlor/models/gguf/Qwen3-4B-Q4_K_M.gguf --port 8081 --jinja -c 8192"}}]
-    ```
-    The Models screen can also download a GGUF-only repo (needs `llama-server`); parlor adds the provider for it itself
-    (`llama-<name>`, model `llama-<name>/<name>`).
-    `service` is optional: parlor starts it on the first request and stops it when idle. Agents use a provider's model as
-    `model: llama/qwen3-4b`. A provider with `"locality": "remote"` starts disabled; `keyRef` names a Keychain item for its API key.
-    `"gateway": {"enabled": true, "port": 11501}` serves every host at `http://127.0.0.1:11501/v1` (OpenAI-compatible chat and
-    images) and `/mcp`, token required, for other tools.
+    ## Making things
+    - Make an agent: `parlor.agents.validate` a draft, `parlor.agents.try` it for one throwaway turn, then `parlor.agents.create`.
+    - Hosts: `parlor.hosts.create`, then `hosts.test` and `hosts.bench` to see it work and how fast.
+    - Every noun has `list`, `read`, `validate`, `create`, `update` (a JSON merge patch; `null` removes a key) and `delete`.
 
     ## Rules
     - One chat per agent. Do not create extra chat folders.
     - Do not edit `log.jsonl` while the app is generating in that chat.
-    - Models must already be downloaded (Models screen) before an agent can use them.
+    - Models must already be downloaded before a host can serve them.
     """
 
     /// Bump when `moduleGuide` or `moduleHelper` change; the app rewrites both when this marker is missing.

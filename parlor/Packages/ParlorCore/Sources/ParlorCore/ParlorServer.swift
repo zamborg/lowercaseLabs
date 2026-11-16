@@ -156,9 +156,6 @@ public final class ParlorMCPEndpoint {
         return secret
     }
 
-    /// Who a bearer secret belongs to: a process the app launched, or a token made in System.
-    func authenticate(_ bearer: String) -> Caller? { caller(for: bearer) }
-
     private func caller(for bearer: String) -> Caller? {
         if let c = ephemeral[bearer] { return c }
         let h = APIToken.hash(bearer)

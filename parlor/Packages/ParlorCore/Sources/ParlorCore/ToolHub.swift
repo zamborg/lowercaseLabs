@@ -87,8 +87,6 @@ public actor ToolHub {
 
     public func allTools() -> [ToolDef] { cached.values.flatMap { $0 }.sorted { $0.qualified < $1.qualified } }
     public func allStatuses() -> [ServerStatus] { statuses.values.sorted { $0.id < $1.id } }
-    public func providerIDs() -> [String] { Array(providers.keys) }
-
     public func setTierRequirements(_ t: [String: Tier]) { tierRequired = t }
     public func requiredTier(_ qualified: String) -> Tier { tierRequired[qualified] ?? .none }
 

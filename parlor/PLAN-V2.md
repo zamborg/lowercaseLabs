@@ -1,3 +1,5 @@
+> **Superseded by `PLAN-V3.md`.** Kept for history. The contracts now live in `SPEC.md` (v3).
+
 # parlor V2: push / pull
 
 V1 is built and in daily use (see `PLAN.md`). V2 is not more features. It is the smallest set of primitives

@@ -150,17 +150,6 @@ public actor Supervisor {
         return status
     }
 
-    /// Blocking variant for code that already runs off the main thread (git). Waits on a semaphore, never on
-    /// `waitUntilExit`, which spins the run loop and re-enters the UI.
-    public static func runBlocking(_ launch: Launch) -> (status: Int32, output: String) {
-        let pipe = Pipe()
-        let done = DispatchSemaphore(value: 0)
-        guard let p = try? spawn(launch, streams: Streams(stdout: pipe, stderr: pipe), onExit: { _, _ in done.signal() }) else { return (-1, "") }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        done.wait()
-        return (p.terminationStatus, String(decoding: data, as: UTF8.self))
-    }
-
     private final class ProcessBox: @unchecked Sendable {
         private let lock = NSLock(); private var p: ManagedProcess?
         func set(_ v: ManagedProcess) { lock.lock(); p = v; lock.unlock() }
