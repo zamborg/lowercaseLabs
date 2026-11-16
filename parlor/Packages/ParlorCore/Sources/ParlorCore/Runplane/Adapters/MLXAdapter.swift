@@ -21,7 +21,7 @@ public final class MLXAdapter: Adapter, @unchecked Sendable {
 
     public func refresh() async {
         let now: Set<String> = if let mlx { Set(await mlx.loadedModels()) } else if let m = await runtime.loadedModel() { [m] } else { [] }
-        lock.lock(); loaded = now; lock.unlock()
+        lock.withLock { loaded = now }
     }
 
     public func state(of host: HostInfo) -> ServiceState? {

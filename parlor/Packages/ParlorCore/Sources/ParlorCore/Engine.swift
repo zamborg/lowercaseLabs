@@ -43,7 +43,7 @@ public final class ParlorEngine {
     public internal(set) var gateway: GatewayRoutes!
     var gatewayForHarness = false
     /// Runs agents that have a `harness:` command.
-    public let externalHarness: ExternalHarness
+    public let externalHarness: HarnessHost
     var harnessTokens: [String: String] = [:]
     public var memory: MemoryStore { MemoryStore(home: home) }
     /// One queue per host.
@@ -74,7 +74,7 @@ public final class ParlorEngine {
         self.mlxAdapter = MLXAdapter(runtime: base, mlx: self.mlx)
         self.openAIAdapter = OpenAIAdapter(home: home)
         let envBox = EnvBox()
-        let external = ExternalHarness(home: home) { agent in await envBox.provider?(agent) ?? [:] }
+        let external = HarnessHost(home: home) { agent in await envBox.provider?(agent) ?? [:] }
         self.externalHarness = external
         self.deps = RoomDeps(home: home, hub: hub, external: external, library: lib)
         envBox.provider = { [weak self] agent in await self?.harnessEnvironment(agent) ?? [:] }

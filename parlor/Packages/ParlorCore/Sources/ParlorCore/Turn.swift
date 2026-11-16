@@ -70,11 +70,6 @@ public struct TurnContext: Sendable {
     public init(tools: ToolExecutor) { self.tools = tools }
 }
 
-/// Swap this to change how an agent thinks and acts. Everything else stays the same.
-public protocol Harness: Sendable {
-    func run(_ input: TurnInput, context: TurnContext, emit: @Sendable @escaping (TurnEvent) -> Void) async throws
-}
-
 /// Runs tool calls against the shared `ToolHub`.
 public struct HubToolExecutor: ToolExecutor {
     public let hub: ToolHub

@@ -43,7 +43,7 @@ Three layers, each made of JSON nouns and services (see `SPEC.md`):
 ```
 CLAUDE.md                     explains the folder to external agents (written on first run)
 settings.json                 machine settings, tokens (hashes), gateway
-mcp.json                      mounted MCP servers (Claude Desktop format)
+tools/<id>/tool.json          a tool server (MCP) and its program
 engines/<id>/engine.json      backends; drop a folder in to add one
 hosts/<id>.json               an engine plus a model; installed models get one automatically
 harnesses/<id>/harness.json   how an agent thinks, beside its Python program

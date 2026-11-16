@@ -117,7 +117,7 @@ actor TurnLock {
 
 /// Runs a turn in an outside process over the JSON-lines protocol (v2, see `harnesses/CLAUDE.md`). Tool calls come back to the app
 /// and run through the same `ToolExecutor` (allowlist and tier included); the log is written by the app.
-public final class ExternalHarness: Harness, @unchecked Sendable {
+public final class HarnessHost: @unchecked Sendable {
     public let home: ParlorHome
     /// Environment for a launched harness: runtime API URL and token, parlor MCP URL, agent id.
     private let environment: @Sendable (Agent) async -> [String: String]
@@ -132,16 +132,18 @@ public final class ExternalHarness: Harness, @unchecked Sendable {
 
     private func process(for agent: Agent, command: String) async throws -> HarnessProcess {
         let env = await environment(agent)
-        lock.lock()
-        if let p = processes[agent.id], p.command == command, p.gateway == (env["PARLOR_GATEWAY_URL"] ?? ""), p.isAlive { lock.unlock(); return p }
-        let stale = processes[agent.id]
-        processes[agent.id] = nil
-        lock.unlock()
+        let (live, stale): (HarnessProcess?, HarnessProcess?) = lock.withLock {
+            if let p = processes[agent.id], p.command == command, p.gateway == (env["PARLOR_GATEWAY_URL"] ?? ""), p.isAlive { return (p, nil) }
+            let stale = processes[agent.id]
+            processes[agent.id] = nil
+            return (nil, stale)
+        }
+        if let live { return live }
         stale?.stop()
         let p: HarnessProcess
         do { p = try HarnessProcess(agent: agent, command: command, cwd: workspace(for: agent.id), environment: env, home: home) }
         catch { throw ParlorError.message("Could not start the harness for \(agent.name): \(error.localizedDescription)") }
-        lock.lock(); processes[agent.id] = p; lock.unlock()
+        lock.withLock { processes[agent.id] = p }
         return p
     }
 

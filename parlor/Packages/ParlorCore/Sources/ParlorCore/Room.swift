@@ -291,7 +291,7 @@ public final class Room: Identifiable {
 public final class RoomDeps {
     public let home: ParlorHome
     public let hub: ToolHub
-    public var external: ExternalHarness
+    public var external: HarnessHost
     public var image: ImageProvider?
     public var library: ModelLibrary?
     public var settings = ParlorSettings()
@@ -301,7 +301,7 @@ public final class RoomDeps {
     public var launch: (@MainActor (Agent) -> (command: String, config: [String: JSON])?)?
     /// The gateway's OpenAI base (`http://127.0.0.1:<port>/v1`); set by the engine.
     public var gatewayURL: (@MainActor () -> String)?
-    init(home: ParlorHome, hub: ToolHub, external: ExternalHarness, library: ModelLibrary? = nil) {
+    init(home: ParlorHome, hub: ToolHub, external: HarnessHost, library: ModelLibrary? = nil) {
         self.home = home; self.hub = hub; self.external = external; self.library = library
     }
 }

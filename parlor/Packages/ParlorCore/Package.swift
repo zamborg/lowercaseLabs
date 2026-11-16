@@ -24,6 +24,7 @@ let package = Package(
                 .product(name: "Tokenizers", package: "swift-transformers"),
                 .product(name: "MCP", package: "swift-sdk"),
             ],
+            resources: [.copy("Resources/harnesses")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

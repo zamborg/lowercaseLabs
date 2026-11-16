@@ -1,5 +1,7 @@
 # parlor V3.1: finish the three patterns
 
+> **Status: done (2026-11-16).** Steps 1–16 are committed; see the end-of-file notes and the final report for what was deliberately left.
+
 V3 (steps 1–7, `PLAN-V3.md`) shipped the right shape: engines → hosts → harnesses → agents, one gateway, one
 catalog, every agent a harness process. Two principal reviews (2026-11-16) found that each of the three patterns
 (nouns, adapters, services) is only partly done, and the gaps are where the bugs are. V3.1 finishes them, and makes every noun first party in the app. No new features.
@@ -30,7 +32,7 @@ migration and no back-compat. Delete old paths; do not keep shims.
 | A | Agents are not on the noun pattern. `agents.read/list` return V2 JSON (`model`, `context`, `compact_at`, `temperature`, `kind`) via `CommandCenter.agentJSON`; `agents.update` takes loose `fields`; only `create {draft}` and `validate` use the file shape | `Commands.swift` `agentJSON`, `CommandVerbs.swift` `fields`/`apply` | File ≠ verb input ≠ verb output. Builder copies the read shape into drafts |
 | B | `Agent` keeps V2 shims over `config`/`hosts`: `model` (is the chat host id), `imageModel`, `temperature`, `contextTokens`, `compactAt`, `thinking`, `overrides`, `Kind` | `Agent.swift` | Two models of an agent; UI and verbs mix them |
 | C | Host-id bugs from those shims: the chat chip's green dot compares `loadedModel` (a repo) with `agent.model` (a host id), so it never lights; Library "used by" compares `agent.model == m.repo`, so deleting a model never warns; Room view's mixed-model hint compares host ids as models | `ChatView.swift:102`, `ModelsView.swift:86`, `RoomView.swift:55` | Visible bugs |
-| D | Sampling precedence is decided three times. `ResolvedSettings` folds machine `topP`/`maxReplyTokens` into `turn.start.settings`; `chat.py` `t.opt` always sends them; the gateway applies host `defaults` only for absent keys | `Resolved.swift`, `ExternalHarness.swift` (`settings`), `HarnessPython.swift` (`opt`, request kwargs), `Gateway.swift` `chat` | A host's `top_p`/`max_tokens` defaults from Tuning never reach the `chat` harness |
+| D | Sampling precedence is decided three times. `ResolvedSettings` folds machine `topP`/`maxReplyTokens` into `turn.start.settings`; `chat.py` `t.opt` always sends them; the gateway applies host `defaults` only for absent keys | `Resolved.swift`, `HarnessHost.swift` (`settings`), `HarnessPython.swift` (`opt`, request kwargs), `Gateway.swift` `chat` | A host's `top_p`/`max_tokens` defaults from Tuning never reach the `chat` harness |
 | E | No `Adapter` protocol. Dispatch is a string switch in `Gateway.resolveChat`, another in `ImageProvider`, and `derivedProviders` turns hosts into `ProviderConfig` for `ProviderRouter`, which re-parses `"host/host"` strings, applies repo aliases and sends anything unknown to MLX | `Gateway.swift`, `ImageProvider.swift`, `EngineCatalog.swift`, `Adapters.swift` | The V2 "model is ambiguous" problem lives on inside |
 | F | `ServiceSpec` is declared and never constructed. Idle stop and restart-with-backoff exist three times (`MCP.swift`, `ProviderProcess`, the image worker); harness processes have neither. The memory budget lives in the gateway and polls each owner for PIDs; `inprocess-mlx` skips it | `Supervisor.swift`, `MCP.swift`, `Adapters.swift`, `ImageProvider.swift`, `Gateway.admit` | One supervisor in name only |
 | G | `hosts.stop` switches on engine ids (`"mlx"` unloads every model, `"z-image"` stops the image service, else `"provider:"+id`) | `CommandNouns.swift` hosts.stop | Built-ins have a back door; a user engine cannot be stopped properly |
@@ -46,7 +48,7 @@ migration and no back-compat. Delete old paths; do not keep shims.
 | R | No UI for harnesses: Library has Models, Hosts and Engines only. There is nowhere to see every harness, where it came from, whether it works, which agents use it, or to edit, duplicate or delete one | `App/LibraryView.swift` | Harnesses are not first party in the app |
 | S | Tools are not a noun. PLAN-V3 names three manifest types (engine, harness, tools), but MCP servers are entries in one `mcp.json` and modules have their own manifest and approval flow, with no `tools.*` CRUD-validate-schema verbs in the noun shape | `MCP.swift`, `Modules.swift`, `CommandVerbs.swift` tools.* | Two ways to add a tool, neither on the noun pattern |
 | T | Each Library tab is hand-written per noun | `LibraryView.swift` `HostsTab`, `EnginesTab` | A new noun needs new UI code, against pattern 3 |
-| O | Concurrency: Swift 5 mode, 22 `@unchecked Sendable`, 11 `NSLock`s, lock-in-async warnings in `ExternalHarness` | ParlorCore | Debt for Swift 6 |
+| O | Concurrency: Swift 5 mode, 22 `@unchecked Sendable`, 11 `NSLock`s, lock-in-async warnings in `HarnessHost` | ParlorCore | Debt for Swift 6 |
 
 ## Target shapes
 
@@ -283,9 +285,9 @@ Gate: unit and UI suites green; the test above passes.
 1. Python harness files move to `Packages/ParlorCore/Sources/ParlorCore/Resources/harnesses/*.py` (SwiftPM
    resources), copied into the home by the existing marker logic. Add a test that runs `python3 -m py_compile` on
    each and the seeded `chat` harness end to end (already exists; keep it).
-2. Delete the Swift `Harness` protocol and `TurnContext.llm`; `ExternalHarness` is the concrete type. Rename it
+2. Delete the Swift `Harness` protocol and `TurnContext.llm`; `HarnessHost` is the concrete type. Rename it
    `HarnessHost` (the plan's name).
-3. Concurrency: convert `HostQueues` users, `ExternalHarness` process state and the adapter caches to actors or
+3. Concurrency: convert `HostQueues` users, `HarnessHost` process state and the adapter caches to actors or
    `Mutex`; zero lock-in-async warnings in a ParlorCore build; no new `@unchecked Sendable`. Staying in Swift 5 mode
    is fine; record the remaining `@unchecked` count in the commit message.
 4. Update `SPEC.md` (§1 shape: Adapter, Supervisor ownership; §2.2 SD settings; §2.5 agent; §3 verbs; §4 settings

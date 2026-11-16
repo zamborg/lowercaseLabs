@@ -58,7 +58,7 @@ final class MemoryHistoryTests: XCTestCase {
         XCTAssertFalse(tools.contains("parlor.agents.update"))
     }
 
-    func testExternalHarnessReceivesMemory() async throws {
+    func testHarnessHostReceivesMemory() async throws {
         let home = tempHome(); try home.ensure()
         try #"{"gateway":{"enabled":false,"port":0}}"#.write(to: home.settingsFile, atomically: true, encoding: .utf8)
         let path = home.root.appendingPathComponent("h.py")

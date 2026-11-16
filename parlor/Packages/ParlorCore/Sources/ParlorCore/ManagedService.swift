@@ -95,22 +95,29 @@ public final class ManagedService: @unchecked Sendable {
     }
 
     public func ensureRunning() async throws {
-        lock.lock()
-        if _state == .running || _state == .idle, proc?.isRunning == true || external { _lastUsed = Date(); lock.unlock(); return }
-        if let s = starting { lock.unlock(); try await s.value; return }
-        let t = Task { try await self.launch() }
-        starting = t
-        if case .failed = _state { _restarts += 1 }
-        _state = .starting
-        lock.unlock()
-        do { try await t.value } catch { lock.lock(); starting = nil; lock.unlock(); throw error }
-        lock.lock(); starting = nil; lock.unlock()
+        enum Plan { case ready, wait(Task<Void, Error>), launch(Task<Void, Error>) }
+        let plan: Plan = lock.withLock {
+            if _state == .running || _state == .idle, proc?.isRunning == true || external { _lastUsed = Date(); return .ready }
+            if let s = starting { return .wait(s) }
+            let t = Task { try await self.launch() }
+            starting = t
+            if case .failed = _state { _restarts += 1 }
+            _state = .starting
+            return .launch(t)
+        }
+        switch plan {
+        case .ready: return
+        case .wait(let s): try await s.value
+        case .launch(let t):
+            do { try await t.value } catch { lock.withLock { starting = nil }; throw error }
+            lock.withLock { starting = nil }
+        }
     }
 
     private func launch() async throws {
         // Something already answers where it should (the user started it): use it, don't own it.
         if spec.healthURL != nil, await answers() {
-            lock.lock(); external = true; _state = .running; _lastUsed = Date(); lock.unlock()
+            lock.withLock { external = true; _state = .running; _lastUsed = Date() }
             return
         }
         let log = ServiceLog.open(home: home, service: spec.id, banner: spec.banner.isEmpty ? "starting" : "starting: \(spec.banner)")
@@ -128,19 +135,19 @@ public final class ManagedService: @unchecked Sendable {
                 try? log?.write(contentsOf: Data("--- exited \(status)\n".utf8))
             }
         } catch {
-            lock.lock(); _state = .failed(error.localizedDescription); lock.unlock()
+            lock.withLock { _state = .failed(error.localizedDescription) }
             throw ParlorError.message("Could not start \(spec.id): \(error.localizedDescription)")
         }
-        lock.lock(); proc = p; external = false; lock.unlock()
+        lock.withLock { proc = p; external = false }
         let deadline = Date().addingTimeInterval(TimeInterval(max(5, spec.startupSeconds)))
         while Date() < deadline {
             if !p.isRunning {
                 let tail = ServiceLog.tail(home: home, service: spec.id, lines: 6)
-                lock.lock(); _state = .failed("exited with status \(p.terminationStatus)"); lock.unlock()
+                lock.withLock { _state = .failed("exited with status \(p.terminationStatus)") }
                 throw ParlorError.message("\(spec.id) exited while starting (status \(p.terminationStatus)).\n\(tail)")
             }
             if await answers() {
-                lock.lock(); _state = .running; _lastUsed = Date(); lock.unlock()
+                lock.withLock { _state = .running; _lastUsed = Date() }
                 scheduleIdle()
                 return
             }
@@ -154,9 +161,7 @@ public final class ManagedService: @unchecked Sendable {
         guard let limit = idleSecondsOverride ?? spec.idleSeconds else { return }
         idle.arm(after: min(limit, 30)) { [weak self] in
             guard let self else { return }
-            self.lock.lock()
-            let quiet = self.active == 0 && Date().timeIntervalSince(self._lastUsed ?? .distantPast) >= limit
-            self.lock.unlock()
+            let quiet = self.lock.withLock { self.active == 0 && Date().timeIntervalSince(self._lastUsed ?? .distantPast) >= limit }
             if quiet { self.stop() } else { self.scheduleIdle() }
         }
     }

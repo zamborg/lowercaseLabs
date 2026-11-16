@@ -206,4 +206,18 @@ final class HarnessTests: XCTestCase {
         XCTAssertEqual(room.messages.last?.speaker, "mabel")
         await e.shutdown()
     }
+
+    /// The shipped Python compiles, and each file in Resources equals what the app writes into the home.
+    func testShippedHarnessPythonCompilesAndIsWhatGetsSeeded() throws {
+        let home = tempHome(); try home.ensure()
+        HarnessSeeds.seed(home: home)
+        for f in ["parlor_harness.py", "chat/chat.py", "character/character.py"] {
+            let url = home.harnessesDir.appendingPathComponent(f)
+            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/env"); p.arguments = ["python3", "-m", "py_compile", url.path]
+            let err = Pipe(); p.standardError = err
+            try p.run(); p.waitUntilExit()
+            XCTAssertEqual(p.terminationStatus, 0, f + ": " + String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)!)
+            XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).hasPrefix("# " + HarnessSeeds.marker), f)
+        }
+    }
 }

@@ -85,7 +85,7 @@ final class SamplingTests: XCTestCase {
         let a = Agent(id: "x", name: "X", config: ["top_p": .double(0.9)])
         let input = TurnInput(agent: a, conversationID: "x", participants: [.user], transcript: [], summary: nil, tools: [],
                               settings: ResolvedSettings.resolve(agent: a, model: nil, machine: ParlorSettings()), lastPromptTokens: 0, priority: .user, names: [:], memory: "")
-        let start = ExternalHarness.turnStart(input, turn: "t").objectValue
+        let start = HarnessHost.turnStart(input, turn: "t").objectValue
         let settings = start?["settings"]?.objectValue ?? [:]
         for k in ["top_p", "temperature", "repetition_penalty", "max_reply_tokens"] { XCTAssertNil(settings[k], k) }
         XCTAssertNotNil(settings["context"]); XCTAssertNotNil(settings["max_steps"])
