@@ -17,7 +17,8 @@ struct ContentView: View {
             case .room(let id):
                 if engine.conversations.contains(where: { $0.id == id }) { RoomView(roomID: id).id(id) }
                 else { EmptyDetail(route: $route) }
-            case .models: ModelsView()
+            case .models: LibraryView()
+            case .tuning: TuningView()
             case .system: SystemView()
             case nil: EmptyDetail(route: $route)
             }
@@ -75,7 +76,8 @@ struct SidebarView: View {
                 }
             }
             Section("Library") {
-                Label("Models", systemImage: "cpu").tag(Route.models)
+                Label("Library", systemImage: "cpu").tag(Route.models)
+                Label("Tuning", systemImage: "slider.horizontal.3").tag(Route.tuning)
                 Label("System", systemImage: "gauge.with.dots.needle.67percent").tag(Route.system)
             }
         }

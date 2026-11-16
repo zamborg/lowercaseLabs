@@ -95,7 +95,8 @@ final class ParlorUITests: XCTestCase {
         try py.write(to: script, atomically: true, encoding: .utf8)
         let mcp = #"{"mcpServers":{"fake":{"command":"python3","args":["\#(script.path)"]},"broken":{"command":"/no/such/command"}}}"#
         try mcp.write(to: home.appendingPathComponent("mcp.json"), atomically: true, encoding: .utf8)
-        try #"{"providers":[{"id":"nowhere","baseURL":"http://127.0.0.1:9/v1","models":["m"]}]}"#.write(to: home.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("hosts"), withIntermediateDirectories: true)
+        try #"{"id":"nowhere","engine":"openai-remote","url":"http://127.0.0.1:9/v1","models":["m"]}"#.write(to: home.appendingPathComponent("hosts/nowhere.json"), atomically: true, encoding: .utf8)
         app.launchEnvironment["PARLOR_ROUTE"] = "system"
         app.launch()
         XCTAssertTrue(app.buttons["stop-mcp:fake"].waitForExistence(timeout: 20), "fake server running")
@@ -105,13 +106,30 @@ final class ParlorUITests: XCTestCase {
         app.buttons["start-mcp:fake"].click()
         XCTAssertTrue(app.buttons["stop-mcp:fake"].waitForExistence(timeout: 20), "started again")
         XCTAssertTrue(app.staticTexts["Your data"].exists)
-        // Providers: the configured one is listed and can be tested; an unreachable one says so.
-        let test = app.buttons["test-provider-nowhere"]
-        XCTAssertTrue(test.waitForExistence(timeout: 5), "provider listed with a Test button")
-        test.click()
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Failed'")).firstMatch.waitForExistence(timeout: 10), "unreachable provider reports failure")
         XCTAssertTrue(app.staticTexts["Gateway"].exists, "gateway is a service")
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.lifetime = .keepAlways; add(shot)
+    }
+
+    /// Library lists hosts and tests them; Tuning shows a host's settings and benchmark.
+    func testLibraryHostsAndTuning() throws {
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("hosts"), withIntermediateDirectories: true)
+        try #"{"id":"nowhere","engine":"openai-remote","url":"http://127.0.0.1:9/v1","models":["m"]}"#.write(to: home.appendingPathComponent("hosts/nowhere.json"), atomically: true, encoding: .utf8)
+        app.launchEnvironment["PARLOR_ROUTE"] = "library"
+        app.launch()
+        let tabs = app.radioButtons["Hosts"]
+        XCTAssertTrue(tabs.waitForExistence(timeout: 15), "Library has a Hosts tab")
+        tabs.click()
+        let test = app.buttons["test-host-nowhere"]
+        XCTAssertTrue(test.waitForExistence(timeout: 10), "host listed with a Test button")
+        test.click()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value CONTAINS 'reachable'")).firstMatch.waitForExistence(timeout: 15), "unreachable host reports it")
+        XCTAssertTrue(app.buttons["add-host"].exists)
+        app.terminate()
+
+        app.launchEnvironment["PARLOR_ROUTE"] = "tuning"
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["tuning-view"].waitForExistence(timeout: 15), "Tuning screen")
+        XCTAssertTrue(app.descendants(matching: .any)["tune-nowhere"].waitForExistence(timeout: 10), "hosts listed in Tuning")
     }
 
     /// Scrolls the editor form (by wheeling over a heading that is on screen) until `element` can be clicked.

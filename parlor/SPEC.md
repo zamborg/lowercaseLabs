@@ -394,7 +394,6 @@ MCP over streamable HTTP at `127.0.0.1:<parlorServer.port>/mcp`, bearer token. F
 | `models.download`, `models.pause` | act | Download / Pause / Resume / Retry |
 | `models.delete` | destructive | Delete model |
 | `models.load`, `models.unload` | act | (System) |
-| `providers.list`, `providers.test` | read | (Library) |
 | `services.list`, `services.logs` | read | (System) |
 | `services.start`, `services.stop`, `services.restart` | act | Restart server |
 | `settings.get` | read | Performance |

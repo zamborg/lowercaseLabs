@@ -49,5 +49,6 @@ enum Route: Hashable {
     case agent(String)
     case room(String)
     case models
+    case tuning
     case system
 }

@@ -314,7 +314,6 @@ public final class ModelLibrary: @unchecked Sendable {
                     })
                 let format: ModelFormat = !ggufFiles.isEmpty ? .gguf : (checkpoint != nil ? .sdCheckpoint : (kind == .image ? .zImage : .mlxLM))
                 let marker = Marker(repo: repo, kind: kind, format: format, file: ggufFiles.first ?? checkpoint)
-                if checkpoint != nil { SDCppImage.Config.writeDefault(in: dir, file: checkpoint!) }
                 try JSONEncoder().encode(marker).write(to: dir.appendingPathComponent(".parlor-model.json"))
                 self?.finish(repo, nil)
             } catch is CancellationError {

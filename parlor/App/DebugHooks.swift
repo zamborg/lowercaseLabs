@@ -18,7 +18,8 @@ enum DebugHooks {
 
     static var route: Route? {
         switch env["PARLOR_ROUTE"] ?? "" {
-        case "models": return .models
+        case "models", "library": return .models
+        case "tuning": return .tuning
         case "system", "tools": return .system
         case let r where r.hasPrefix("agent:"): return .agent(String(r.dropFirst(6)))
         case let r where r.hasPrefix("room:"): return .room(String(r.dropFirst(5)))
