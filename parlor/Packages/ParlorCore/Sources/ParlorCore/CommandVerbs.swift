@@ -8,7 +8,7 @@ extension CommandCenter {
     private static let agentKeys: Set<String> = [
         "name", "description", "kind", "model", "image_model", "tools", "tier", "context", "compact_at", "temperature",
         "thinking", "color", "persona", "top_p", "repetition_penalty", "max_reply_tokens", "max_steps",
-        "tool_result_chars", "tool_timeout", "keep_recent", "summary_tokens", "group", "harness", "template",
+        "tool_result_chars", "tool_timeout", "keep_recent", "summary_tokens", "group", "harness", "template", "hosts", "config",
     ]
 
     private func apply(_ a: inout Agent, _ args: Args, caller: Caller) throws {
@@ -34,6 +34,20 @@ extension CommandCenter {
         if let v = args.optString("harness") { a.harness = v.trimmingCharacters(in: .whitespaces).isEmpty ? nil : v }
         if let v = args.optString("model") { a.model = v }
         if let v = args.optString("image_model") { a.imageModel = v.isEmpty ? nil : v }
+        if let h = args.raw["hosts"] {
+            guard let o = h.objectValue else { throw CommandError("\"hosts\" is an object like {\"chat\": \"stheno\", \"image\": \"z-image\"}.") }
+            for (k, v) in o { guard let id = v.stringValue else { throw CommandError("hosts.\(k) must be a host id.") }; a.hosts[k] = id.isEmpty ? nil : id }
+        }
+        if let c = args.raw["config"] {
+            guard c.objectValue != nil else { throw CommandError("\"config\" is an object of the harness's settings.") }
+            var merged = NounStore<AgentRecord>.merge(.object(a.config), c).objectValue ?? a.config
+            merged = merged.filter { if case .null = $0.value { return false } else { return true } }
+            if let m = engine.harnessList.first(where: { $0.id == a.harnessID }), let schema = m.config {
+                let issues = SchemaCheck.validate(.object(merged), schema: schema, path: "config")
+                if !issues.errors.isEmpty { throw CommandError(issues.errors.summary) }
+            }
+            a.config = merged
+        }
         if let v = args.strings("tools") { a.tools = v }
         if let v = args.optString("tier") {
             guard let t = Tier(rawValue: v) else { throw CommandError("\"tier\" is one of none, read, act, configure.") }
@@ -57,7 +71,8 @@ extension CommandCenter {
 
     /// A harness is a command the app will run. An agent or token setting one needs the user's yes.
     private func confirmHarness(_ args: Args, _ caller: Caller) async throws {
-        guard let h = args.optString("harness"), !h.trimmingCharacters(in: .whitespaces).isEmpty, caller.mustConfirmDestructive else { return }
+        guard let h = args.optString("harness"), !h.trimmingCharacters(in: .whitespaces).isEmpty, caller.mustConfirmDestructive,
+              h.contains(" ") || h.contains("/") else { return }
         guard let ask = engine.confirm else { throw CommandError("Setting a harness runs a program on this Mac, so it needs the user. Nobody is available to confirm it.") }
         guard await ask("\(caller.name) wants an agent to run this program for its turns:\n\n\(h)") else { throw CommandError("The user declined the harness.") }
     }
@@ -79,7 +94,8 @@ extension CommandCenter {
             ("max_reply_tokens", "integer", "Override; 0 for no cap"), ("max_steps", "integer", "Override"),
             ("tool_result_chars", "integer", "Override"), ("tool_timeout", "integer", "Override, seconds"),
             ("keep_recent", "integer", "Override"), ("summary_tokens", "integer", "Override"),
-            ("group", "string", "Sidebar section"), ("harness", "string", "Command that runs this agent's turns instead of the built-in loop (asks the user first when set by an agent or token)"),
+            ("group", "string", "Sidebar section"), ("harness", "string", "A harness id (chat, character, a folder in harnesses/) or an inline command (asks the user first when set by an agent or token)"),
+            ("hosts", "object", "Hosts the agent uses: {\"chat\": host id, \"image\": host id}"), ("config", "object", "The harness's settings (see the harness manifest's config schema); null removes a key"),
         ]
         add("agents.list", .read, "List agents (id, name, kind, model, tools, tier).") { _, _ in
             .array(self.engine.agents.map { self.agentJSON($0) })
@@ -88,7 +104,8 @@ extension CommandCenter {
             self.agentJSON(try self.agent(try a.string("id")), full: true)
         }
         add("agents.templates", .read, "Starting points for agents.create: id, title, what it sets up.") { _, _ in
-            .array(AgentTemplates.all.map { .object(["id": .string($0.id), "title": .string($0.title), "description": .string($0.blurb), "tools": .strings($0.tools)]) })
+            .array(self.engine.harnessList.flatMap { h in h.templates.map { t in
+                .object(["id": .string(t.id), "harness": .string(h.id), "title": .string(t.title), "description": .string(t.description), "tools": .strings(t.tools)]) } })
         }
         add("agents.create", .configure, "Create an agent from a template (see agents.templates), then set any of the fields.", props: [("template", "string", "Template id; default assistant")] + fields) { a, c in
             try await self.confirmHarness(a, c)
@@ -96,8 +113,13 @@ extension CommandCenter {
             let kind = Agent.Kind(rawValue: a.optString("kind") ?? "assistant") ?? .assistant
             var made: Agent
             if let tid = a.optString("template") {
-                guard let t = AgentTemplates.template(tid) else { throw CommandError("No template \"\(tid)\". Use agents.templates.") }
-                made = self.engine.create(template: t, name: name)
+                let want = tid.split(separator: ":").map(String.init)
+                let hit = self.engine.harnessList.compactMap { h -> (HarnessManifest, HarnessManifest.Template)? in
+                    guard want.count == 1 || want[0] == h.id, let t = h.templates.first(where: { $0.id == want.last! }) else { return nil }
+                    return (h, t)
+                }.first
+                guard let (h, t) = hit else { throw CommandError("No template \"\(tid)\". Use agents.templates.") }
+                made = self.engine.create(harness: h.id, template: t, name: name)
             } else { made = self.engine.create(kind: kind, name: name) }
             try self.apply(&made, a, caller: c)
             self.engine.save(made)
@@ -186,8 +208,10 @@ extension CommandCenter {
         add("conversations.compact", .act, "Fold older messages into a summary now.", props: idProp, required: ["id"]) { a, _ in
             let (room, agent) = try self.conversation(try a.string("id"))
             guard let agent else { throw CommandError("No agent to compact with.") }
-            let did = try await room.compact(agent: agent)
-            return .object(["compacted": .bool(did)])
+            let before = room.summaryText
+            room.compactNow(agent: agent)
+            await room.wait()
+            return .object(["compacted": .bool(room.summaryText != before)])
         }
         add("conversations.prune", .act, destructive: true, "Delete messages by id, or cut everything after a message.",
             props: idProp + [("ids", "strings", "Message ids to delete"), ("after", "string", "Keep up to and including this message id")], required: ["id"]) { a, _ in

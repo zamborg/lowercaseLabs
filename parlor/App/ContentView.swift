@@ -84,9 +84,11 @@ struct SidebarView: View {
         .toolbar {
             ToolbarItem {
                 Menu {
-                    ForEach(AgentTemplates.all) { t in
-                        Button("New \(t.title)") { let a = engine.create(template: t); route = .agent(a.id) }
-                            .help(t.blurb)
+                    ForEach(engine.harnessList, id: \.id) { h in
+                        ForEach(h.templates) { t in
+                            Button("New \(t.title)") { let a = engine.create(harness: h.id, template: t); route = .agent(a.id) }
+                                .help(t.description)
+                        }
                     }
                     Divider()
                     Button("New Room…") { showNewRoom = true }.disabled(engine.agents.count < 2)
@@ -127,7 +129,7 @@ struct SidebarView: View {
         .contextMenu {
             Button("Duplicate") { engine.duplicate(a.id) }
             Button("Reveal File in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([engine.home.agentsDir.appendingPathComponent("\(a.id).md")])
+                NSWorkspace.shared.activateFileViewerSelecting([engine.home.agentsDir.appendingPathComponent(a.id)])
             }
             Divider()
             Button("Delete Agent and Chat", role: .destructive) { engine.delete(a.id) }

@@ -57,14 +57,16 @@ func scriptedLLM() -> ScriptedRuntime {
 // MARK: - tests
 
 final class CoreTests: XCTestCase {
-    func testFrontmatterRoundTripWithAwkwardPersona() {
-        var a = Agent(id: "orla", name: "Captain: Orla", summary: "Keeper of the \"light\" # not a comment",
-                      persona: "Line one: has a colon.\n\n- not a list\n---\nstill persona", kind: .character,
-                      model: "mlx-community/Qwen3-4B-4bit", imageModel: nil, tools: ["image.generate", "zass.*"],
-                      contextTokens: 8192, compactAt: 0.65, temperature: 0.9, thinking: true, color: 3)
-        a.persona = a.persona.trimmingCharacters(in: .whitespacesAndNewlines)
-        let back = Agent(id: "orla", file: a.fileText())
+    func testAgentRecordRoundTripKeepsUnknownKeys() throws {
+        let a = Agent(id: "orla", name: "Captain: Orla", summary: "Keeper of the \"light\" # not a comment",
+                      persona: "Line one: has a colon.\n---\nstill persona", kind: .character,
+                      model: "qwen", imageModel: "zimage", tools: ["image.generate", "zass.*"],
+                      contextTokens: 8192, compactAt: 0.65, temperature: 0.9, thinking: true, color: 3, harness: "character")
+        let data = try JSONEncoder().encode(AgentRecord(a))
+        let back = try JSONDecoder().decode(AgentRecord.self, from: data).agent(persona: a.persona)
         XCTAssertEqual(back, a)
+        XCTAssertEqual(back.hosts, ["chat": "qwen", "image": "zimage"])
+        XCTAssertEqual(back.contextTokens, 8192)
     }
 
     func testToolPermissionPatterns() {
@@ -98,9 +100,12 @@ final class CoreTests: XCTestCase {
         await engine.hub.register(MockTools(), status: ServerStatus(id: "mock", kind: "stdio", detail: "", state: .connecting, toolCount: 0, toolNames: []))
 
         // create an agent by writing a file the way Claude Code would, and see it appear live
-        let file = home.agentsDir.appendingPathComponent("orla.md")
-        try Agent(id: "orla", name: "Orla", persona: "You keep a lighthouse.", kind: .character, model: "scripted",
-                  tools: ["mock.*"], contextTokens: 1200, compactAt: 0.5).fileText().write(to: file, atomically: true, encoding: .utf8)
+        let folder = home.agentsDir.appendingPathComponent("orla")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let orlaAgent = Agent(id: "orla", name: "Orla", persona: "You keep a lighthouse.", kind: .character, model: "scripted",
+                              tools: ["mock.*"], contextTokens: 1200, compactAt: 0.5)
+        try JSONEncoder().encode(AgentRecord(orlaAgent)).write(to: folder.appendingPathComponent("agent.json"))
+        try "You keep a lighthouse.".write(to: folder.appendingPathComponent("persona.md"), atomically: true, encoding: .utf8)
         for _ in 0..<40 where engine.agent("orla") == nil { try await Task.sleep(nanoseconds: 100_000_000) }
         let orla = try XCTUnwrap(engine.agent("orla"), "file watcher picked up the new agent")
 

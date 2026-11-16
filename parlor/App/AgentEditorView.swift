@@ -1,7 +1,7 @@
 import SwiftUI
 import ParlorCore
 
-/// Edits one agent file. Changes save to `agents/<id>.md` and external edits flow back in.
+/// Edits one agent. Changes save to `agents/<id>/` and external edits flow back in.
 struct AgentEditorView: View {
     @Environment(ParlorEngine.self) private var engine
     let agentID: String
@@ -105,13 +105,36 @@ struct AgentEditorView: View {
                     .accessibilityIdentifier("agent-persona")
                 Text("This becomes the system prompt. Write it the way you would brief a person.").font(.caption).foregroundStyle(.secondary)
             }
-            Section("Models") {
-                Picker("Language model", selection: $draft.model) {
-                    ForEach(languageChoices, id: \.self) { Text(label(for: $0)).tag($0) }
+            Section("Harness") {
+                Picker("Harness", selection: Binding(get: { draft.hasInlineHarness ? "__custom" : draft.harnessID }, set: { v in
+                    if v == "__custom" { draft.harness = draft.hasInlineHarness ? draft.harness : "python3 ~/parlor/harnesses/your_harness.py" }
+                    else { draft.harness = v == "chat" ? nil : v }
+                })) {
+                    ForEach(engine.harnessList, id: \.id) { Text($0.title).tag($0.id) }
+                    Text("Custom command…").tag("__custom")
                 }
-                Picker("Image model", selection: Binding(get: { draft.imageModel ?? "" }, set: { draft.imageModel = $0.isEmpty ? nil : $0 })) {
-                    Text("None").tag("")
-                    ForEach(imageChoices, id: \.self) { Text(label(for: $0)).tag($0) }
+                .accessibilityIdentifier("agent-harness-picker")
+                if draft.hasInlineHarness {
+                    TextField("Command", text: Binding(get: { draft.harness ?? "" }, set: { draft.harness = $0.isEmpty ? nil : $0 }))
+                        .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)).accessibilityIdentifier("agent-harness")
+                }
+                Text(manifest?.description ?? "Runs this agent's turns in your own program. Its tool calls still go through the tools and permission tier below. See harnesses/CLAUDE.md in your parlor folder.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let problem = engine.harnessProblem(for: draft) {
+                    Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.caption)
+                }
+            }
+            Section("Hosts") {
+                Picker("Chat host", selection: $draft.model) {
+                    ForEach(chatChoices, id: \.self) { Text(hostLabel($0)).tag($0) }
+                }
+                .accessibilityIdentifier("agent-chat-host")
+                if showsImage {
+                    Picker("Image host", selection: Binding(get: { draft.imageModel ?? "" }, set: { draft.imageModel = $0.isEmpty ? nil : $0 })) {
+                        Text("None").tag("")
+                        ForEach(imageChoices, id: \.self) { Text(hostLabel($0)).tag($0) }
+                    }
+                    .accessibilityIdentifier("agent-image-host")
                 }
                 if let remote = remoteProvider(for: draft.model) {
                     Label("\(remote) is a remote provider: this agent's messages leave your Mac.", systemImage: "network").foregroundStyle(.orange).font(.caption)
@@ -119,11 +142,14 @@ struct AgentEditorView: View {
                     Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.caption)
                 }
             }
-            Section("Harness") {
-                TextField("Command (leave empty for the built-in loop)", text: Binding(get: { draft.harness ?? "" }, set: { draft.harness = $0.isEmpty ? nil : $0 }))
-                    .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)).accessibilityIdentifier("agent-harness")
-                Text("Runs this agent's turns in your own program instead of the built-in loop. It talks to the models through parlor's OpenAI-compatible endpoint and its tool calls still go through the tools and permission tier below. See harnesses/CLAUDE.md in your parlor folder.")
-                    .font(.caption).foregroundStyle(.secondary)
+            if let m = manifest, m.config != nil {
+                Section("\(m.title) settings") {
+                    SchemaForm(schema: m.config, values: $draft.config)
+                    ForEach(m.actions.filter { $0.placement == "settings" && m.available($0, hosts: draft.hosts) }) { act in
+                        Button(act.title) { engine.room(for: agentID).perform(action: act, agent: draft) }
+                            .help(act.hint ?? "").accessibilityIdentifier("action-\(act.id)")
+                    }
+                }
             }
             Section("Tools this agent may use") { toolsSection }
             Section("Control of the app") {
@@ -144,81 +170,38 @@ struct AgentEditorView: View {
                     .padding(6).background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
                     .accessibilityIdentifier("agent-memory")
                 HStack {
-                    Text("memory/\(agentID).md · \(memoryText.count) of \(MemoryStore.maxChars)").font(.caption.monospacedDigit()).foregroundStyle(memoryText.count > MemoryStore.maxChars ? .red : .secondary)
+                    Text("agents/\(agentID)/memory.md · \(memoryText.count) of \(MemoryStore.maxChars)").font(.caption.monospacedDigit()).foregroundStyle(memoryText.count > MemoryStore.maxChars ? .red : .secondary)
                     Spacer()
                 }
                 Text("Notes this agent keeps across chats. They go into its system prompt every turn. The agent can add to them itself with memory.append; you can edit them here.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Limits for this agent") { overridesSection }
-            Section("Memory and behavior") {
-                LabeledContent("Context budget") {
-                    HStack {
-                        Slider(value: Binding(get: { Double(draft.contextTokens) }, set: { draft.contextTokens = Int($0 / 1024) * 1024 }), in: 2048...65536, step: 1024)
-                        Text(tokenString(draft.contextTokens)).monospacedDigit().frame(width: 44, alignment: .trailing)
-                    }
-                }
-                LabeledContent("Compact above") {
-                    HStack {
-                        Slider(value: $draft.compactAt, in: 0.3...0.95, step: 0.05)
-                        Text("\(Int(draft.compactAt * 100))%").monospacedDigit().frame(width: 44, alignment: .trailing)
-                    }
-                }
-                LabeledContent("Temperature") {
-                    HStack {
-                        Slider(value: $draft.temperature, in: 0...1.5, step: 0.05)
-                        Text(String(format: "%.2f", draft.temperature)).monospacedDigit().frame(width: 44, alignment: .trailing)
-                    }
-                }
-                Toggle("Let the model think before answering", isOn: $draft.thinking)
-                    .help("Slower, sometimes better at multi-step tool use.")
-            }
         }
         .formStyle(.grouped)
     }
 
-    private var languageChoices: [String] {
-        var set = engine.library.installed(kind: .language).map(\.repo) + engine.providerModelChoices
-        if !set.contains(draft.model) { set.append(draft.model) }
+    private var manifest: HarnessManifest? { draft.hasInlineHarness ? nil : engine.harnessList.first { $0.id == draft.harnessID } }
+    private var showsImage: Bool { manifest.map { $0.needs["image"] != nil } ?? true }
+
+    private var chatChoices: [String] {
+        var set = engine.catalog.hosts(capability: "chat").map(\.id)
+        if !draft.model.isEmpty, !set.contains(draft.model) { set.append(draft.model) }
+        return set
+    }
+    private var imageChoices: [String] {
+        var set = engine.catalog.hosts(capability: "image").map(\.id)
+        if let m = draft.imageModel, !m.isEmpty, !set.contains(m) { set.append(m) }
         return set
     }
     private func remoteProvider(for model: String) -> String? {
         guard let (p, _) = engine.router.route(model), p.config.locality == .remote else { return nil }
         return p.config.id
     }
-    private var imageChoices: [String] {
-        var set = engine.library.installed(kind: .image).map(\.repo)
-        if let m = draft.imageModel, !m.isEmpty, !set.contains(m) { set.append(m) }
-        return set
-    }
-    private func label(for repo: String) -> String {
-        let name = shortModelName(repo)
-        return !engine.catalog.isInstalled(repo) ? "\(name) (not downloaded)" : name
-    }
-
-    // MARK: limits (settings scopes)
-
-    private var modelMeta: ModelMetadata? { engine.catalog.model(draft.model).flatMap { ModelMetadata.load(dir: $0.directory) } }
-
-    @ViewBuilder private var overridesSection: some View {
-        let m = engine.settings
-        let model = modelMeta
-        OverrideRow(title: "Top-p", value: $draft.overrides.topP, format: "%.2f",
-                    inherited: model?.topP ?? m.llm.topP, source: model?.topP != nil ? "model" : "machine", id: "top_p")
-        OverrideRow(title: "Repetition penalty", value: $draft.overrides.repetitionPenalty, format: "%.2f",
-                    inherited: m.llm.repetitionPenalty ?? 1.0, source: "machine", id: "repetition_penalty")
-        OverrideIntRow(title: "Reply limit (tokens, 0 = none)", value: $draft.overrides.maxReplyTokens,
-                       inherited: m.llm.maxReplyTokens ?? 0, source: "machine", id: "max_reply_tokens")
-        OverrideIntRow(title: "Max tool steps per turn", value: $draft.overrides.maxSteps, inherited: m.loop.maxSteps, source: "machine", id: "max_steps")
-        OverrideIntRow(title: "Tool result limit (characters)", value: $draft.overrides.toolResultChars, inherited: m.loop.toolResultChars, source: "machine", id: "tool_result_chars")
-        OverrideIntRow(title: "Tool timeout (seconds)", value: $draft.overrides.toolTimeoutSeconds, inherited: m.loop.toolTimeoutSeconds, source: "machine", id: "tool_timeout")
-        OverrideIntRow(title: "Keep verbatim (messages)", value: $draft.overrides.keepRecent, inherited: m.loop.keepRecent, source: "machine", id: "keep_recent")
-        OverrideIntRow(title: "Summary length (tokens)", value: $draft.overrides.summaryTokens, inherited: m.loop.summaryTokens, source: "machine", id: "summary_tokens")
-        if let cap = model?.maxContext, cap > 0, draft.contextTokens > cap {
-            Label("Context is clamped to this model's maximum of \(tokenString(cap)).", systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
-        }
-        Text("Each limit follows the model, else the machine (System → settings.json), until you override it here. Overridden values apply to this agent only. Memory knobs such as the attention window stay machine-wide.")
-            .font(.caption).foregroundStyle(.secondary)
+    private func hostLabel(_ id: String) -> String {
+        let cat = engine.catalog
+        guard let h = cat.host(id) else { return id.isEmpty ? "None" : "\(shortModelName(id)) (no such host)" }
+        let st = cat.status(host: h.id)
+        return st.usable ? h.id : "\(h.id) (\(st.label))"
     }
 
     // MARK: tools
@@ -281,18 +264,23 @@ struct AgentEditorView: View {
 
     // MARK: file pane
 
+    private var recordText: String {
+        let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return (try? String(data: enc.encode(AgentRecord(draft)), encoding: .utf8)) ?? ""
+    }
+
     private var filePane: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("agents/\(agentID).md").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text("agents/\(agentID)/agent.json").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             ScrollView {
-                Text(draft.fileText()).font(.system(size: 11, design: .monospaced))
+                Text(recordText).font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
             }
             .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
             HStack {
                 Button("Reveal in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([engine.home.agentsDir.appendingPathComponent("\(agentID).md")])
+                    NSWorkspace.shared.activateFileViewerSelecting([engine.home.agentsDir.appendingPathComponent(agentID)])
                 }
                 Button("Duplicate") { engine.duplicate(agentID) }
             }
@@ -304,52 +292,3 @@ struct AgentEditorView: View {
 }
 
 
-/// One overridable number: shows what it inherits and from where, with Override / Inherit.
-private struct OverrideRow: View {
-    let title: String
-    @Binding var value: Double?
-    let format: String
-    let inherited: Double
-    let source: String
-    let id: String
-
-    var body: some View {
-        LabeledContent(title) {
-            HStack {
-                if let v = value {
-                    TextField("", value: Binding(get: { v }, set: { value = $0 }), format: .number).frame(width: 80).multilineTextAlignment(.trailing)
-                    Text("agent").font(.caption).foregroundStyle(.tint)
-                    Button("Inherit") { value = nil }.controlSize(.small).accessibilityIdentifier("inherit-\(id)")
-                } else {
-                    Text(String(format: format, inherited)).monospacedDigit()
-                    Text(source).font(.caption).foregroundStyle(.secondary)
-                    Button("Override") { value = inherited }.controlSize(.small).accessibilityIdentifier("override-\(id)")
-                }
-            }
-        }
-    }
-}
-
-private struct OverrideIntRow: View {
-    let title: String
-    @Binding var value: Int?
-    let inherited: Int
-    let source: String
-    let id: String
-
-    var body: some View {
-        LabeledContent(title) {
-            HStack {
-                if let v = value {
-                    TextField("", value: Binding(get: { v }, set: { value = max(0, $0) }), format: .number).frame(width: 80).multilineTextAlignment(.trailing)
-                    Text("agent").font(.caption).foregroundStyle(.tint)
-                    Button("Inherit") { value = nil }.controlSize(.small).accessibilityIdentifier("inherit-\(id)")
-                } else {
-                    Text("\(inherited)").monospacedDigit()
-                    Text(source).font(.caption).foregroundStyle(.secondary)
-                    Button("Override") { value = inherited }.controlSize(.small).accessibilityIdentifier("override-\(id)")
-                }
-            }
-        }
-    }
-}

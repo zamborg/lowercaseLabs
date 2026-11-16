@@ -35,15 +35,15 @@ final class ParlorUITests: XCTestCase {
         name.click()
         name.typeKey("a", modifierFlags: .command)
         name.typeText("Pippa")
-        let file = home.appendingPathComponent("agents/pip.md")
+        let file = home.appendingPathComponent("agents/pip/agent.json")
         let deadline = Date().addingTimeInterval(5)
         var onDisk = ""
         while Date() < deadline {
             onDisk = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-            if onDisk.contains("name: Pippa") { break }
+            if onDisk.contains("\"name\" : \"Pippa\"") { break }
             Thread.sleep(forTimeInterval: 0.2)
         }
-        XCTAssertTrue(onDisk.contains("name: Pippa"), "editor saves to agents/pip.md, got: \(onDisk.prefix(80))")
+        XCTAssertTrue(onDisk.contains("\"name\" : \"Pippa\""), "editor saves to agents/pip/agent.json, got: \(onDisk.prefix(80))")
 
         // Prune: back to Mabel, select the user message, delete it.
         app.staticTexts["Mabel"].firstMatch.click()
@@ -136,17 +136,18 @@ final class ParlorUITests: XCTestCase {
         scrollIntoView(memory)
         memory.click()
         memory.typeText("Likes oolong.")
-        let file = home.appendingPathComponent("memory/mabel.md")
+        let file = home.appendingPathComponent("agents/mabel/memory.md")
         let deadline = Date().addingTimeInterval(10)
         while Date() < deadline, !FileManager.default.fileExists(atPath: file.path) { Thread.sleep(forTimeInterval: 0.3) }
-        XCTAssertEqual((try? String(contentsOf: file, encoding: .utf8))?.contains("Likes oolong."), true, "memory is saved to memory/<id>.md")
-        let override = app.buttons["override-top_p"]
-        XCTAssertTrue(override.waitForExistence(timeout: 5))
-        scrollIntoView(override)
-        override.click()
-        XCTAssertTrue(app.buttons["inherit-top_p"].waitForExistence(timeout: 5), "override shows Inherit")
-        app.buttons["inherit-top_p"].click()
-        XCTAssertTrue(app.buttons["override-top_p"].waitForExistence(timeout: 5))
+        XCTAssertEqual((try? String(contentsOf: file, encoding: .utf8))?.contains("Likes oolong."), true, "memory is saved to agents/<id>/memory.md")
+        let field = app.textFields["config-top_p"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "schema form shows the harness's settings")
+        scrollIntoView(field)
+        field.click()
+        field.typeText("0.9")
+        XCTAssertTrue(app.buttons["reset-top_p"].waitForExistence(timeout: 5), "a set value shows Reset")
+        app.buttons["reset-top_p"].click()
+        XCTAssertTrue(app.buttons["reset-top_p"].waitForNonExistence(timeout: 5))
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.lifetime = .keepAlways; add(shot)
     }
 

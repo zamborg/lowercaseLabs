@@ -82,7 +82,7 @@ public final class GatewayRoutes {
             return ChatTarget(route: model, host: h, engine: e)
         }
         guard engine.runtimeKnowsModel(model) else { return nil }
-        let h = LegacyRef.host(for: model, catalog: cat)
+        let h = cat.resolve(model)
         return ChatTarget(route: model, host: h, engine: h.flatMap { cat.engine($0.spec.engine) })
     }
 

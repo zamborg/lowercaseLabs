@@ -59,8 +59,9 @@ struct ChatView: View {
             ToolbarItemGroup {
                 Menu {
                     Button(selecting ? "Done Selecting" : "Select Messages…") { selecting.toggle(); selected = [] }
-                    Button("Compact Now") { room.compactNow(agent: agent) }
-                        .disabled(room.isBusy || room.messages.count < 8)
+                    ForEach(actions(in: "settings")) { act in
+                        Button(act.title) { room.perform(action: act, agent: agent) }.disabled(room.isBusy)
+                    }
                     Divider()
                     Button("Clear Chat…", role: .destructive) { confirmReset = true }
                 } label: { Label("Prune", systemImage: "scissors") }
@@ -210,6 +211,19 @@ struct ChatView: View {
                         .help("Send (↩)").accessibilityIdentifier("send-button")
                 }
             }
+            let bar = actions(in: "composer")
+            if !bar.isEmpty {
+                HStack {
+                    ForEach(bar) { act in
+                        Button { room.perform(action: act, agent: agent) } label: {
+                            Label(act.title, systemImage: act.icon ?? "sparkles")
+                        }
+                        .controlSize(.small).disabled(room.isBusy).help(act.hint ?? "")
+                        .accessibilityIdentifier("action-\(act.id)")
+                    }
+                    Spacer()
+                }
+            }
             HStack {
                 Text(room.summaryText == nil ? "Return to send, Shift-Return for a new line" : "Earlier messages are summarized")
                 Spacer()
@@ -220,6 +234,12 @@ struct ChatView: View {
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
         .onAppear { composerFocused = true }
+    }
+
+    /// The manifest's buttons for this placement, minus the ones this agent lacks a host for.
+    private func actions(in placement: String) -> [HarnessManifest.Action] {
+        guard let m = engine.harnessList.first(where: { $0.id == agent.harnessID }) else { return [] }
+        return m.actions.filter { $0.placement == placement && m.available($0, hosts: agent.hosts) }
     }
 
     private func send() {
@@ -240,7 +260,6 @@ struct ChatView: View {
             Button("Cut Everything After") {
                 if let id = selected.first { room.cut(after: id); selected = [] }
             }.disabled(selected.count != 1).accessibilityIdentifier("cut-after")
-            Button("Compact Now") { room.compactNow(agent: agent) }.disabled(room.isBusy)
             Button("Done") { selecting = false; selected = [] }.buttonStyle(.borderedProminent)
         }
         .padding(.horizontal, 20).padding(.vertical, 12)

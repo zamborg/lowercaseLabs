@@ -1,17 +1,5 @@
 import Foundation
 
-/// Picks the harness for an agent: its own `harness:` command if it has one, else the built-in loop.
-public struct HarnessRouter: Harness {
-    public let builtIn: Harness
-    public let external: ExternalHarness
-    public init(builtIn: Harness, external: ExternalHarness) { self.builtIn = builtIn; self.external = external }
-
-    public func run(_ input: TurnInput, context: TurnContext, emit: @Sendable @escaping (TurnEvent) -> Void) async throws {
-        if input.agent.harness != nil { try await external.run(input, context: context, emit: emit) }
-        else { try await builtIn.run(input, context: context, emit: emit) }
-    }
-}
-
 /// Lines from a harness's stdout, handed to whoever is waiting. Cancellation wakes the waiter.
 final class LineQueue: @unchecked Sendable {
     enum Item { case line(JSON), eof, cancelled }
@@ -67,6 +55,7 @@ final class LineQueue: @unchecked Sendable {
 final class HarnessProcess: @unchecked Sendable {
     let command: String
     let agentID: String
+    let gateway: String
     let lines = LineQueue()
     private var process: ManagedProcess!
     private let stdin = Pipe()
@@ -78,7 +67,7 @@ final class HarnessProcess: @unchecked Sendable {
     var pid: Int32? { process.pid }
 
     init(agent: Agent, command: String, cwd: URL, environment: [String: String], home: ParlorHome) throws {
-        self.command = command; self.agentID = agent.id
+        self.command = command; self.agentID = agent.id; self.gateway = environment["PARLOR_GATEWAY_URL"] ?? ""
         try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
         let log = ServiceLog.open(home: home, service: "harness:" + agent.id, banner: "starting: \(command)")
         var env = environment
@@ -126,9 +115,8 @@ actor TurnLock {
     }
 }
 
-/// Runs a turn in an outside process over the JSON-lines protocol of SPEC §2.5. Tool calls come back to the app
-/// and run through the same `ToolExecutor` (allowlist and tier included); the log looks the same as with the
-/// built-in harness.
+/// Runs a turn in an outside process over the JSON-lines protocol (v2, see `harnesses/CLAUDE.md`). Tool calls come back to the app
+/// and run through the same `ToolExecutor` (allowlist and tier included); the log is written by the app.
 public final class ExternalHarness: Harness, @unchecked Sendable {
     public let home: ParlorHome
     /// Environment for a launched harness: runtime API URL and token, parlor MCP URL, agent id.
@@ -143,13 +131,13 @@ public final class ExternalHarness: Harness, @unchecked Sendable {
     public func workspace(for agentID: String) -> URL { home.root.appendingPathComponent("workspaces/\(agentID)") }
 
     private func process(for agent: Agent, command: String) async throws -> HarnessProcess {
+        let env = await environment(agent)
         lock.lock()
-        if let p = processes[agent.id], p.command == command, p.isAlive { lock.unlock(); return p }
+        if let p = processes[agent.id], p.command == command, p.gateway == (env["PARLOR_GATEWAY_URL"] ?? ""), p.isAlive { lock.unlock(); return p }
         let stale = processes[agent.id]
         processes[agent.id] = nil
         lock.unlock()
         stale?.stop()
-        let env = await environment(agent)
         let p: HarnessProcess
         do { p = try HarnessProcess(agent: agent, command: command, cwd: workspace(for: agent.id), environment: env, home: home) }
         catch { throw ParlorError.message("Could not start the harness for \(agent.name): \(error.localizedDescription)") }
@@ -173,7 +161,8 @@ public final class ExternalHarness: Harness, @unchecked Sendable {
     // MARK: the turn
 
     public func run(_ input: TurnInput, context: TurnContext, emit: @Sendable @escaping (TurnEvent) -> Void) async throws {
-        guard let command = input.agent.harness else { throw ParlorError.message("\(input.agent.name) has no harness command.") }
+        let command = input.command
+        guard !command.isEmpty else { throw ParlorError.message("\(input.agent.name) has no harness to run.") }
         let proc = try await process(for: input.agent, command: command)
         await proc.acquire()
         defer { proc.release() }
@@ -232,6 +221,11 @@ public final class ExternalHarness: Harness, @unchecked Sendable {
                     proc.send(.object(["type": .string("tool.result"), "turn": .string(turn), "callID": .string(id), "text": .string(out.text),
                                        "isError": .bool(out.isError), "images": .array(out.images.map { .string($0) })]))
                     if Task.isCancelled { proc.send(.object(["type": .string("turn.cancel"), "turn": .string(turn)])); throw CancellationError() }
+                case "summary":
+                    let text = o["text"]?.stringValue ?? ""
+                    guard !text.isEmpty else { continue }
+                    emit(.summary(ChatLog.Summary(text: text, through: o["through"]?.stringValue.flatMap(UUID.init(uuidString:))),
+                                  folded: o["folded"]?.intValue ?? 0))
                 case "turn.done": return
                 case "error": throw ParlorError.message(o["message"]?.stringValue ?? "The harness reported an error.")
                 default: continue
@@ -256,32 +250,40 @@ public final class ExternalHarness: Harness, @unchecked Sendable {
 
     static func turnStart(_ input: TurnInput, turn: String) -> JSON {
         let a = input.agent
-        var agent: [String: JSON] = [
+        let agent: [String: JSON] = [
             "id": .string(a.id), "name": .string(a.name), "description": .string(a.summary), "kind": .string(a.kind.rawValue),
-            "model": .string(a.model), "tools": .array(a.tools.map { .string($0) }), "tier": .string(a.tier.rawValue),
-            "context": .int(a.contextTokens), "compact_at": .double(a.compactAt), "temperature": .double(a.temperature),
-            "thinking": .bool(a.thinking), "persona": .string(a.persona)]
-        if let m = a.imageModel { agent["image_model"] = .string(m) }
-        for f in a.extra { if case .scalar(let s) = f.value { agent[f.key] = .string(s) } }
+            "model": .string(a.model), "tools": .array(a.tools.map { .string($0) }), "tier": .string(a.tier.rawValue), "persona": .string(a.persona)]
         let transcript: [JSON] = input.transcript.compactMap { m in
             guard let d = try? ChatLog.encoder.encode(m) else { return nil }
             return try? JSONDecoder().decode(JSON.self, from: d)
         }
         let s = input.settings
         var settings: [String: JSON] = [
-            "temperature": .double(s.temperature), "top_p": .double(s.topP), "thinking": .bool(s.thinking),
-            "context": .int(s.contextTokens), "compact_at": .double(s.compactAt), "keep_recent": .int(s.keepRecent),
+            "top_p": .double(s.topP), "context": .int(s.contextTokens), "compact_at": .double(s.compactAt), "keep_recent": .int(s.keepRecent),
             "summary_tokens": .int(s.summaryTokens), "max_steps": .int(s.maxSteps),
             "tool_result_chars": .int(s.toolResultChars), "tool_timeout": .int(s.toolTimeoutSeconds)]
-        if let r = s.repetitionPenalty { settings["repetition_penalty"] = .double(r) }
         if let m = s.maxReplyTokens { settings["max_reply_tokens"] = .int(m) }
-        return .object([
-            "type": .string("turn.start"), "version": .int(1), "turn": .string(turn), "conversation": .string(input.conversationID),
-            "agent": .object(agent), "participants": .array(input.participants.map { p in
+        var hosts: [String: JSON] = [:]
+        for (need, ref) in a.hosts where !ref.isEmpty {
+            hosts[need] = .object(["model": .string(ref), "baseURL": .string(input.gatewayURL)])
+        }
+        var start: [String: JSON] = [
+            "type": .string("turn.start"), "version": .int(2), "turn": .string(turn), "conversation": .string(input.conversationID),
+            "agent": .object(agent), "hosts": .object(hosts), "config": .object(input.config),
+            "participants": .array(input.participants.map { p in
                 p.isUser ? .object(["user": .bool(true)]) : .object(["agent": .string(p.agent ?? ""), "name": .string(input.names[p.agent ?? ""] ?? p.agent ?? "")])
             }),
             "transcript": .array(transcript),
             "tools": .array(input.tools.map { .object(["name": .string($0.wireName), "description": .string($0.description), "schema": $0.schema]) }),
-            "settings": .object(settings), "memory": .string(input.memory)])
+            "settings": .object(settings), "memory": .string(input.memory), "lastPromptTokens": .int(input.lastPromptTokens)]
+        if let sum = input.summary {
+            start["summary"] = .object(["text": .string(sum.text), "through": sum.through.map { .string($0.uuidString) } ?? .null])
+        } else { start["summary"] = .null }
+        if let act = input.action {
+            var o: [String: JSON] = ["id": .string(act.id), "args": act.args]
+            if let m = act.messageID { o["messageID"] = .string(m) }
+            start["action"] = .object(o)
+        } else { start["action"] = .null }
+        return .object(start)
     }
 }

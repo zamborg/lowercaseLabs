@@ -123,7 +123,9 @@ public final class CommandCenter {
             "context": .int(a.contextTokens), "compact_at": r(a.compactAt), "temperature": r(a.temperature),
             "thinking": .bool(a.thinking), "color": .int(a.color), "group": .string(a.group),
         ]
-        if let h = a.harness { o["harness"] = .string(h) }
+        o["harness"] = .string(a.harnessID)
+        o["hosts"] = .object(a.hosts.mapValues { .string($0) })
+        o["config"] = .object(a.config)
         if let m = a.imageModel { o["image_model"] = .string(m) }
         let ov = a.overrides
         if let v = ov.topP { o["top_p"] = r(v) }

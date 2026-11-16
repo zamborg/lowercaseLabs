@@ -55,6 +55,15 @@ public struct Catalog: Sendable {
         hosts.first { $0.spec.model == repo && !$0.isAuto } ?? hosts.first { $0.spec.model == repo }
     }
 
+    /// What an agent (or a V2 name) refers to: a host id, `host/model` on a remote host, a model repo, or `mlx/<repo>`.
+    public func resolve(_ ref: String) -> HostInfo? {
+        if let h = host(ref) { return h }
+        let repo = ref.hasPrefix("mlx/") ? String(ref.dropFirst(4)) : ref
+        if let h = host(forModel: repo) { return h }
+        if let slash = ref.firstIndex(of: "/"), let h = host(String(ref[..<slash])) { return h }
+        return nil
+    }
+
     /// Hosts that use a model, for the Library's "used by".
     public func hosts(usingModel repo: String) -> [HostInfo] { hosts.filter { $0.spec.model == repo } }
 

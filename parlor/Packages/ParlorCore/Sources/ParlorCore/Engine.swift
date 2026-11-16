@@ -12,6 +12,9 @@ public final class ParlorEngine {
     public private(set) var hostList: [HostInfo] = []
     @ObservationIgnored public lazy var engineStore = NounStore<EngineManifest>(dir: home.enginesDir, layout: .folder("engine.json"))
     @ObservationIgnored public lazy var hostStore = NounStore<HostSpec>(dir: home.hostsDir, layout: .file)
+    @ObservationIgnored public lazy var harnessStore = NounStore<HarnessManifest>(dir: home.harnessesDir, layout: .folder("harness.json"))
+    @ObservationIgnored public lazy var agentStore = NounStore<AgentRecord>(dir: home.agentsDir, layout: .folder("agent.json"))
+    public private(set) var harnessList: [HarnessManifest] = []
     private var servicesRegistered = false
     public private(set) var agents: [Agent] = []
     public private(set) var servers: [ServerStatus] = []
@@ -65,7 +68,7 @@ public final class ParlorEngine {
     public var confirm: (@MainActor (String) async -> Bool)?
 
     /// Pass a runtime to substitute the model (tests); nil uses MLX.
-    public init(home: ParlorHome = .default, runtime: LanguageModelRuntime? = nil, harness: Harness = BuiltInHarness()) {
+    public init(home: ParlorHome = .default, runtime: LanguageModelRuntime? = nil) {
         self.home = home
         self.history = HomeHistory(root: home.root)
         let lib = ModelLibrary(home: home)
@@ -78,10 +81,15 @@ public final class ParlorEngine {
         let external = ExternalHarness(home: home) { agent in await envBox.provider?(agent) ?? [:] }
         self.externalHarness = external
         self.deps = RoomDeps(home: home, hub: hub, llm: QueuedRuntime(inner: router, queues: queues, key: { router.queueKey($0) }),
-                             harness: HarnessRouter(builtIn: harness, external: external), library: lib)
+                             external: external, library: lib)
         envBox.provider = { [weak self] agent in await self?.harnessEnvironment(agent) ?? [:] }
         self.mcp = MCPManager(hub: hub, home: home)
         deps.agentLookup = { [weak self] id in self?.agent(id) }
+        deps.launch = { [weak self] a in self?.launch(for: a) }
+        deps.gatewayURL = { [weak self] in
+            guard let self, self.endpoint.isRunning else { return "" }
+            return "http://127.0.0.1:\(self.endpoint.port)/v1"
+        }
         self.commands = CommandCenter(engine: self)
         self.endpoint = ParlorMCPEndpoint(engine: self)
         self.gateway = GatewayRoutes(engine: self)
@@ -125,12 +133,19 @@ public final class ParlorEngine {
     /// What a launched harness gets in its environment (SPEC §2.5). One secret serves both servers, at the agent's tier.
     func harnessEnvironment(_ agent: Agent) async -> [String: String] {
         await ensureGateway()
-        let key = agent.id + ":" + agent.tier.rawValue
-        if harnessTokens[key] == nil { harnessTokens[key] = endpoint.issueEphemeral(name: "harness:" + agent.id, tier: agent.tier) }
+        // The token reaches only the hosts the agent names, so a harness cannot go round its tool list to other models.
+        // A name that is not a known host (a hand-written provider, a test runtime) leaves the token unscoped.
+        let cat = catalog
+        let refs = agent.hosts.values.filter { !$0.isEmpty }
+        let resolved = refs.compactMap { cat.resolve($0)?.id }
+        let scope: [String]? = (!refs.isEmpty && resolved.count == refs.count) ? Array(Set(resolved)).sorted() : nil
+        let key = agent.id + ":" + agent.tier.rawValue + ":" + (scope?.joined(separator: ",") ?? "*")
+        if harnessTokens[key] == nil { harnessTokens[key] = endpoint.issueEphemeral(name: "harness:" + agent.id, tier: agent.tier, hosts: scope) }
         let token = harnessTokens[key]!
         let parlorPort = endpoint.isRunning ? endpoint.port : settings.gateway.port
+        let base = "http://127.0.0.1:\(parlorPort)/v1"
         return [
-            "OPENAI_BASE_URL": "http://127.0.0.1:\(parlorPort)/v1", "OPENAI_API_KEY": token,
+            "PARLOR_GATEWAY_URL": base, "OPENAI_BASE_URL": base, "OPENAI_API_KEY": token,
             "PARLOR_MCP_URL": "http://127.0.0.1:\(parlorPort)/mcp", "PARLOR_URL": "http://127.0.0.1:\(parlorPort)/mcp",
             "PARLOR_TOKEN": token, "PARLOR_AGENT": agent.id, "PARLOR_HOME": home.root.path,
             "PARLOR_WORKSPACE": externalHarness.workspace(for: agent.id).path]
@@ -167,6 +182,9 @@ public final class ParlorEngine {
         var engines = engineStore.list()
         for i in engines.indices { engines[i].directory = home.enginesDir.appendingPathComponent(engines[i].id) }
         engineList = engines
+        var harnesses = harnessStore.list()
+        for i in harnesses.indices { harnesses[i].directory = home.harnessesDir.appendingPathComponent(harnesses[i].id) }
+        harnessList = harnesses
         hostList = HostRegistry.build(explicit: hostStore.list(), installed: library.installed, engines: engines)
         let cat = catalog
         var alias: [String: String] = [:]
@@ -257,7 +275,7 @@ public final class ParlorEngine {
     func defaultImageHost(for agentID: String?) -> String? {
         let cat = catalog
         if let id = agentID, let a = agent(id), let m = a.imageModel, !m.isEmpty,
-           let h = LegacyRef.host(for: m, catalog: cat), cat.capabilities(of: h).contains("image") { return h.id }
+           let h = cat.resolve(m), cat.capabilities(of: h).contains("image") { return h.id }
         let hs = cat.hosts(capability: "image").filter { cat.status(host: $0.id).usable }
         return (hs.first { $0.spec.engine == "z-image" } ?? hs.first)?.id
     }
@@ -281,18 +299,6 @@ public final class ParlorEngine {
             let url = home.modulesDir.appendingPathComponent(name)
             let current = try? String(contentsOf: url, encoding: .utf8)
             if current == nil || !(current!.contains(Seeds.moduleMarker)) { try? text.write(to: url, atomically: true, encoding: .utf8) }
-        }
-    }
-
-    /// The harness guide and the sample harness, rewritten when this app version has newer ones.
-    private func seedHarnessFiles() {
-        let fm = FileManager.default
-        try? fm.createDirectory(at: home.harnessesDir, withIntermediateDirectories: true)
-        for (name, text) in [("CLAUDE.md", Seeds.harnessGuide), ("openai_loop.py", Seeds.harnessSample), ("character.py", Seeds.harnessCharacter)] {
-            let url = home.harnessesDir.appendingPathComponent(name)
-            let current = try? String(contentsOf: url, encoding: .utf8)
-            // Missing, or one of ours (marked) that differs: rewrite. A file without the marker is the user's and stays.
-            if current == nil || (current!.contains(Seeds.harnessMarker) && current != text) { try? text.write(to: url, atomically: true, encoding: .utf8) }
         }
     }
 
@@ -354,6 +360,13 @@ public final class ParlorEngine {
 
     public func start() async {
         try? home.ensure()
+        freshStartIfNeeded()
+        settings = ParlorSettings.load(home.settingsFile)
+        if !FileManager.default.fileExists(atPath: home.settingsFile.path) { settings.save(home.settingsFile) }
+        EngineSeeds.seed(home: home)
+        HarnessSeeds.seed(home: home)
+        library.onChange = { [weak self] in Task { @MainActor in self?.reloadRunplane() } }
+        reloadRunplane()
         seedIfEmpty()
         history.setup()
         reloadAgents()
@@ -363,11 +376,6 @@ public final class ParlorEngine {
                                 hostFor: { [weak self] agent in await self?.defaultImageHost(for: agent) })
         image = img
         deps.image = img
-        settings = ParlorSettings.load(home.settingsFile)
-        if !FileManager.default.fileExists(atPath: home.settingsFile.path) { settings.save(home.settingsFile) }
-        EngineSeeds.seed(home: home)
-        library.onChange = { [weak self] in Task { @MainActor in self?.reloadRunplane() } }
-        reloadRunplane()
         await applySettings()
         let provider = CommandProvider(center: commands)
         await hub.setTierRequirements(commands.tiers())
@@ -378,7 +386,6 @@ public final class ParlorEngine {
         }
         loadConfig()
         seedModuleFiles()
-        seedHarnessFiles()
         reloadModules()
         await mcp.setModuleProvider { [weak self] in await self?.moduleConfigs() ?? [:] }
         // Servers start in the background: a slow or broken one must not hold up the window.
@@ -410,24 +417,47 @@ public final class ParlorEngine {
         // Starter agents are created once. An existing home with agents is adopted without seeding, and
         // deleting every agent later does not bring them back.
         guard !fm.fileExists(atPath: home.seededMarker.path) else { return }
-        let existing = (try? fm.contentsOfDirectory(atPath: home.agentsDir.path))?.filter { $0.hasSuffix(".md") } ?? []
-        if existing.isEmpty {
-            for var a in [Seeds.mabel(), Seeds.pip()] { a.model = availableModel(a.model); write(a) }
+        if agentStore.ids().isEmpty {
+            for var a in [Seeds.mabel(), Seeds.pip()] {
+                a.model = availableModel(a.model)
+                if a.imageModel != nil { a.imageModel = availableImageHost(a.imageModel!) }
+                write(a)
+            }
         }
         try? "seeded\n".write(to: home.seededMarker, atomically: true, encoding: .utf8)
+    }
+
+    /// V3 starts clean: the V2 state moves aside (never deleted) and a marker says so. A home that already has the marker,
+    /// or that has nothing yet, is left alone.
+    func freshStartIfNeeded() {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: home.v3Marker.path) else { return }
+        let v2 = ["agents", "chats", "memory", "workspaces", "harnesses", ".git", "settings.json"]
+        // V2 agents were `agents/<id>.md` files; that is the signal. Anything else is already V3-shaped.
+        let hasV2 = ((try? fm.contentsOfDirectory(atPath: home.agentsDir.path)) ?? []).contains { $0.hasSuffix(".md") }
+        if hasV2 {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd-HHmmss"
+            let dest = home.root.appendingPathComponent("old-v2-" + f.string(from: Date()))
+            try? fm.createDirectory(at: dest, withIntermediateDirectories: true)
+            for name in v2 where fm.fileExists(atPath: home.root.appendingPathComponent(name).path) {
+                try? fm.moveItem(at: home.root.appendingPathComponent(name), to: dest.appendingPathComponent(name))
+            }
+            // The seeding marker described the old agents: starter agents are made again.
+            try? fm.removeItem(at: home.seededMarker)
+        }
+        try? home.ensure()
+        try? "v3\n".write(to: home.v3Marker, atomically: true, encoding: .utf8)
     }
 
     // MARK: agents
 
     public func reloadAgents() {
         let fm = FileManager.default
-        let files = ((try? fm.contentsOfDirectory(atPath: home.agentsDir.path)) ?? []).filter { $0.hasSuffix(".md") }.sorted()
         var out: [Agent] = []
-        for f in files {
-            let id = String(f.dropLast(3))
-            if let text = try? String(contentsOf: home.agentsDir.appendingPathComponent(f), encoding: .utf8) {
-                out.append(Agent(id: id, file: text))
-            }
+        for id in agentStore.ids() {
+            guard let r = agentStore.read(id) else { continue }
+            let persona = (try? String(contentsOf: home.agentsDir.appendingPathComponent(id).appendingPathComponent("persona.md"), encoding: .utf8)) ?? ""
+            out.append(r.agent(persona: persona.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
         out.sort { ($0.kind == .assistant ? 0 : 1, $0.name.lowercased()) < ($1.kind == .assistant ? 0 : 1, $1.name.lowercased()) }
         if out != agents { agents = out }
@@ -485,11 +515,21 @@ public final class ParlorEngine {
 
     private func write(_ a: Agent) {
         try? home.ensure()
-        let url = home.agentsDir.appendingPathComponent("\(a.id).md")
-        let text = a.fileText()
-        if (try? String(contentsOf: url, encoding: .utf8)) != text {
+        let dir = home.agentsDir.appendingPathComponent(a.id)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // The record replaces every key it knows (so a removed setting is removed) and keeps keys it does not.
+        var obj = agentStore.raw(a.id) ?? [:]
+        for k in AgentRecord.knownKeys { obj[k] = nil }
+        if let data = try? JSONEncoder().encode(AgentRecord(a)), let enc = try? JSONDecoder().decode(JSON.self, from: data).objectValue {
+            for (k, v) in enc { obj[k] = v }
+        }
+        let persona = a.persona.trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
+        let personaURL = dir.appendingPathComponent("persona.md")
+        let changed = agentStore.raw(a.id) != obj || (try? String(contentsOf: personaURL, encoding: .utf8)) != persona
+        if changed {
             history.willChange(actor: actor)
-            try? text.write(to: url, atomically: true, encoding: .utf8)
+            try? agentStore.write(a.id, obj)
+            try? persona.write(to: personaURL, atomically: true, encoding: .utf8)
             noteChange("Edited agent \(a.id)")
         }
     }
@@ -504,40 +544,75 @@ public final class ParlorEngine {
 
     @discardableResult
     public func create(kind: Agent.Kind, name: String? = nil) -> Agent {
-        create(template: AgentTemplates.template(kind == .assistant ? "assistant" : "character")!, name: name)
+        let h = kind == .assistant ? "chat" : "character"
+        let t = harnessList.first { $0.id == h }?.templates.first { $0.id == (kind == .assistant ? "assistant" : "character") }
+        return create(harness: h, template: t, name: name)
     }
 
-    /// A new agent from a template, with a free id. Starter models fall back to one that is installed.
+    /// A new agent on a harness, from one of its templates, with a free id. Hosts fall back to ones that exist.
     @discardableResult
-    public func create(template t: AgentTemplate, name: String? = nil) -> Agent {
-        let base = name ?? "New " + t.title.lowercased()
+    public func create(harness hid: String, template t: HarnessManifest.Template?, name: String? = nil) -> Agent {
+        let manifest = harnessList.first { $0.id == hid }
+        let base = name ?? "New " + (t?.title ?? manifest?.title ?? hid).lowercased()
         var id = Agent.slug(base)
         var n = 2
         while agents.contains(where: { $0.id == id }) { id = Agent.slug(base) + "-\(n)"; n += 1 }
-        var a = Agent(
-            id: id, name: base, summary: "", persona: t.persona(base), kind: t.kind, model: availableModel(t.languageModel),
-            imageModel: t.withImage ? Defaults.imageModel : nil, tools: t.tools, contextTokens: t.contextTokens,
-            temperature: t.temperature, thinking: t.thinking, color: agents.count % 6)
-        if let g = t.group { a.group = g }
-        if let file = t.harness ?? (t.scripted ? "openai_loop.py" : nil) { a.harness = "python3 '\(home.harnessesDir.appendingPathComponent(file).path)'" }
-        for (k, v) in t.extra.sorted(by: { $0.key < $1.key }) { a.extra.append(ExtraField(key: k, value: .scalar(v))) }
+        let character = hid == "character"
+        var a = Agent(id: id, name: base, persona: (t?.persona ?? "You are {name}.").replacingOccurrences(of: "{name}", with: base),
+                      kind: character ? .character : .assistant,
+                      model: availableModel(character ? Defaults.characterModel : Defaults.languageModel),
+                      imageModel: (t?.image ?? false) ? availableImageHost(Defaults.imageModel) : nil,
+                      tools: t?.tools ?? [], color: agents.count % 6, harness: hid == "chat" ? nil : hid, config: t?.config ?? [:])
+        if let g = t?.group { a.group = g }
         save(a)
         selection = a.id
         return a
     }
 
-    /// `preferred` if it is installed (or nothing can be checked), else the first installed language model, else `preferred`.
+    /// A host id for `preferred` if it exists, else the first installed MLX chat host, else `preferred` unchanged.
     func availableModel(_ preferred: String) -> String {
-        guard mlx != nil, !catalog.isInstalled(preferred) else { return preferred }
-        return library.installed(kind: .language).map(\.repo).sorted().first ?? preferred
+        let cat = catalog
+        if let h = cat.resolve(preferred) { return h.id }
+        guard mlx != nil else { return preferred }
+        return cat.hosts(capability: "chat").first { $0.spec.engine == "mlx" }?.id ?? preferred
     }
 
-    /// Why an agent's model cannot answer right now, if so. Decided by the catalog, through `LegacyRef` for V2 names.
+    /// The same for the image host.
+    func availableImageHost(_ preferred: String) -> String {
+        let cat = catalog
+        if let h = cat.resolve(preferred) { return h.id }
+        let hs = cat.hosts(capability: "image")
+        return (hs.first { $0.spec.engine == "z-image" } ?? hs.first)?.id ?? preferred
+    }
+
+    /// The shell line and resolved config for an agent's harness: schema defaults under the agent's own config.
+    func launch(for a: Agent) -> (command: String, config: [String: JSON])? {
+        if a.hasInlineHarness { return (a.harnessID, a.config) }
+        guard let m = harnessList.first(where: { $0.id == a.harnessID }) else { return nil }
+        var cfg = m.configDefaults
+        for (k, v) in a.config { cfg[k] = v }
+        return (m.launchCommand, cfg)
+    }
+
+    /// Why an agent cannot run right now, if so: its harness is missing, or a needed host is.
+    public func harnessProblem(for a: Agent) -> String? {
+        if !a.hasInlineHarness {
+            guard let m = harnessList.first(where: { $0.id == a.harnessID }) else {
+                return "Harness \"\(a.harnessID)\" is not in harnesses/. Available: " + harnessList.map(\.id).joined(separator: ", ") + "."
+            }
+            for (need, level) in m.needs where level == "required" && (a.hosts[need] ?? "").isEmpty {
+                return "\(a.name) needs a \(need) host."
+            }
+        }
+        return nil
+    }
+
+    /// Why an agent's model cannot answer right now, if so. Decided by the catalog.
     public func modelProblem(for a: Agent) -> String? {
         guard mlx != nil else { return nil }
         let cat = catalog
         if let (p, _) = router.route(a.model), cat.host(p.config.id) == nil { return p.config.enabled ? nil : "Provider \(p.config.id) is off." }
-        guard let h = LegacyRef.host(for: a.model, catalog: cat) else {
+        guard let h = cat.resolve(a.model) else {
             let repo = a.model.hasPrefix("mlx/") ? String(a.model.dropFirst(4)) : a.model
             return "\(repo.split(separator: "/").last.map(String.init) ?? repo) is not downloaded."
         }
@@ -545,7 +620,8 @@ public final class ParlorEngine {
     }
 
     public func delete(_ id: String) {
-        try? FileManager.default.removeItem(at: home.agentsDir.appendingPathComponent("\(id).md"))
+        externalHarness.stop(agent: id)
+        try? FileManager.default.removeItem(at: home.agentsDir.appendingPathComponent(id))
         try? FileManager.default.removeItem(at: home.chatDir(for: id))
         rooms[id] = nil
         noteChange("Deleted agent \(id)")
@@ -565,8 +641,10 @@ public final class ParlorEngine {
         }
         let fm = FileManager.default
         var moved = a; moved.id = newID
+        externalHarness.stop(agent: id)
+        // The folder moves whole, so memory.md and anything else in it goes with the agent.
+        try? fm.moveItem(at: home.agentsDir.appendingPathComponent(id), to: home.agentsDir.appendingPathComponent(newID))
         write(moved)
-        try? fm.removeItem(at: home.agentsDir.appendingPathComponent("\(id).md"))
         if fm.fileExists(atPath: home.chatDir(for: id).path) {
             try? fm.moveItem(at: home.chatDir(for: id), to: home.chatDir(for: newID))
         }

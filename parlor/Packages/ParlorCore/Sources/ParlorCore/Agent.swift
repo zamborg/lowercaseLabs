@@ -1,70 +1,120 @@
 import Foundation
 
+/// An agent: a harness, a persona, the hosts it uses, its tools and its harness config. On disk it is a folder:
+/// `agents/<id>/agent.json` (this, minus the persona), `persona.md`, and `memory.md`.
 public struct Agent: Identifiable, Hashable, Sendable {
     public enum Kind: String, Sendable, CaseIterable { case assistant, character }
 
-    /// Slug, also the file name (`agents/<id>.md`) and chat folder name.
+    /// Slug, also the folder name and the chat folder name.
     public var id: String
     public var name: String
     public var summary: String
     public var persona: String
     public var kind: Kind
-    /// Hugging Face repo id of the language model, e.g. `mlx-community/Qwen3-4B-4bit`.
-    public var model: String
-    public var imageModel: String?
+    /// A harness id (`chat`, `character`, a folder in `harnesses/`) or an inline command. nil means `chat`.
+    public var harness: String?
+    /// What the agent uses: `chat` and `image` are host ids.
+    public var hosts: [String: String]
     /// Tool patterns: `server.tool`, `server.*`, or `*`.
     public var tools: [String]
-    public var contextTokens: Int
-    public var compactAt: Double
-    public var temperature: Double
-    public var thinking: Bool
+    /// What the agent may do through `parlor.*` tools.
+    public var tier: Tier
+    /// Sidebar section; nil uses the default for `kind`.
+    public var groupName: String?
     /// Palette index for the avatar.
     public var color: Int
-    /// Per-agent overrides of machine settings. nil inherits.
-    public var overrides = AgentOverrides()
-    /// Front-matter keys this version does not understand, kept so a save never drops them.
-    public var extra: [ExtraField] = []
+    /// The harness's settings, validated against its manifest. Unknown keys are kept.
+    public var config: [String: JSON]
 
     public init(
         id: String, name: String, summary: String = "", persona: String = "",
-        kind: Kind = .assistant, model: String = Defaults.languageModel,
-        imageModel: String? = nil, tools: [String] = [], contextTokens: Int = 16384,
-        compactAt: Double = 0.7, temperature: Double = 0.6, thinking: Bool = false, color: Int = 0,
-        overrides: AgentOverrides = AgentOverrides(), extra: [ExtraField] = []
+        kind: Kind = .assistant, model: String = "", imageModel: String? = nil, tools: [String] = [],
+        contextTokens: Int? = nil, compactAt: Double? = nil, temperature: Double? = nil, thinking: Bool? = nil, color: Int = 0,
+        harness: String? = nil, config: [String: JSON] = [:], tier: Tier = .none, group: String? = nil
     ) {
         self.id = id; self.name = name; self.summary = summary; self.persona = persona
-        self.kind = kind; self.model = model; self.imageModel = imageModel; self.tools = tools
-        self.contextTokens = contextTokens; self.compactAt = compactAt
-        self.temperature = temperature; self.thinking = thinking; self.color = color
-        self.overrides = overrides; self.extra = extra
+        self.kind = kind; self.harness = harness; self.tools = tools; self.tier = tier; self.groupName = group
+        self.color = color; self.config = config
+        self.hosts = [:]
+        if !model.isEmpty { hosts["chat"] = model }
+        if let imageModel, !imageModel.isEmpty { hosts["image"] = imageModel }
+        if let v = contextTokens { self.config["context"] = .int(v) }
+        if let v = compactAt { self.config["compact_at"] = .double(v) }
+        if let v = temperature { self.config["temperature"] = .double(v) }
+        if let v = thinking { self.config["thinking"] = .bool(v) }
     }
 
-    /// What this agent may do through `parlor.*` tools. Stored as the `tier` front-matter key.
-    public var tier: Tier {
-        get { Tier(rawValue: extra.first { $0.key == "tier" }.flatMap { f -> String? in if case .scalar(let s) = f.value { return s } else { return nil } } ?? "") ?? .none }
+    // MARK: hosts
+
+    /// The chat host id (V2 called this `model`).
+    public var model: String {
+        get { hosts["chat"] ?? "" }
+        set { if newValue.isEmpty { hosts["chat"] = nil } else { hosts["chat"] = newValue } }
+    }
+
+    public var imageModel: String? {
+        get { hosts["image"] }
+        set { if let v = newValue, !v.isEmpty { hosts["image"] = v } else { hosts["image"] = nil } }
+    }
+
+    /// The harness this agent runs: its own, or `chat`.
+    public var harnessID: String { harness.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } ?? "chat" }
+    /// True when `harness` is a command line, not a manifest id.
+    public var hasInlineHarness: Bool { harnessID.contains(" ") || harnessID.contains("/") }
+
+    // MARK: config accessors (the editor's typed controls)
+
+    private func number(_ k: String) -> Double? {
+        switch config[k] { case .double(let d)?: return d; case .int(let i)?: return Double(i); default: return nil }
+    }
+    private func whole(_ k: String) -> Int? {
+        switch config[k] { case .int(let i)?: return i; case .double(let d)?: return Int(d); default: return nil }
+    }
+    private mutating func set(_ k: String, _ v: JSON?) { config[k] = v }
+
+    public var contextTokens: Int {
+        get { whole("context") ?? 16384 }
+        set { set("context", .int(newValue)) }
+    }
+    public var compactAt: Double {
+        get { number("compact_at") ?? 0.7 }
+        set { set("compact_at", .double(newValue)) }
+    }
+    public var temperature: Double {
+        get { number("temperature") ?? 0.6 }
+        set { set("temperature", .double(newValue)) }
+    }
+    public var thinking: Bool {
+        get { if case .bool(let b)? = config["thinking"] { return b } else { return false } }
+        set { set("thinking", .bool(newValue)) }
+    }
+
+    /// The optional knobs of the `chat` harness. nil means "not set": the host or machine default applies.
+    public var overrides: AgentOverrides {
+        get {
+            var o = AgentOverrides()
+            o.topP = number("top_p"); o.repetitionPenalty = number("repetition_penalty"); o.maxReplyTokens = whole("max_reply_tokens")
+            o.maxSteps = whole("max_steps"); o.toolResultChars = whole("tool_result_chars"); o.toolTimeoutSeconds = whole("tool_timeout")
+            o.keepRecent = whole("keep_recent"); o.summaryTokens = whole("summary_tokens")
+            return o
+        }
         set {
-            extra.removeAll { $0.key == "tier" }
-            if newValue != .none { extra.append(ExtraField(key: "tier", value: .scalar(newValue.rawValue))) }
+            set("top_p", newValue.topP.map { .double($0) }); set("repetition_penalty", newValue.repetitionPenalty.map { .double($0) })
+            set("max_reply_tokens", newValue.maxReplyTokens.map { .int($0) }); set("max_steps", newValue.maxSteps.map { .int($0) })
+            set("tool_result_chars", newValue.toolResultChars.map { .int($0) }); set("tool_timeout", newValue.toolTimeoutSeconds.map { .int($0) })
+            set("keep_recent", newValue.keepRecent.map { .int($0) }); set("summary_tokens", newValue.summaryTokens.map { .int($0) })
         }
     }
 
-    /// A command that runs this agent's turns instead of the built-in loop (the `harness` front-matter key).
-    public var harness: String? {
-        get { extra.first { $0.key == "harness" }.flatMap { f -> String? in if case .scalar(let s) = f.value, !s.trimmingCharacters(in: .whitespaces).isEmpty { return s } else { return nil } } }
-        set {
-            extra.removeAll { $0.key == "harness" }
-            if let v = newValue, !v.isEmpty { extra.append(ExtraField(key: "harness", value: .scalar(v))) }
-        }
-    }
+    // MARK: presentation
 
-    /// The sidebar section. Defaults from `kind`; the `group` front-matter key overrides it.
+    /// The sidebar section. Defaults from `kind`; the `group` key overrides it.
     public var defaultGroup: String { kind == .assistant ? "Assistants" : "Characters" }
     public var group: String {
-        get { extra.first { $0.key == "group" }.flatMap { f -> String? in if case .scalar(let s) = f.value, !s.trimmingCharacters(in: .whitespaces).isEmpty { return s } else { return nil } } ?? defaultGroup }
+        get { groupName.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } ?? defaultGroup }
         set {
-            extra.removeAll { $0.key == "group" }
             let v = newValue.trimmingCharacters(in: .whitespaces)
-            if !v.isEmpty, v != defaultGroup { extra.append(ExtraField(key: "group", value: .scalar(v))) }
+            groupName = (v.isEmpty || v == defaultGroup) ? nil : v
         }
     }
 
@@ -92,7 +142,7 @@ public struct Agent: Identifiable, Hashable, Sendable {
     }
 }
 
-/// Overrides an agent may set for settings that otherwise come from the model or the machine.
+/// The `chat` harness's optional knobs, as the editor sees them.
 public struct AgentOverrides: Hashable, Sendable {
     public var topP: Double?
     public var repetitionPenalty: Double?
@@ -106,78 +156,73 @@ public struct AgentOverrides: Hashable, Sendable {
     public init() {}
 }
 
-public struct ExtraField: Hashable, Sendable {
-    public var key: String
-    public var value: Frontmatter.Value
-    public init(key: String, value: Frontmatter.Value) { self.key = key; self.value = value }
-}
-
 public enum Defaults {
     public static let languageModel = "mlx-community/Qwen3-4B-4bit"
     public static let characterModel = "mlx-community/Llama-3.2-3B-Instruct-4bit"
     public static let imageModel = "mlx-community/Z-Image-Turbo-bf16"
 }
 
-extension Agent {
-    /// Front-matter keys this version reads. Everything else is carried in `extra`.
-    static let knownKeys: Set<String> = [
-        "name", "description", "kind", "model", "image_model", "tools", "context", "compact_at",
-        "temperature", "thinking", "color", "top_p", "repetition_penalty", "max_reply_tokens",
-        "max_steps", "tool_result_chars", "tool_timeout", "keep_recent", "summary_tokens",
-    ]
+// MARK: - the file
 
-    public init(id: String, file text: String) {
-        let fm = Frontmatter.parse(text)
-        var o = AgentOverrides()
-        o.topP = fm.string("top_p").flatMap(Double.init)
-        o.repetitionPenalty = fm.string("repetition_penalty").flatMap(Double.init)
-        if let r = fm.string("max_reply_tokens") { o.maxReplyTokens = r == "none" ? 0 : Int(r) }
-        o.maxSteps = fm.string("max_steps").flatMap(Int.init)
-        o.toolResultChars = fm.string("tool_result_chars").flatMap(Int.init)
-        o.toolTimeoutSeconds = fm.string("tool_timeout").flatMap(Int.init)
-        o.keepRecent = fm.string("keep_recent").flatMap(Int.init)
-        o.summaryTokens = fm.string("summary_tokens").flatMap(Int.init)
-        self.init(
-            id: id,
-            name: fm.string("name") ?? id,
-            summary: fm.string("description") ?? "",
-            persona: fm.body,
-            kind: Kind(rawValue: fm.string("kind") ?? "") ?? .assistant,
-            model: fm.string("model") ?? Defaults.languageModel,
-            imageModel: fm.string("image_model").flatMap { $0.isEmpty ? nil : $0 },
-            tools: fm.list("tools") ?? [],
-            contextTokens: fm.string("context").flatMap(Int.init) ?? 16384,
-            compactAt: fm.string("compact_at").flatMap(Double.init) ?? 0.7,
-            temperature: fm.string("temperature").flatMap(Double.init) ?? 0.6,
-            thinking: fm.string("thinking") == "true",
-            color: fm.string("color").flatMap(Int.init) ?? 0,
-            overrides: o,
-            extra: fm.fields.filter { !Agent.knownKeys.contains($0.key) }.map { ExtraField(key: $0.key, value: $0.value) }
-        )
+/// `agents/<id>/agent.json`, the agent minus its persona. A noun like the others.
+public struct AgentRecord: Noun, Equatable {
+    public static let kind = "agent"
+    public var version: Int = 1
+    public var id: String
+    public var name: String
+    public var description: String = ""
+    public var harness: String?
+    public var hosts: [String: String] = [:]
+    public var tools: [String] = []
+    public var tier: String?
+    public var group: String?
+    public var color: Int = 0
+    public var style: String?
+    public var config: [String: JSON] = [:]
+
+    enum CodingKeys: String, CodingKey { case version, id, name, description, harness, hosts, tools, tier, group, color, style = "kind", config }
+
+    static let knownKeys = Set(["version", "id", "name", "description", "harness", "hosts", "tools", "tier", "group", "color", "kind", "config"])
+
+    public init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? id
+        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+        harness = try c.decodeIfPresent(String.self, forKey: .harness)
+        hosts = try c.decodeIfPresent([String: String].self, forKey: .hosts) ?? [:]
+        tools = try c.decodeIfPresent([String].self, forKey: .tools) ?? []
+        tier = try c.decodeIfPresent(String.self, forKey: .tier)
+        group = try c.decodeIfPresent(String.self, forKey: .group)
+        color = try c.decodeIfPresent(Int.self, forKey: .color) ?? 0
+        style = try c.decodeIfPresent(String.self, forKey: .style)
+        config = try c.decodeIfPresent([String: JSON].self, forKey: .config) ?? [:]
     }
 
-    public func fileText() -> String {
-        var fm = Frontmatter(body: persona)
-        fm["name"] = .scalar(name)
-        fm["description"] = .scalar(summary)
-        fm["kind"] = .scalar(kind.rawValue)
-        fm["model"] = .scalar(model)
-        if let imageModel, !imageModel.isEmpty { fm["image_model"] = .scalar(imageModel) }
-        fm["tools"] = .list(tools)
-        fm["context"] = .scalar(String(contextTokens))
-        fm["compact_at"] = .scalar(String(compactAt))
-        fm["temperature"] = .scalar(String(temperature))
-        fm["thinking"] = .scalar(thinking ? "true" : "false")
-        fm["color"] = .scalar(String(color))
-        if let v = overrides.topP { fm["top_p"] = .scalar(String(v)) }
-        if let v = overrides.repetitionPenalty { fm["repetition_penalty"] = .scalar(String(v)) }
-        if let v = overrides.maxReplyTokens { fm["max_reply_tokens"] = .scalar(v == 0 ? "none" : String(v)) }
-        if let v = overrides.maxSteps { fm["max_steps"] = .scalar(String(v)) }
-        if let v = overrides.toolResultChars { fm["tool_result_chars"] = .scalar(String(v)) }
-        if let v = overrides.toolTimeoutSeconds { fm["tool_timeout"] = .scalar(String(v)) }
-        if let v = overrides.keepRecent { fm["keep_recent"] = .scalar(String(v)) }
-        if let v = overrides.summaryTokens { fm["summary_tokens"] = .scalar(String(v)) }
-        for f in extra { fm[f.key] = f.value }
-        return fm.render()
+    public init(_ a: Agent) {
+        id = a.id; name = a.name; description = a.summary; harness = a.harness
+        hosts = a.hosts; tools = a.tools; tier = a.tier == .none ? nil : a.tier.rawValue
+        group = a.groupName; color = a.color; style = a.kind.rawValue; config = a.config
+    }
+
+    public static func check(_ d: [String: JSON]) -> [Issue] {
+        var out: [Issue] = []
+        if let t = d["tier"]?.stringValue, Tier(rawValue: t) == nil {
+            out.append(Issue(path: "tier", message: "unknown tier \"\(t)\"", hint: "one of " + Tier.allCases.map(\.rawValue).joined(separator: ", ")))
+        }
+        if let k = d["kind"]?.stringValue, Agent.Kind(rawValue: k) == nil {
+            out.append(Issue(path: "kind", message: "unknown kind \"\(k)\"", hint: "assistant or character"))
+        }
+        return out
+    }
+
+    public func agent(persona: String) -> Agent {
+        var a = Agent(id: id, name: name, summary: description, persona: persona,
+                      kind: style.flatMap(Agent.Kind.init) ?? ((harness == "character") ? .character : .assistant),
+                      tools: tools, color: color, harness: harness, config: config,
+                      tier: tier.flatMap(Tier.init) ?? .none, group: group)
+        a.hosts = hosts
+        return a
     }
 }

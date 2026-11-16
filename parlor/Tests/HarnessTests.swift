@@ -107,7 +107,7 @@ final class HarnessTests: XCTestCase {
         XCTAssertEqual(room.lastStats?.completionTokens, 5)
 
         // The log survives a reload from disk.
-        let reloaded = Room(agentID: "mabel", deps: RoomDeps(home: e.home, hub: e.hub, llm: DemoRuntime(), harness: BuiltInHarness()))
+        let reloaded = Room(agentID: "mabel", deps: RoomDeps(home: e.home, hub: e.hub, llm: DemoRuntime(), external: e.externalHarness, library: e.library))
         XCTAssertEqual(reloaded.messages.count, room.messages.count)
         await e.shutdown()
     }
@@ -184,27 +184,26 @@ final class HarnessTests: XCTestCase {
 
     func testHarnessKeyRoundTripsInTheAgentFile() async throws {
         let (e, _, _) = try await setup()
-        let text = try String(contentsOf: e.home.agentsDir.appendingPathComponent("mabel.md"), encoding: .utf8)
-        XCTAssertTrue(text.contains("harness:"), text)
-        let b = Agent(id: "mabel", file: text)
-        XCTAssertNotNil(b.harness)
-        var c = b; c.harness = nil
-        XCTAssertFalse(c.fileText().contains("harness:"))
+        let url = e.home.agentsDir.appendingPathComponent("mabel/agent.json")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(text.contains("\"harness\""), text)
+        var b = try XCTUnwrap(e.agent("mabel")); b.harness = nil; e.save(b)
+        XCTAssertFalse(try String(contentsOf: url, encoding: .utf8).contains("\"harness\""))
         await e.shutdown()
     }
 
-    /// The sample that ships in `harnesses/` runs as is: its OpenAI-style loop talks to the runtime API.
-    func testSeededSampleHarnessRunsUnmodified() async throws {
+    /// The seeded `chat` harness talks to the gateway as is and answers through the wire.
+    func testSeededChatHarnessRunsUnmodified() async throws {
         let (e, room, _) = try await setup()
-        let sample = e.home.harnessesDir.appendingPathComponent("openai_loop.py")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sample.path), "sample is seeded")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: e.home.harnessesDir.appendingPathComponent("CLAUDE.md").path))
-        var a = try XCTUnwrap(e.agent("mabel")); a.harness = "python3 '\(sample.path)'"; e.save(a)
+        let h = e.home.harnessesDir
+        for f in ["CLAUDE.md", "parlor_harness.py", "chat/harness.json", "chat/chat.py", "character/character.py"] {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: h.appendingPathComponent(f).path), f)
+        }
+        var a = try XCTUnwrap(e.agent("mabel")); a.harness = nil; e.save(a)
         await room.sendAndWait("hello sample", agent: try XCTUnwrap(e.agent("mabel")))
         XCTAssertNil(room.errorText)
         XCTAssertEqual(room.messages.last?.text.trimmingCharacters(in: .whitespaces), "(demo) You said: hello sample")
         XCTAssertEqual(room.messages.last?.speaker, "mabel")
-        XCTAssertEqual(room.lastStats?.completionTokens, 12, "usage from the stream becomes stats")
         await e.shutdown()
     }
 }

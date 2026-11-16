@@ -170,16 +170,25 @@ public final class ChatLog: @unchecked Sendable {
         public var through: UUID?
     }
 
+    /// `summary.md`: an optional `---\nthrough: <message id>\n---` header, then the text.
     public func loadSummary() -> Summary? {
         guard let text = try? String(contentsOf: summaryURL, encoding: .utf8) else { return nil }
-        let fm = Frontmatter.parse(text)
-        return Summary(text: fm.body, through: fm.string("through").flatMap(UUID.init))
+        var through: UUID?
+        var body = text
+        if text.hasPrefix("---\n"), let end = text.range(of: "\n---\n", range: text.index(text.startIndex, offsetBy: 3)..<text.endIndex) {
+            let head = text[text.index(text.startIndex, offsetBy: 4)..<end.lowerBound]
+            for line in head.split(separator: "\n") where line.hasPrefix("through:") {
+                through = UUID(uuidString: line.dropFirst(8).trimmingCharacters(in: .whitespaces))
+            }
+            body = String(text[end.upperBound...])
+        }
+        return Summary(text: body.trimmingCharacters(in: .whitespacesAndNewlines), through: through)
     }
 
     public func saveSummary(_ s: Summary?) {
         guard let s else { try? FileManager.default.removeItem(at: summaryURL); return }
-        var fm = Frontmatter(body: s.text)
-        if let t = s.through { fm["through"] = .scalar(t.uuidString) }
-        try? fm.render().write(to: summaryURL, atomically: true, encoding: .utf8)
+        var out = ""
+        if let t = s.through { out = "---\nthrough: \(t.uuidString)\n---\n" }
+        try? (out + s.text + "\n").write(to: summaryURL, atomically: true, encoding: .utf8)
     }
 }

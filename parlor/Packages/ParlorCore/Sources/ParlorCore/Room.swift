@@ -26,7 +26,7 @@ public final class Room: Identifiable {
     private var toolSnapshot: Set<String>?
     private var currentSpeaker: String
     private var runPriority: LLMPriority = .user
-    private unowned let deps: RoomDeps
+    unowned let deps: RoomDeps
 
     init(agentID: String, deps: RoomDeps) {
         self.agentID = agentID
@@ -111,16 +111,15 @@ public final class Room: Identifiable {
     }
 
     /// One agent's reply. False when it was cancelled or failed.
-    private func turn(_ agent: Agent, names: [String: String]) async -> Bool {
+    private func turn(_ agent: Agent, names: [String: String], action: TurnAction? = nil) async -> Bool {
         currentSpeaker = agent.id
         speakingID = agent.id
         let tools = await deps.hub.tools(for: agent)
         do {
             activity = "Thinking"
-            let input = makeInput(agent: agent, tools: tools, names: names)
+            let input = makeInput(agent: agent, tools: tools, names: names, action: action)
             let context = TurnContext(llm: deps.llm, tools: HubToolExecutor(hub: deps.hub))
-            let harness = deps.harness
-            try await harness.run(input, context: context) { [weak self] ev in
+            try await deps.external.run(input, context: context) { [weak self] ev in
                 Task { @MainActor in self?.handle(ev) }
             }
             // Let queued MainActor handlers drain before returning.
@@ -136,16 +135,22 @@ public final class Room: Identifiable {
         }
     }
 
-    private func makeInput(agent: Agent, tools: [ToolDef], names: [String: String]? = nil) -> TurnInput {
+    private func makeInput(agent: Agent, tools: [ToolDef], names: [String: String]? = nil, action: TurnAction? = nil) -> TurnInput {
         let meta = deps.library.flatMap { lib in
             lib.installed.first(where: { $0.repo == agent.model }).flatMap { ModelMetadata.load(dir: $0.directory) }
         }
-        return TurnInput(
+        var input = TurnInput(
             agent: agent, conversationID: id, participants: config.participants, transcript: messages,
             summary: summary, tools: tools,
             settings: ResolvedSettings.resolve(agent: agent, model: meta, machine: deps.settings),
             lastPromptTokens: contextUsed, priority: runPriority, names: names ?? nameMap(),
             memory: MemoryStore(home: deps.home).read(agent.id))
+        let launch = deps.launch?(agent)
+        input.command = launch?.command ?? ""
+        input.config = launch?.config ?? agent.config
+        input.gatewayURL = deps.gatewayURL?() ?? ""
+        input.action = action
+        return input
     }
 
     private func handle(_ ev: TurnEvent) {
@@ -194,25 +199,28 @@ public final class Room: Identifiable {
 
     // MARK: context
 
-    @discardableResult
-    public func compact(agent: Agent) async throws -> Bool {
-        activity = "Compacting"
-        defer { activity = nil }
-        let input = makeInput(agent: agent, tools: [])
-        guard let (new, folded) = try await BuiltInHarness.compact(input: input, summary: summary, llm: deps.llm) else { return false }
-        adopt(summary: new, folded: folded)
-        return true
+    /// Press a harness's button: a turn with an action and no user line. A small marker says why it happened.
+    public func perform(action: HarnessManifest.Action, args: JSON = .object([:]), messageID: String? = nil, agent: Agent) {
+        guard !isBusy else { return }
+        errorText = nil
+        isBusy = true
+        runPriority = .user
+        task = Task { [weak self] in
+            guard let self else { return }
+            defer { self.isBusy = false; self.streaming = ""; self.activity = nil; self.speakingID = nil; self.task = nil }
+            self.append(.marker("▸ " + action.title))
+            self.currentSpeaker = agent.id
+            self.speakingID = agent.id
+            _ = await self.turn(agent, names: self.nameMap(), action: TurnAction(id: action.id, args: args, messageID: messageID))
+        }
     }
 
     public func compactNow(agent: Agent) {
-        guard !isBusy else { return }
-        isBusy = true
-        task = Task { [weak self] in
-            guard let self else { return }
-            defer { self.isBusy = false; self.task = nil }
-            do { try await self.compact(agent: agent) } catch { self.errorText = error.localizedDescription }
-        }
+        perform(action: HarnessManifest.Action(id: "compact", title: "Compact now", placement: "settings"), agent: agent)
     }
+
+    /// Await the running task (tests).
+    public func wait() async { await task?.value }
 
     // MARK: pruning
 
@@ -284,13 +292,17 @@ public final class RoomDeps {
     public let home: ParlorHome
     public let hub: ToolHub
     public var llm: LanguageModelRuntime
-    public var harness: Harness
+    public var external: ExternalHarness
     public var image: ImageProvider?
     public var library: ModelLibrary?
     public var settings = ParlorSettings()
     /// Finds an agent by id; set by the engine so a room can address everyone in it.
     public var agentLookup: (@MainActor (String) -> Agent?)?
-    init(home: ParlorHome, hub: ToolHub, llm: LanguageModelRuntime, harness: Harness, library: ModelLibrary? = nil) {
-        self.home = home; self.hub = hub; self.llm = llm; self.harness = harness; self.library = library
+    /// The shell line and resolved config for an agent's harness; set by the engine.
+    public var launch: (@MainActor (Agent) -> (command: String, config: [String: JSON])?)?
+    /// The gateway's OpenAI base (`http://127.0.0.1:<port>/v1`); set by the engine.
+    public var gatewayURL: (@MainActor () -> String)?
+    init(home: ParlorHome, hub: ToolHub, llm: LanguageModelRuntime, external: ExternalHarness, library: ModelLibrary? = nil) {
+        self.home = home; self.hub = hub; self.llm = llm; self.external = external; self.library = library
     }
 }

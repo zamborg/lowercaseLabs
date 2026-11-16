@@ -6,23 +6,25 @@ final class SceneHarnessTests: XCTestCase {
         let home = tempHome()
         let e = ParlorEngine(home: home, runtime: DemoRuntime())
         await e.start()
-        let file = home.harnessesDir.appendingPathComponent("character.py")
+        let file = home.harnessesDir.appendingPathComponent("character/character.py")
         let src = try String(contentsOf: file, encoding: .utf8)
-        XCTAssertTrue(src.contains("parlor-harnesses-v1") && src.contains("art director"))
+        XCTAssertTrue(src.contains(HarnessPython.marker) && src.contains("art director"))
 
-        // The seeded script is valid Python.
-        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/python3"); p.arguments = ["-m", "py_compile", file.path]
-        p.standardError = FileHandle.nullDevice
-        try p.run(); p.waitUntilExit()
-        XCTAssertEqual(p.terminationStatus, 0)
+        for f in ["parlor_harness.py", "chat/chat.py", "character/character.py"] {
+            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            p.arguments = ["-m", "py_compile", home.harnessesDir.appendingPathComponent(f).path]
+            p.standardError = FileHandle.nullDevice
+            try p.run(); p.waitUntilExit()
+            XCTAssertEqual(p.terminationStatus, 0, f)
+        }
 
-        let a = e.create(template: try XCTUnwrap(AgentTemplates.template("scene")), name: "Wren")
-        XCTAssertTrue(a.harness?.hasSuffix("character.py'") == true, a.harness ?? "nil")
+        let m = try XCTUnwrap(e.harnessList.first { $0.id == "character" })
+        let t = try XCTUnwrap(m.templates.first { $0.id == "scene" })
+        let a = e.create(harness: "character", template: t, name: "Wren")
+        XCTAssertEqual(a.harnessID, "character")
         XCTAssertEqual(a.kind, .character)
-        XCTAssertTrue(a.extra.contains { $0.key == "appearance" })
-        XCTAssertTrue(a.extra.contains { $0.key == "images" })
-        // Saved to disk, so the front matter round-trips.
-        let reread = try String(contentsOf: home.agentsDir.appendingPathComponent("wren.md"), encoding: .utf8)
-        XCTAssertTrue(reread.contains("appearance:") && reread.contains("harness:"))
+        XCTAssertNotNil(a.config["appearance"]); XCTAssertNotNil(a.config["images"])
+        let json = try String(contentsOf: home.agentsDir.appendingPathComponent("wren/agent.json"), encoding: .utf8)
+        XCTAssertTrue(json.contains("appearance") && json.contains("\"harness\""))
     }
 }
