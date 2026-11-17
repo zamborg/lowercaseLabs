@@ -203,6 +203,13 @@ is empty; `parlor-cli bench` shows the cache pattern; `hosts.bench` on Stheno, t
 
 ### Step 12: the Supervisor owns lifecycles (F, N)
 
+**As built (closed).** `Supervisor` is the one place a process is spawned (`Supervisor.spawn`/`run`) and the one place the
+dashboard and `services.*` verbs read (`register(source:)`, `snapshot()`, `control`). Each owner describes its own rows,
+so the Supervisor never switches on an id prefix. HTTP servers (host processes) use `ManagedService` (health check,
+restart policy, idle timer). Stdio-pipe children (tool servers, the image worker, harness processes) are spawned through
+the Supervisor too but are not `ManagedService`: they have no health URL and are driven by their pipe. The memory budget
+stays in `Gateway.admit`. The list below is the original intent.
+
 1. Implement `ensure/release/control/footprint` and the restart policy in `Supervisor` (an actor). `ServiceSpec`
    gains `env`, `cwd`, `startupSeconds`, and `Ready.http(URL)` polling.
 2. Owners describe, the Supervisor runs:
