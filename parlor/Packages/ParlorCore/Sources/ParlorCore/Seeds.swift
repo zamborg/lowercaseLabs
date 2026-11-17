@@ -272,7 +272,7 @@ enum Seeds {
             an id, name, description, harness, hosts, tools, tier "none", config and a persona written in the second \
             person ("You are ...").
             5. Call parlor.agents.validate with the draft. If it returns issues, fix every one and validate again.
-            6. Call parlor.agents.try with the draft and one line the character would hear. Show the user the reply.
+            6. Call parlor.agents.try with the draft and one line the character would hear. Do not stop here: the agent does not exist yet. Go straight on to step 7.
             7. Call parlor.agents.create with the draft, then tell the user the agent is in the sidebar.
 
             Rules you never skip:

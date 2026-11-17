@@ -109,6 +109,9 @@ struct NounLibraryView: View {
             Button("Test") { Task { report = "Testing…"; report = (await runVerb(engine, "hosts.test", ["id": .string(id)])).text } }
                 .controlSize(.small).accessibilityIdentifier("test-host-\(id)")
         }
+        if noun == "harness" {
+            Button("Try") { Task { await tryHarness(id) } }.controlSize(.small).accessibilityIdentifier("try-harness-\(id)")
+        }
         if noun != "tool" {
             Button("Duplicate") { Task { await duplicate(id) } }.controlSize(.small).accessibilityIdentifier("noun-duplicate")
         }
@@ -150,6 +153,17 @@ struct NounLibraryView: View {
         guard let patch = mergePatch(from: original, to: d) else { report = "No changes."; return }
         let r = await runVerb(engine, "\(plural).update", ["id": .string(id), "patch": patch])
         if r.isError { report = r.text } else { report = "Saved."; await reload() }
+    }
+
+    /// One throwaway turn on this harness, using the first host that can chat.
+    private func tryHarness(_ id: String) async {
+        let cat = engine.catalog
+        guard let host = cat.hosts(capability: "chat").first(where: { cat.status(host: $0.id).usable }) else { report = "No chat host is ready to try it on."; return }
+        report = "Trying on \(host.id)…"
+        let draft: [String: JSON] = ["id": .string("try-" + id), "name": .string("Try"), "harness": .string(id), "hosts": .object(["chat": .string(host.id)]),
+                                     "persona": .string("You are a short, friendly test assistant."), "tools": .strings([])]
+        let r = await runVerb(engine, "agents.try", ["draft": .object(draft), "message": .string("Say hello in five words.")])
+        report = r.text
     }
 
     private func duplicate(_ id: String) async {

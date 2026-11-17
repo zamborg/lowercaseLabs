@@ -184,7 +184,9 @@ public actor MLXRuntime: LanguageModelRuntime {
                         promptTokens: info.promptTokenCount + cached,
                         completionTokens: info.generationTokenCount,
                         tokensPerSecond: info.tokensPerSecond, cachedTokens: cached)))
-                case .rejectedToolCall: break
+                case .rejectedToolCall(let r):
+                    // Never drop it silently: an empty reply hides why the model stopped.
+                    continuation.yield(.text("\n[tool call rejected: \(r.reason.rawValue)" + (r.detail.map { ": \($0)" } ?? "") + "]"))
                 }
             }
             if reuse, slot >= 0, let c = cache {

@@ -103,8 +103,8 @@ public struct Agent: Identifiable, Hashable, Sendable {
 
 public enum Defaults {
     /// The models parlor suggests, as repos to download.
-    public static let languageRepo = "mlx-community/Qwen3-4B-4bit"
-    public static let characterRepo = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+    public static let languageRepo = "mlx-community/Qwen3.6-35B-A3B-4bit"
+    public static let characterRepo = "mlx-community/Qwen3.6-35B-A3B-4bit"
     public static let imageRepo = "mlx-community/Z-Image-Turbo-bf16"
 
     /// The host an installed model gets automatically (see `HostRegistry`): agents name hosts, never repos.

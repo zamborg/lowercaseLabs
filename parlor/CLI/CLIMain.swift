@@ -113,8 +113,8 @@ struct CLIMain {
         case "image": return await imageCheck(engine, args.joined(separator: " "))
         case "spike": return await Spike.run(engine)
         case "flow": return await Flow.run(engine)
-        case "bench-alt": return await Bench.alternate(engine, model: args.first ?? "mlx-community/Qwen3-4B-4bit")
-        case "bench": return await Bench.run(engine, model: args.first ?? "mlx-community/Qwen3-4B-4bit")
+        case "bench-alt": return await Bench.alternate(engine, model: args.first ?? Defaults.languageRepo)
+        case "bench": return await Bench.run(engine, model: args.first ?? Defaults.languageRepo)
         default: usage(); return 2
         }
     }

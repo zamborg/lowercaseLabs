@@ -11,9 +11,9 @@ struct ModelsView: View {
     @State private var memory: (Int64, Int64) = (SystemMemory.usedBytes(), SystemMemory.totalBytes)
 
     private static let recommended: [(repo: String, kind: ModelKind, note: String, bytes: Int64)] = [
-        ("mlx-community/Qwen3-4B-4bit", .language, "Fast, good at tools. A safe first choice.", 2_300_000_000),
-        ("mlx-community/Llama-3.2-3B-Instruct-4bit", .language, "Small and quick. Good for characters.", 1_800_000_000),
-        ("mlx-community/Qwen3-30B-A3B-4bit", .language, "Much smarter, still fast. Needs about 17 GB.", 17_400_000_000),
+        ("mlx-community/Qwen3.6-35B-A3B-4bit", .language, "The default: smart and fast (3B active). Needs about 21 GB of memory.", 20_400_000_000),
+        ("mlx-community/Qwen3.5-9B-4bit", .language, "Smaller and quick, for 16 GB Macs.", 5_600_000_000),
+        ("mlx-community/Qwen3-4B-4bit", .language, "Tiny. Fine for tests, not for real work.", 2_300_000_000),
         ("mlx-community/Z-Image-Turbo-bf16", .image, "Image generation in a few steps.", 12_000_000_000),
     ]
 
