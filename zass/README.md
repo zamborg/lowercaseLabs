@@ -1,5 +1,7 @@
 # zass
 
+V1 status, verified gaps, and architecture questions: [planning handoff](V1-PLAN.md).
+
 A portable personal-assistant harness. Drop this directory into any coding
 agent — Claude Code, Codex, anything that can read files — and it becomes a
 persistent personal assistant with memory, todos, notes, people, and
