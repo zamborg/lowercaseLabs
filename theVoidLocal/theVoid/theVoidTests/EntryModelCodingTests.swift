@@ -3,7 +3,7 @@ import Testing
 @testable import theVoid
 
 struct EntryModelCodingTests {
-    @Test func decodesLegacyEntryWithoutHealthSnapshot() throws {
+    @Test func decodesEntryCreatedBeforeHealthIntegration() throws {
         let legacyJSON = """
         {
           "id": "entry-1",
@@ -18,28 +18,10 @@ struct EntryModelCodingTests {
         """.data(using: .utf8)!
 
         let decoded = try JSONDecoder().decode(APIEntry.self, from: legacyJSON)
-        #expect(decoded.healthSnapshot == nil)
         #expect(decoded.id == "entry-1")
     }
 
-    @Test func roundTripsEntryWithHealthSnapshot() throws {
-        let snapshot = EntryHealthSnapshot(
-            capturedAtISO8601: "2026-03-02T12:00:00.000Z",
-            readinessScore: 78,
-            confidence: 0.82,
-            components: [
-                HealthComponentSnapshot(
-                    type: .sleepHours,
-                    rawValue: 7.8,
-                    unit: "h",
-                    componentScore: 84,
-                    sampledAtISO8601: "2026-03-02T11:00:00.000Z",
-                    isStale: false
-                )
-            ],
-            version: 1
-        )
-
+    @Test func roundTripsEntryWithoutRemovedHealthField() throws {
         let entry = APIEntry(
             id: "entry-2",
             localDate: "2026-03-02",
@@ -54,15 +36,41 @@ struct EntryModelCodingTests {
                 signals: [:],
                 safetyFlags: nil
             ),
-            title: "Entry With Health",
-            healthSnapshot: snapshot
+            title: "A regular entry"
         )
 
         let encoded = try JSONEncoder().encode(entry)
         let decoded = try JSONDecoder().decode(APIEntry.self, from: encoded)
 
-        #expect(decoded.healthSnapshot == snapshot)
+        let encodedJSON = try #require(String(data: encoded, encoding: .utf8))
+        #expect(!encodedJSON.contains("healthSnapshot"))
         #expect(decoded.id == entry.id)
         #expect(decoded.title == entry.title)
+    }
+
+    @Test func ignoresSnapshotDataFromOlderAppVersions() throws {
+        let legacyJSON = """
+        {
+          "id": "entry-with-old-snapshot",
+          "localDate": "2026-03-02",
+          "durationSeconds": 90,
+          "status": "ready",
+          "createdAt": "2026-03-02T12:00:00Z",
+          "title": "Existing entry",
+          "transcript": null,
+          "insight": null,
+          "healthSnapshot": {
+            "capturedAtISO8601": "2026-03-02T12:00:00Z",
+            "readinessScore": 78,
+            "confidence": 0.82,
+            "components": [],
+            "version": 1
+          }
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(APIEntry.self, from: legacyJSON)
+        #expect(decoded.id == "entry-with-old-snapshot")
+        #expect(decoded.displayTitle == "Existing entry")
     }
 }

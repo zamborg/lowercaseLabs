@@ -299,7 +299,6 @@ actor ICloudSyncService {
         record["status"] = localRecord.entry.status as CKRecordValue
         record["transcriptJSON"] = encodeJSONString(localRecord.entry.transcript) as CKRecordValue?
         record["insightJSON"] = encodeJSONString(localRecord.entry.insight) as CKRecordValue?
-        record["healthSnapshotJSON"] = encodeJSONString(localRecord.entry.healthSnapshot) as CKRecordValue?
         record["wasSharedToSocial"] = (localRecord.wasSharedToSocial ?? false) as CKRecordValue
         record["isDeleted"] = false as CKRecordValue
         record["deletedAt"] = nil
@@ -461,7 +460,6 @@ actor ICloudSyncService {
 
         let transcript: APITranscript? = decodeJSONString(record["transcriptJSON"] as? String)
         let insight: APIInsight? = decodeJSONString(record["insightJSON"] as? String)
-        let healthSnapshot: EntryHealthSnapshot? = decodeJSONString(record["healthSnapshotJSON"] as? String)
 
         let entry = APIEntry(
             id: entryID,
@@ -471,8 +469,7 @@ actor ICloudSyncService {
             createdAt: ICloudSyncTimestamp.string(from: createdAtDate),
             transcript: transcript,
             insight: insight,
-            title: title,
-            healthSnapshot: healthSnapshot
+            title: title
         )
 
         return RemoteEntryRecord(

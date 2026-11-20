@@ -79,10 +79,6 @@ final class AppModel: ObservableObject {
     @Published var transcriptionEnginePreparationError: String?
     @Published var liveTranscript: String = ""
     @Published var isTranscribingForReview: Bool = false
-    @Published var healthAuthorizationState: HealthAuthorizationState = .notDetermined
-    @Published var liveHealthSnapshot: EntryHealthSnapshot?
-    @Published var isFetchingLiveHealthSnapshot: Bool = false
-    @Published var healthIntegrationEnabled: Bool = true
     @Published var iCloudSyncEnabled: Bool = true
     @Published var iCloudSyncStatus: ICloudSyncStatus = .idle
     @Published var iCloudLastSyncAt: Date?
@@ -94,7 +90,6 @@ final class AppModel: ObservableObject {
     private let socialClient: any SocialFeatureClient
     private let draftStore = DraftStore()
     private let localStore = LocalJournalStore()
-    private let healthKitManager = HealthKitManager()
     private let iCloudSyncService: ICloudSyncService
     private var liquidModelPreparationTask: Task<Void, Never>?
     private var liquidModelPreparationOperationID: UUID?
@@ -117,7 +112,6 @@ final class AppModel: ObservableObject {
         static let liquidModelPrepared = "thevoid.liquidModelPrepared"
         static let transcriptionEngine = "thevoid.transcription.engine"
         static let transcriptionLanguage = "thevoid.transcription.language"
-        static let healthIntegrationEnabled = "thevoid.healthkit.enabled"
         static let iCloudSyncEnabled = "thevoid.icloud.sync.enabled"
         static let iCloudBootstrapSyncedUsers = "thevoid.icloud.bootstrap.synced_users"
     }
@@ -170,12 +164,6 @@ final class AppModel: ObservableObject {
                 await refreshAll()
             }
         }
-        if healthIntegrationEnabled {
-            Task {
-                await refreshHealthAuthorizationState()
-                await refreshLiveHealthSnapshot()
-            }
-        }
         prepareTranscriptionEngineIfNeeded()
     }
 
@@ -226,11 +214,6 @@ final class AppModel: ObservableObject {
         } else {
             transcriptionLanguage = .device
         }
-        if defaults.object(forKey: Keys.healthIntegrationEnabled) != nil {
-            healthIntegrationEnabled = defaults.bool(forKey: Keys.healthIntegrationEnabled)
-        } else {
-            healthIntegrationEnabled = true
-        }
         if defaults.object(forKey: Keys.iCloudSyncEnabled) != nil {
             iCloudSyncEnabled = defaults.bool(forKey: Keys.iCloudSyncEnabled)
         } else {
@@ -253,7 +236,6 @@ final class AppModel: ObservableObject {
         }
         defaults.set(reminderTimesPayload, forKey: Keys.reminderTimesByWeekday)
         defaults.set(onboardingComplete, forKey: Keys.onboardingComplete)
-        defaults.set(healthIntegrationEnabled, forKey: Keys.healthIntegrationEnabled)
         defaults.set(iCloudSyncEnabled, forKey: Keys.iCloudSyncEnabled)
         defaults.set(transcriptionEngine.rawValue, forKey: Keys.transcriptionEngine)
         defaults.set(transcriptionLanguage.rawValue, forKey: Keys.transcriptionLanguage)
@@ -333,9 +315,6 @@ final class AppModel: ObservableObject {
         socialDots = []
         inviteURL = nil
         inviteToken = nil
-        liveHealthSnapshot = nil
-        healthAuthorizationState = .notDetermined
-        isFetchingLiveHealthSnapshot = false
         iCloudLastSyncAt = nil
         iCloudSyncStatus = .idle
         onboardingComplete = false
@@ -347,8 +326,6 @@ final class AppModel: ObservableObject {
         await refreshEntries()
         await refreshSocialDots()
         reloadDrafts()
-        await refreshHealthAuthorizationState()
-        await refreshLiveHealthSnapshot()
     }
 
     func setICloudSyncEnabled(_ enabled: Bool) {
@@ -434,66 +411,6 @@ final class AppModel: ObservableObject {
         reloadDrafts()
     }
 
-    func refreshHealthAuthorizationState() async {
-        guard healthIntegrationEnabled else {
-            healthAuthorizationState = .notDetermined
-            liveHealthSnapshot = nil
-            return
-        }
-        healthAuthorizationState = await healthKitManager.authorizationStatus()
-    }
-
-    func requestHealthAuthorization() async {
-        guard healthIntegrationEnabled else {
-            return
-        }
-        do {
-            healthAuthorizationState = try await healthKitManager.requestReadAuthorization()
-            if healthAuthorizationState.isAuthorized {
-                await refreshLiveHealthSnapshot()
-            } else if healthAuthorizationState == .denied {
-                liveHealthSnapshot = nil
-                errorMessage = "Health access is off. Open the Health app -> Sharing -> Apps -> theVoid to enable access."
-            }
-        } catch {
-            errorMessage = "Could not request Health access: \(error.localizedDescription)"
-            healthAuthorizationState = await healthKitManager.authorizationStatus()
-        }
-    }
-
-    func refreshLiveHealthSnapshot() async {
-        guard healthIntegrationEnabled else {
-            liveHealthSnapshot = nil
-            return
-        }
-
-        isFetchingLiveHealthSnapshot = true
-        defer { isFetchingLiveHealthSnapshot = false }
-
-        let snapshot = await captureHealthSnapshotForNote(at: Date())
-        liveHealthSnapshot = snapshot
-    }
-
-    func captureHealthSnapshotForNote(at timestamp: Date) async -> EntryHealthSnapshot? {
-        guard healthIntegrationEnabled else {
-            return nil
-        }
-        if !healthAuthorizationState.isAuthorized {
-            await refreshHealthAuthorizationState()
-            guard healthAuthorizationState.isAuthorized else {
-                return nil
-            }
-        }
-        do {
-            return try await fetchHealthSnapshotWithTimeout(
-                at: timestamp,
-                timeoutSeconds: 1.5
-            )
-        } catch {
-            return nil
-        }
-    }
-
     func submitDraft(url: URL, durationSeconds: Int, shareToSocial: Bool = true, overrideTranscript: String? = nil) async {
         guard !userID.isEmpty else {
             errorMessage = "Sign in required"
@@ -506,7 +423,7 @@ final class AppModel: ObservableObject {
             submissionState = .transcribing
             lastInsightRuntimeSummary = nil
 
-            async let analysisTask = LocalReflectionAnalyzer.analyze(
+            let (transcript, insight, generatedTitle) = await LocalReflectionAnalyzer.analyze(
                 audioURL: url,
                 durationSeconds: normalizedDuration,
                 useLiquidInsights: liquidModelPrepared,
@@ -516,9 +433,6 @@ final class AppModel: ObservableObject {
                     language: transcriptionLanguage
                 )
             )
-            async let healthSnapshotTask = captureHealthSnapshotForNote(at: noteTimestamp)
-
-            let ((transcript, insight, generatedTitle), healthSnapshot) = await (analysisTask, healthSnapshotTask)
             lastInsightRuntimeSummary = Self.insightRuntimeSummary(from: transcript?.providerMetadata)
             let stored = try localStore.saveReflection(
                 for: userID,
@@ -528,13 +442,9 @@ final class AppModel: ObservableObject {
                 insight: insight,
                 localDate: localDate,
                 wasSharedToSocial: shareToSocial,
-                healthSnapshot: healthSnapshot,
                 title: generatedTitle
             )
             await iCloudSyncService.queueEntryUpsert(userID: userID, entryID: stored.id)
-            if let healthSnapshot {
-                liveHealthSnapshot = healthSnapshot
-            }
             activeEntryID = stored.id
             submissionState = insight == nil ? .idle : .insightsReady
 
@@ -1229,30 +1139,6 @@ final class AppModel: ObservableObject {
 
         syncedUserIDs.insert(userID)
         defaults.set(Array(syncedUserIDs).sorted(), forKey: Keys.iCloudBootstrapSyncedUsers)
-    }
-
-    private enum HealthSnapshotTimeoutError: Error {
-        case timedOut
-    }
-
-    private func fetchHealthSnapshotWithTimeout(
-        at timestamp: Date,
-        timeoutSeconds: Double
-    ) async throws -> EntryHealthSnapshot? {
-        try await withThrowingTaskGroup(of: EntryHealthSnapshot?.self) { group in
-            group.addTask { [healthKitManager] in
-                try await healthKitManager.fetchSnapshot(at: timestamp)
-            }
-            group.addTask {
-                let capped = max(0.2, timeoutSeconds)
-                try await Task.sleep(nanoseconds: UInt64((capped * 1_000_000_000).rounded()))
-                throw HealthSnapshotTimeoutError.timedOut
-            }
-
-            let firstCompleted = try await group.next() ?? nil
-            group.cancelAll()
-            return firstCompleted
-        }
     }
 
     private static func defaultReminderTimes(base: Date) -> [Int: Date] {

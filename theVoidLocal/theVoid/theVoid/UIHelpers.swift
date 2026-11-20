@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 // MARK: - Helpers
 
@@ -47,23 +46,4 @@ extension DateFormatter {
         formatter.dateFormat = "h:mm a"
         return formatter
     }()
-}
-
-extension UIApplication {
-    static func openHealthAccessManagement() {
-        let app = UIApplication.shared
-        guard let healthURL = URL(string: "x-apple-health://") else {
-            if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
-                app.open(settingsURL)
-            }
-            return
-        }
-
-        app.open(healthURL, options: [:]) { opened in
-            guard !opened else { return }
-            if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
-                app.open(settingsURL)
-            }
-        }
-    }
 }

@@ -90,7 +90,6 @@ struct LocalJournalStore {
         insight: APIInsight?,
         localDate: String,
         wasSharedToSocial: Bool,
-        healthSnapshot: EntryHealthSnapshot? = nil,
         title: String? = nil
     ) throws -> APIEntry {
         guard !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -123,8 +122,7 @@ struct LocalJournalStore {
             createdAt: createdAt,
             transcript: transcript,
             insight: insight,
-            title: title ?? "Entry",
-            healthSnapshot: healthSnapshot
+            title: title ?? "Entry"
         )
 
         var payload = loadPayload(for: userID) ?? []
@@ -235,8 +233,7 @@ struct LocalJournalStore {
             createdAt: originalEntry.createdAt,
             transcript: originalEntry.transcript,
             insight: updatedInsight,
-            title: originalEntry.title,
-            healthSnapshot: originalEntry.healthSnapshot
+            title: originalEntry.title
         )
 
         payload[index] = StoredLocalEntry(
@@ -281,8 +278,7 @@ struct LocalJournalStore {
             createdAt: originalEntry.createdAt,
             transcript: transcript,
             insight: mergedInsight,
-            title: title ?? originalEntry.title,
-            healthSnapshot: originalEntry.healthSnapshot
+            title: title ?? originalEntry.title
         )
 
         payload[index] = StoredLocalEntry(
@@ -324,8 +320,7 @@ struct LocalJournalStore {
             createdAt: originalEntry.createdAt,
             transcript: originalEntry.transcript,
             insight: originalEntry.insight,
-            title: APIEntry.sanitizeTitle(title),
-            healthSnapshot: originalEntry.healthSnapshot
+            title: APIEntry.sanitizeTitle(title)
         )
 
         payload[index] = StoredLocalEntry(
