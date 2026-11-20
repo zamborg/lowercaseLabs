@@ -1,0 +1,38 @@
+{
+  "created_at": "2026-11-08T01:05:15.198620+00:00",
+  "seed": 20261107,
+  "requested_n": 300,
+  "retained_n": 387,
+  "counts": {
+    "clean": {
+      "high_pleasant": 55,
+      "low_pleasant": 60,
+      "high_unpleasant": 60,
+      "low_unpleasant": 60
+    },
+    "hard": {
+      "high_pleasant": 70,
+      "low_pleasant": 30,
+      "high_unpleasant": 17,
+      "low_unpleasant": 35
+    }
+  },
+  "agreement_rate": 0.6072351421188631,
+  "clean_balance_min_over_max": 0.9166666666666666,
+  "clean_balanced_within_10_percent": true,
+  "mixed_n": 77,
+  "word_count_min": 4,
+  "word_count_max": 147,
+  "requested_length_range_misses": 233,
+  "duplicates_removed": [],
+  "cache_hits": 2,
+  "api_calls": 420,
+  "gen_model": "gpt-4.1-mini-2025-04-14",
+  "judge_model": "gpt-4o-2024-08-06",
+  "taxonomy_sha256": "4dfde0a3e577cb6fb4c333352567d5de6014ead4dfc28a9096218475be15816b",
+  "dataset_sha256": "5bfb10e41f0a550b5359e3c223fab15dc5036989944ba242b91ac038560ccde1",
+  "judge_independence": "Different OpenAI model snapshots; blind separate requests, same vendor. Correlated errors remain unmeasured; agreement is not calibrated accuracy.",
+  "label_policy": "Generator target retained. Clean=judge top-1 agrees; hard=disagreement, not adjudicated ground truth.",
+  "seed_policy": "Fixed local random seeds and requested API seed; hosted outputs only reproducible from cache, not guaranteed by seed.",
+  "supplement_policy": "If needed, add examples to underrepresented clean quadrants. Keep all nonduplicate disagreements. No relabeling or balancing by deletion."
+}

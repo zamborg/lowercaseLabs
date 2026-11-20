@@ -1,0 +1,7 @@
+app/TheVoid.xcodeproj/
+app/build/
+.codex-out/
+eval/data/cache/
+eval/tagging/runs/
+eval/tagging/smoke*/
+Model/

@@ -1,0 +1,942 @@
+{
+  "candidate": {
+    "id": "qwen2.5-1.5b",
+    "repo": "mlx-community/Qwen2.5-1.5B-Instruct-4bit",
+    "revision": "8b403126fc14f14cfc99bb4cfa72ecbc129ea677",
+    "parameters_b": 1.5,
+    "bits": 4
+  },
+  "rows": [
+    {
+      "id": "syn-0019",
+      "label": "high_unpleasant",
+      "split": "clean",
+      "judge_label": "high_unpleasant",
+      "mixed": false,
+      "quality_flags": [],
+      "raw": "{\n \"title\": \"Chaos and Exhaustion\",\n \"tags\": [\"high_unpleasant\", \"low_pleasant\"]\n}",
+      "prediction": {
+        "title": "Chaos and Exhaustion",
+        "tags": [
+          "high_unpleasant",
+          "low_pleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 28,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 280,
+      "generation_tps": 55.929007409539324,
+      "latency_s": 0.783346917014569,
+      "ttft_s": 0.27141179190948606,
+      "mlx_peak_gb": 1.351086504,
+      "constraint_calls": 29,
+      "constraint_cpu_s": 0.4144497490487993,
+      "chat_prompt_sha256": "e4c39b2f20851fae1a3a04c046089395eb1512f61a1202113f423e6c2d1129d3"
+    },
+    {
+      "id": "syn-0323",
+      "label": "high_pleasant",
+      "split": "clean",
+      "judge_label": "high_pleasant",
+      "mixed": true,
+      "quality_flags": [],
+      "raw": "{\n \"title\": \"Laughter and Relief\",\n \"tags\": [\"high_pleasant\", \"low_unpleasant\"]\n}",
+      "prediction": {
+        "title": "Laughter and Relief",
+        "tags": [
+          "high_pleasant",
+          "low_unpleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 27,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 318,
+      "generation_tps": 56.087783624959705,
+      "latency_s": 0.7714861670974642,
+      "ttft_s": 0.2796828749123961,
+      "mlx_peak_gb": 1.413083712,
+      "constraint_calls": 28,
+      "constraint_cpu_s": 0.39491979079321027,
+      "chat_prompt_sha256": "b6fafed24fa1c43717de35f165251bfe917e27b0dd63c61f3805ea6404c2a182"
+    },
+    {
+      "id": "syn-0117",
+      "label": "high_pleasant",
+      "split": "clean",
+      "judge_label": "high_pleasant",
+      "mixed": false,
+      "quality_flags": [
+        "long_letter_run"
+      ],
+      "raw": "{\n \"title\": \"Nature's Awakening\",\n \"tags\": [\"high_pleasant\", \"high_unpleasant\"]\n}",
+      "prediction": {
+        "title": "Nature's Awakening",
+        "tags": [
+          "high_pleasant",
+          "high_unpleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 26,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 284,
+      "generation_tps": 59.5287668618002,
+      "latency_s": 0.729904750129208,
+      "ttft_s": 0.2830984580796212,
+      "mlx_peak_gb": 1.358377536,
+      "constraint_calls": 27,
+      "constraint_cpu_s": 0.35820879274979234,
+      "chat_prompt_sha256": "dbcc4e69b347b399d8cc33b893cc837e17e955de47f0e30e7695103d2449974e"
+    },
+    {
+      "id": "syn-0047",
+      "label": "high_unpleasant",
+      "split": "clean",
+      "judge_label": "high_unpleasant",
+      "mixed": false,
+      "quality_flags": [],
+      "raw": "{\n \"title\": \"frustration\",\n \"tags\": [\"high_unpleasant\"]\n}",
+      "prediction": {
+        "title": "frustration",
+        "tags": [
+          "high_unpleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 20,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 248,
+      "generation_tps": 51.97838385902169,
+      "latency_s": 0.6422644590493292,
+      "ttft_s": 0.2474104999564588,
+      "mlx_peak_gb": 1.313567296,
+      "constraint_calls": 21,
+      "constraint_cpu_s": 0.32275154045782983,
+      "chat_prompt_sha256": "71d38357ace99cac97e45c4534fdaa4b04967e588b4821994128bdf50d28b08a"
+    },
+    {
+      "id": "syn-0028",
+      "label": "low_unpleasant",
+      "split": "hard",
+      "judge_label": "high_unpleasant",
+      "mixed": false,
+      "quality_flags": [],
+      "raw": "{\n \"title\": \"Car Wash Adventure\",\n \"tags\": [\"high_pleasant\", \"high_unpleasant\"]\n}",
+      "prediction": {
+        "title": "Car Wash Adventure",
+        "tags": [
+          "high_pleasant",
+          "high_unpleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 26,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 253,
+      "generation_tps": 60.92314382082497,
+      "latency_s": 0.6835422918666154,
+      "ttft_s": 0.24817212484776974,
+      "mlx_peak_gb": 1.321562688,
+      "constraint_calls": 27,
+      "constraint_cpu_s": 0.346815163269639,
+      "chat_prompt_sha256": "ea71ac75957de0719190b18253d9b82863c04088612323d04db7df18c3b27c79"
+    },
+    {
+      "id": "syn-0184",
+      "label": "low_unpleasant",
+      "split": "clean",
+      "judge_label": "low_unpleasant",
+      "mixed": true,
+      "quality_flags": [],
+      "raw": "{\n \"title\": \"Creative Block\",\n \"tags\": [\"high_unpleasant\", \"low_pleasant\"]\n}",
+      "prediction": {
+        "title": "Creative Block",
+        "tags": [
+          "high_unpleasant",
+          "low_pleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 25,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 237,
+      "generation_tps": 62.20779831020897,
+      "latency_s": 0.6632857080549002,
+      "ttft_s": 0.2525001671165228,
+      "mlx_peak_gb": 1.2945946,
+      "constraint_calls": 26,
+      "constraint_cpu_s": 0.32439241791144013,
+      "chat_prompt_sha256": "79ed989229bdc04b81b18b3a8f197c6a3c4646b628639888816e05759f0ca1fc"
+    },
+    {
+      "id": "syn-0129",
+      "label": "high_pleasant",
+      "split": "clean",
+      "judge_label": "high_pleasant",
+      "mixed": false,
+      "quality_flags": [],
+      "raw": "{\n \"title\": \"Yoga Boost\",\n \"tags\": [\"high_pleasant\"]\n}",
+      "prediction": {
+        "title": "Yoga Boost",
+        "tags": [
+          "high_pleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 21,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 237,
+      "generation_tps": 52.899823463508,
+      "latency_s": 0.6540785830002278,
+      "ttft_s": 0.24802608299069107,
+      "mlx_peak_gb": 1.2945946,
+      "constraint_calls": 22,
+      "constraint_cpu_s": 0.33144595683552325,
+      "chat_prompt_sha256": "eb6a56a511425ca2e5f8177101fa8c7264f0660b2d189e781d08e039aa03bcf3"
+    },
+    {
+      "id": "syn-0127",
+      "label": "high_unpleasant",
+      "split": "clean",
+      "judge_label": "high_unpleasant",
+      "mixed": false,
+      "quality_flags": [],
+      "raw": "{\n \"title\": \"Emergency Flooding in Kitchen\",\n \"tags\": [\"high_unpleasant\", \"high_pleasant\"]\n}",
+      "prediction": {
+        "title": "Emergency Flooding in Kitchen",
+        "tags": [
+          "high_unpleasant",
+          "high_pleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 28,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 254,
+      "generation_tps": 55.86084594449377,
+      "latency_s": 0.7614542080555111,
+      "ttft_s": 0.25098645803518593,
+      "mlx_peak_gb": 1.3230864,
+      "constraint_calls": 29,
+      "constraint_cpu_s": 0.41106608510017395,
+      "chat_prompt_sha256": "02cf93cade10051a29e236946676d1fe0a3b8e160196516c2c4023e0bccd9e5a"
+    },
+    {
+      "id": "syn-0276",
+      "label": "low_unpleasant",
+      "split": "clean",
+      "judge_label": "low_unpleasant",
+      "mixed": false,
+      "quality_flags": [],
+      "raw": "{\n \"title\": \"Heating Up\",\n \"tags\": [\"high_pleasant\", \"low_unpleasant\"]\n}",
+      "prediction": {
+        "title": "Heating Up",
+        "tags": [
+          "high_pleasant",
+          "low_unpleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 26,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 347,
+      "generation_tps": 59.71973635517037,
+      "latency_s": 0.7477821251377463,
+      "ttft_s": 0.30362237500958145,
+      "mlx_peak_gb": 1.426715316,
+      "constraint_calls": 27,
+      "constraint_cpu_s": 0.35652104346081614,
+      "chat_prompt_sha256": "8ed866e8065481d57ab8930337c70eeef00177cbd778f1bfebfe2c09e5b1dbd2"
+    },
+    {
+      "id": "syn-0097",
+      "label": "high_pleasant",
+      "split": "hard",
+      "judge_label": "low_pleasant",
+      "mixed": false,
+      "quality_flags": [],
+      "raw": "{\n \"title\": \"Sketches Start and Feel Good\",\n \"tags\": [\"high_pleasant\", \"high_pleasant\"]\n}",
+      "prediction": {
+        "title": "Sketches Start and Feel Good",
+        "tags": [
+          "high_pleasant",
+          "high_pleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 30,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 236,
+      "generation_tps": 56.94652276134401,
+      "latency_s": 0.7890587500296533,
+      "ttft_s": 0.2534891669638455,
+      "mlx_peak_gb": 1.293841052,
+      "constraint_calls": 31,
+      "constraint_cpu_s": 0.43451270926743746,
+      "chat_prompt_sha256": "b2ef96e87323a6bbbe63109ea5e973e598477f15decfaa9ff421c6108317a16e"
+    }
+  ],
+  "status": "complete",
+  "environment": {
+    "python": "3.13.8 (main, Oct 10 2025, 12:46:18) [Clang 20.1.4 ]",
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "macos": "26.5.2",
+    "chip": "Apple M1 Max",
+    "ram_gb": 68.719476736,
+    "mlx_device": "Device(gpu, 0)",
+    "mlx_device_info": {
+      "device_name": "Apple M1 Max",
+      "max_recommended_working_set_size": 55662788608,
+      "memory_size": 68719476736,
+      "architecture": "applegpu_g13s",
+      "max_buffer_length": 41747087360,
+      "resource_limit": 499000
+    },
+    "packages": {
+      "mlx": "0.32.4",
+      "mlx-lm": "0.31.3",
+      "lm-format-enforcer": "0.11.3",
+      "transformers": "5.22.2",
+      "huggingface-hub": "2.4.0",
+      "jsonschema": "4.26.0"
+    }
+  },
+  "download_or_cache_s": 0.000831749988719821,
+  "resolved_revision": "8b403126fc14f14cfc99bb4cfa72ecbc129ea677",
+  "load_s": 0.47975262510590255,
+  "model_config": {
+    "architectures": [
+      "Qwen2ForCausalLM"
+    ],
+    "attention_dropout": 0.0,
+    "bos_token_id": 151643,
+    "eos_token_id": 151645,
+    "hidden_act": "silu",
+    "hidden_size": 1536,
+    "initializer_range": 0.02,
+    "intermediate_size": 8960,
+    "max_position_embeddings": 32768,
+    "max_window_layers": 21,
+    "model_type": "qwen2",
+    "num_attention_heads": 12,
+    "num_hidden_layers": 28,
+    "num_key_value_heads": 2,
+    "quantization": {
+      "group_size": 64,
+      "bits": 4
+    },
+    "rms_norm_eps": 1e-06,
+    "rope_theta": 1000000.0,
+    "sliding_window": 32768,
+    "tie_word_embeddings": true,
+    "torch_dtype": "bfloat16",
+    "transformers_version": "4.43.1",
+    "use_cache": true,
+    "use_sliding_window": false,
+    "vocab_size": 151936
+  },
+  "tokenizer_setup_s": 1.033778249984607,
+  "tokenizer_vocab_size": 151665,
+  "warmups": [
+    {
+      "id": "warmup",
+      "label": "low_pleasant",
+      "split": "unassigned",
+      "judge_label": null,
+      "mixed": null,
+      "quality_flags": null,
+      "raw": "{\n \"title\": \"Relaxed and Soothing\",\n \"tags\": [\"high_pleasant\", \"low_unpleasant\"]\n}",
+      "prediction": {
+        "title": "Relaxed and Soothing",
+        "tags": [
+          "high_pleasant",
+          "low_unpleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 29,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 231,
+      "generation_tps": 54.555908194311975,
+      "latency_s": 0.843111417023465,
+      "ttft_s": 0.300288625061512,
+      "mlx_peak_gb": 1.284337868,
+      "constraint_calls": 30,
+      "constraint_cpu_s": 0.44289537495933473,
+      "chat_prompt_sha256": "cc1a7488ca1e735ed627a4408c63fd952be3481311dfd25522f24842c1d695b8"
+    },
+    {
+      "id": "warmup",
+      "label": "low_pleasant",
+      "split": "unassigned",
+      "judge_label": null,
+      "mixed": null,
+      "quality_flags": null,
+      "raw": "{\n \"title\": \"Relaxed and Soothing\",\n \"tags\": [\"high_pleasant\", \"low_unpleasant\"]\n}",
+      "prediction": {
+        "title": "Relaxed and Soothing",
+        "tags": [
+          "high_pleasant",
+          "low_unpleasant"
+        ]
+      },
+      "schema_valid": true,
+      "error": null,
+      "generation_tokens": 29,
+      "schema_errors": [],
+      "finish_reason": "stop",
+      "prompt_tokens": 231,
+      "generation_tps": 57.78728029349876,
+      "latency_s": 0.7640005419962108,
+      "ttft_s": 0.25266791693866253,
+      "mlx_peak_gb": 1.284337868,
+      "constraint_calls": 30,
+      "constraint_cpu_s": 0.4118839174043387,
+      "chat_prompt_sha256": "cc1a7488ca1e735ed627a4408c63fd952be3481311dfd25522f24842c1d695b8"
+    }
+  ],
+  "metrics": {
+    "n": 10,
+    "schema_valid_rate": 1.0,
+    "completed_n": 10,
+    "errors_n": 0,
+    "truncated_n": 0,
+    "all": {
+      "n": 10,
+      "top1": 0.7,
+      "any_tag": 0.8,
+      "top1_wilson95": [
+        0.39677814746114537,
+        0.8922087325936989
+      ],
+      "macro_top1": 0.6666666666666666,
+      "by_quadrant": {
+        "high_pleasant": {
+          "n": 4,
+          "top1": 1.0,
+          "any_tag": 1.0
+        },
+        "low_pleasant": {
+          "n": 0,
+          "top1": null,
+          "any_tag": null
+        },
+        "high_unpleasant": {
+          "n": 3,
+          "top1": 1.0,
+          "any_tag": 1.0
+        },
+        "low_unpleasant": {
+          "n": 3,
+          "top1": 0.0,
+          "any_tag": 0.3333333333333333
+        }
+      },
+      "confusion": {
+        "high_pleasant": {
+          "high_pleasant": 4,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_pleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "high_unpleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 3,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_unpleasant": {
+          "high_pleasant": 2,
+          "low_pleasant": 0,
+          "high_unpleasant": 1,
+          "low_unpleasant": 0,
+          "invalid": 0
+        }
+      }
+    },
+    "by_split": {
+      "clean": {
+        "n": 8,
+        "top1": 0.75,
+        "any_tag": 0.875,
+        "top1_wilson95": [
+          0.40927543031016883,
+          0.9285207872478909
+        ],
+        "macro_top1": 0.6666666666666666,
+        "by_quadrant": {
+          "high_pleasant": {
+            "n": 3,
+            "top1": 1.0,
+            "any_tag": 1.0
+          },
+          "low_pleasant": {
+            "n": 0,
+            "top1": null,
+            "any_tag": null
+          },
+          "high_unpleasant": {
+            "n": 3,
+            "top1": 1.0,
+            "any_tag": 1.0
+          },
+          "low_unpleasant": {
+            "n": 2,
+            "top1": 0.0,
+            "any_tag": 0.5
+          }
+        },
+        "confusion": {
+          "high_pleasant": {
+            "high_pleasant": 3,
+            "low_pleasant": 0,
+            "high_unpleasant": 0,
+            "low_unpleasant": 0,
+            "invalid": 0
+          },
+          "low_pleasant": {
+            "high_pleasant": 0,
+            "low_pleasant": 0,
+            "high_unpleasant": 0,
+            "low_unpleasant": 0,
+            "invalid": 0
+          },
+          "high_unpleasant": {
+            "high_pleasant": 0,
+            "low_pleasant": 0,
+            "high_unpleasant": 3,
+            "low_unpleasant": 0,
+            "invalid": 0
+          },
+          "low_unpleasant": {
+            "high_pleasant": 1,
+            "low_pleasant": 0,
+            "high_unpleasant": 1,
+            "low_unpleasant": 0,
+            "invalid": 0
+          }
+        }
+      },
+      "hard": {
+        "n": 2,
+        "top1": 0.5,
+        "any_tag": 0.5,
+        "top1_wilson95": [
+          0.09453120573423074,
+          0.9054687942657693
+        ],
+        "macro_top1": 0.5,
+        "by_quadrant": {
+          "high_pleasant": {
+            "n": 1,
+            "top1": 1.0,
+            "any_tag": 1.0
+          },
+          "low_pleasant": {
+            "n": 0,
+            "top1": null,
+            "any_tag": null
+          },
+          "high_unpleasant": {
+            "n": 0,
+            "top1": null,
+            "any_tag": null
+          },
+          "low_unpleasant": {
+            "n": 1,
+            "top1": 0.0,
+            "any_tag": 0.0
+          }
+        },
+        "confusion": {
+          "high_pleasant": {
+            "high_pleasant": 1,
+            "low_pleasant": 0,
+            "high_unpleasant": 0,
+            "low_unpleasant": 0,
+            "invalid": 0
+          },
+          "low_pleasant": {
+            "high_pleasant": 0,
+            "low_pleasant": 0,
+            "high_unpleasant": 0,
+            "low_unpleasant": 0,
+            "invalid": 0
+          },
+          "high_unpleasant": {
+            "high_pleasant": 0,
+            "low_pleasant": 0,
+            "high_unpleasant": 0,
+            "low_unpleasant": 0,
+            "invalid": 0
+          },
+          "low_unpleasant": {
+            "high_pleasant": 1,
+            "low_pleasant": 0,
+            "high_unpleasant": 0,
+            "low_unpleasant": 0,
+            "invalid": 0
+          }
+        }
+      }
+    },
+    "hard_vs_judge": {
+      "n": 2,
+      "top1": 0.0,
+      "any_tag": 0.5,
+      "top1_wilson95": [
+        0,
+        0.6576197724933469
+      ],
+      "macro_top1": 0.0,
+      "by_quadrant": {
+        "high_pleasant": {
+          "n": 0,
+          "top1": null,
+          "any_tag": null
+        },
+        "low_pleasant": {
+          "n": 1,
+          "top1": 0.0,
+          "any_tag": 0.0
+        },
+        "high_unpleasant": {
+          "n": 1,
+          "top1": 0.0,
+          "any_tag": 1.0
+        },
+        "low_unpleasant": {
+          "n": 0,
+          "top1": null,
+          "any_tag": null
+        }
+      },
+      "confusion": {
+        "high_pleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_pleasant": {
+          "high_pleasant": 1,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "high_unpleasant": {
+          "high_pleasant": 1,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_unpleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        }
+      }
+    },
+    "clean_without_long_letter_runs": {
+      "n": 7,
+      "top1": 0.7142857142857143,
+      "any_tag": 0.8571428571428571,
+      "top1_wilson95": [
+        0.35893445183261935,
+        0.9177810759959433
+      ],
+      "macro_top1": 0.6666666666666666,
+      "by_quadrant": {
+        "high_pleasant": {
+          "n": 2,
+          "top1": 1.0,
+          "any_tag": 1.0
+        },
+        "low_pleasant": {
+          "n": 0,
+          "top1": null,
+          "any_tag": null
+        },
+        "high_unpleasant": {
+          "n": 3,
+          "top1": 1.0,
+          "any_tag": 1.0
+        },
+        "low_unpleasant": {
+          "n": 2,
+          "top1": 0.0,
+          "any_tag": 0.5
+        }
+      },
+      "confusion": {
+        "high_pleasant": {
+          "high_pleasant": 2,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_pleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "high_unpleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 3,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_unpleasant": {
+          "high_pleasant": 1,
+          "low_pleasant": 0,
+          "high_unpleasant": 1,
+          "low_unpleasant": 0,
+          "invalid": 0
+        }
+      }
+    },
+    "flagged_long_letter_runs": {
+      "n": 1,
+      "top1": 1.0,
+      "any_tag": 1.0,
+      "top1_wilson95": [
+        0.20654931437723745,
+        1
+      ],
+      "macro_top1": 1.0,
+      "by_quadrant": {
+        "high_pleasant": {
+          "n": 1,
+          "top1": 1.0,
+          "any_tag": 1.0
+        },
+        "low_pleasant": {
+          "n": 0,
+          "top1": null,
+          "any_tag": null
+        },
+        "high_unpleasant": {
+          "n": 0,
+          "top1": null,
+          "any_tag": null
+        },
+        "low_unpleasant": {
+          "n": 0,
+          "top1": null,
+          "any_tag": null
+        }
+      },
+      "confusion": {
+        "high_pleasant": {
+          "high_pleasant": 1,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_pleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "high_unpleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_unpleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        }
+      }
+    },
+    "mixed": {
+      "n": 2,
+      "top1": 0.5,
+      "any_tag": 0.5,
+      "top1_wilson95": [
+        0.09453120573423074,
+        0.9054687942657693
+      ],
+      "macro_top1": 0.5,
+      "by_quadrant": {
+        "high_pleasant": {
+          "n": 1,
+          "top1": 1.0,
+          "any_tag": 1.0
+        },
+        "low_pleasant": {
+          "n": 0,
+          "top1": null,
+          "any_tag": null
+        },
+        "high_unpleasant": {
+          "n": 0,
+          "top1": null,
+          "any_tag": null
+        },
+        "low_unpleasant": {
+          "n": 1,
+          "top1": 0.0,
+          "any_tag": 0.0
+        }
+      },
+      "confusion": {
+        "high_pleasant": {
+          "high_pleasant": 1,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_pleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "high_unpleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_unpleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 1,
+          "low_unpleasant": 0,
+          "invalid": 0
+        }
+      }
+    },
+    "not_mixed": {
+      "n": 8,
+      "top1": 0.75,
+      "any_tag": 0.875,
+      "top1_wilson95": [
+        0.40927543031016883,
+        0.9285207872478909
+      ],
+      "macro_top1": 0.6666666666666666,
+      "by_quadrant": {
+        "high_pleasant": {
+          "n": 3,
+          "top1": 1.0,
+          "any_tag": 1.0
+        },
+        "low_pleasant": {
+          "n": 0,
+          "top1": null,
+          "any_tag": null
+        },
+        "high_unpleasant": {
+          "n": 3,
+          "top1": 1.0,
+          "any_tag": 1.0
+        },
+        "low_unpleasant": {
+          "n": 2,
+          "top1": 0.0,
+          "any_tag": 0.5
+        }
+      },
+      "confusion": {
+        "high_pleasant": {
+          "high_pleasant": 3,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_pleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "high_unpleasant": {
+          "high_pleasant": 0,
+          "low_pleasant": 0,
+          "high_unpleasant": 3,
+          "low_unpleasant": 0,
+          "invalid": 0
+        },
+        "low_unpleasant": {
+          "high_pleasant": 2,
+          "low_pleasant": 0,
+          "high_unpleasant": 0,
+          "low_unpleasant": 0,
+          "invalid": 0
+        }
+      }
+    },
+    "latency_s": {
+      "median": 0.7388434376334772,
+      "p95": 0.7890587500296533,
+      "completed_n": 10,
+      "definition": "Wall time from prompt rendering through full constrained output and GPU synchronization; excludes load, tokenizer trie setup, warmup, checkpoint I/O"
+    },
+    "generation_tps_median": 56.517153193151856,
+    "end_to_end_tps": 35.565007774854756,
+    "ttft_s_median": 0.25299466704018414,
+    "mlx_peak_gb": 1.426715316,
+    "two_tags_rate": 0.8,
+    "duplicate_tags_n": 1,
+    "blank_titles_n": 0,
+    "title_chars_median": 18.0
+  },
+  "process_peak_rss_gb": 1.325809664
+}

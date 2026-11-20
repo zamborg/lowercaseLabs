@@ -1,0 +1,149 @@
+import Foundation
+import WERCore
+
+struct FileResult: Encodable {
+    let file: String
+    let source: Reference.Source
+    let reference: String
+    let hypothesis: String?
+    let score: WordErrorScore?
+    let audioDurationSeconds: Double?
+    let timeToFinalSeconds: Double?
+    let realTimeFactor: Double?
+    let finalResultCount: Int?
+    let error: String?
+
+    init(reference: Reference, transcription: Transcription? = nil, error: String? = nil) {
+        file = reference.file
+        source = reference.source ?? .unspecified
+        self.reference = reference.text
+        hypothesis = transcription?.text
+        score = transcription.map { WordErrorRate.score(reference: reference.text, hypothesis: $0.text) }
+        audioDurationSeconds = transcription?.audioDurationSeconds
+        timeToFinalSeconds = transcription?.timeToFinalSeconds
+        realTimeFactor = transcription.map { $0.timeToFinalSeconds / $0.audioDurationSeconds }
+        finalResultCount = transcription?.finalResultCount
+        self.error = error
+    }
+}
+
+struct Report: Encodable {
+    let schemaVersion = 1
+    let generatedAt = Date()
+    let engine = "Apple SpeechAnalyzer + SpeechTranscriber (.transcription), final results only"
+    let locale = "en-US"
+    let operatingSystem = ProcessInfo.processInfo.operatingSystemVersionString
+    #if DEBUG
+    let buildConfiguration = "debug"
+    #else
+    let buildConfiguration = "release"
+    #endif
+    let audioDirectory: String
+    let referenceManifest: String
+    let initialAssetStatus: String?
+    let setupSeconds: Double?
+    let perFileTimeoutSeconds: Double
+    let runError: String?
+    let files: [FileResult]
+    let summary: Summary
+    let timingDefinition = "Wall seconds from per-file setup (including file opening, module/analyzer creation, lazy model loading, decode/conversion and analysis) through finalization and draining the final-result stream. Asset setup/download excluded. Files are processed as fast as possible, without real-time pacing."
+    let normalization = "Canonical Unicode composition; en-US POSIX lowercase; remove Unicode punctuation and symbols; split on Unicode whitespace. No number expansion, accent folding or filler removal. Empty-reference WER is undefined."
+
+    struct Summary: Encodable {
+        let requestedFiles: Int
+        let successfulFiles: Int
+        let failedFiles: Int
+        let syntheticFiles: Int
+        let recordedFiles: Int
+        let unspecifiedFiles: Int
+        let score: WordErrorScore
+        let audioDurationSeconds: Double
+        let totalTimeToFinalSeconds: Double
+        let meanTimeToFinalSeconds: Double?
+        let realTimeFactor: Double?
+
+        init(files: [FileResult]) {
+            requestedFiles = files.count
+            successfulFiles = files.filter { $0.error == nil }.count
+            failedFiles = requestedFiles - successfulFiles
+            syntheticFiles = files.filter { $0.source == .synthetic }.count
+            recordedFiles = files.filter { $0.source == .recorded }.count
+            unspecifiedFiles = files.filter { $0.source == .unspecified }.count
+            score = .aggregate(files.compactMap(\.score))
+            audioDurationSeconds = files.compactMap(\.audioDurationSeconds).reduce(0, +)
+            totalTimeToFinalSeconds = files.compactMap(\.timeToFinalSeconds).reduce(0, +)
+            meanTimeToFinalSeconds = successfulFiles > 0 ? totalTimeToFinalSeconds / Double(successfulFiles) : nil
+            realTimeFactor = audioDurationSeconds > 0 ? totalTimeToFinalSeconds / audioDurationSeconds : nil
+        }
+    }
+
+    init(options: Options, setup: SpeechSetup?, runError: String?, files: [FileResult]) {
+        audioDirectory = options.audio.path
+        referenceManifest = options.reference.path
+        initialAssetStatus = setup?.initialAssetStatus
+        setupSeconds = setup?.setupSeconds
+        perFileTimeoutSeconds = options.timeout
+        self.runError = runError
+        self.files = files
+        summary = Summary(files: files)
+    }
+
+    func write(to directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(self).write(to: directory.appendingPathComponent("results.json"), options: .atomic)
+        try markdown.write(to: directory.appendingPathComponent("wer.md"), atomically: true, encoding: .utf8)
+    }
+
+    var markdown: String {
+        var lines = ["# Transcription evaluation", "", "Generated: \(generatedAt.ISO8601Format())", "",
+                     "Engine: \(engine). Locale: \(locale). Host: \(operatingSystem). Build: \(buildConfiguration).", ""]
+        if summary.syntheticFiles > 0 {
+            lines += ["**SYNTHETIC AUDIO: \(summary.syntheticFiles) of \(summary.requestedFiles) clips were generated by text-to-speech. These results do not establish accuracy on real recordings.**", ""]
+        }
+        if summary.unspecifiedFiles > 0 {
+            lines += ["Provenance unspecified for \(summary.unspecifiedFiles) clips. Set `source` in the manifest.", ""]
+        }
+        if let runError { lines += ["**Run failed:** \(escape(runError))", ""] }
+        lines += ["Coverage: **\(summary.successfulFiles)/\(summary.requestedFiles)** clips succeeded; \(summary.failedFiles) failed. Failed clips are excluded from all aggregate metrics.", "",
+                  "- Corpus WER: **\(percent(summary.score.wer))** (\(summary.score.errorCount) edits / \(summary.score.referenceWordCount) reference words).",
+                  "- Edits: \(summary.score.substitutions) substitutions, \(summary.score.deletions) deletions, \(summary.score.insertions) insertions.",
+                  "- Mean time-to-final: **\(number(summary.meanTimeToFinalSeconds)) s**; total: \(number(summary.totalTimeToFinalSeconds)) s.",
+                  "- Corpus real-time factor: **\(number(summary.realTimeFactor))** (total time-to-final / \(number(summary.audioDurationSeconds)) s successful audio).",
+                  "- Initial asset status: \(initialAssetStatus ?? "unverified"); setup: \(number(setupSeconds)) s (excluded).", "",
+                  "| File | Source | WER | S / D / I | Audio (s) | Time-to-final (s) | RTF | Status |",
+                  "| --- | --- | ---: | --- | ---: | ---: | ---: | --- |"]
+        for file in files {
+            let edits = file.score.map { "\($0.substitutions) / \($0.deletions) / \($0.insertions)" } ?? "—"
+            lines.append("| \(escape(file.file)) | \(file.source.rawValue) | \(percent(file.score?.wer)) | \(edits) | \(number(file.audioDurationSeconds)) | \(number(file.timeToFinalSeconds)) | \(number(file.realTimeFactor)) | \(escape(file.error ?? "ok")) |")
+        }
+        lines += ["", "## Metric definitions", "", normalization, "", timingDefinition, "",
+                  "Time-to-final is file-processing completion latency, not latency after a live speaker releases the record button. RTF below 1 means faster than audio duration. Corpus WER and RTF use sums, not averages of clip ratios. WER may exceed 100%. Undefined/unavailable values display as N/A and are omitted from JSON. Each clip gets a new analyzer with default model retention; OS caches may affect later clips. These Mac timings do not establish iPhone 14 Pro performance.", "",
+                  "## Transcripts", ""]
+        for file in files {
+            lines += ["### \(escape(file.file)) (\(file.source.rawValue))", "",
+                      "Reference: \(escape(file.reference))", "",
+                      "Final hypothesis: \(file.hypothesis.map(escape) ?? "unavailable")", ""]
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
+func number(_ value: Double?) -> String {
+    value.map { String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), $0) } ?? "N/A"
+}
+
+func percent(_ value: Double?) -> String {
+    value.map { String(format: "%.2f%%", locale: Locale(identifier: "en_US_POSIX"), $0 * 100) } ?? "N/A"
+}
+
+private func escape(_ text: String) -> String {
+    text.replacingOccurrences(of: "&", with: "&amp;")
+        .replacingOccurrences(of: "<", with: "&lt;")
+        .replacingOccurrences(of: ">", with: "&gt;")
+        .replacingOccurrences(of: "|", with: "&#124;")
+        .replacingOccurrences(of: "\n", with: " ")
+        .replacingOccurrences(of: "\r", with: " ")
+}
