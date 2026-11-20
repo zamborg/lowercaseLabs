@@ -1,6 +1,0 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-pydantic
-alembic
-python-multipart

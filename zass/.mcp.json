@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "zass": {
-      "command": "uv",
-      "args": ["run", "--project", "mcp/zass", "zass-mcp"]
-    }
-  }
-}

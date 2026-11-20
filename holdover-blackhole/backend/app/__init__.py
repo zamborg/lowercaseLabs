@@ -1,2 +1,0 @@
-"""blackhole backend package."""
-

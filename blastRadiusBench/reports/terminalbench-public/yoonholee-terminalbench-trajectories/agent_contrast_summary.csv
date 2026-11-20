@@ -1,5 +1,0 @@
-agent_a,agent_b,success_a,success_b,success_gap,mean_tool_calls_a,mean_tool_calls_b,tool_call_gap,switch_rate_a,switch_rate_b,switch_rate_gap,repeat_rate_a,repeat_rate_b,repeat_rate_gap,entropy_a,entropy_b,entropy_gap,process_gap_score
-terminus-2,gemini-cli,0.3358,0.3352,0.0006,40.2291,7.2786,32.9505,0.0909,0.5496,0.4587,0.2356,0.259,0.0234,0.3879,1.025,0.6371,48.1885
-terminus-3-3,judy,0.7486,0.7191,0.0295,34.0868,15.782,18.3048,0.1045,0.3702,0.2657,0.2429,0.7528,0.5099,0.4607,1.2869,0.8262,41.8258
-codex,claude-code,0.4522,0.4033,0.0489,6.0243,27.881,21.8567,0.1452,0.522,0.3768,0.0802,0.2714,0.1912,0.2269,1.2759,1.049,41.3017
-judy,deepagent-harbor,0.7191,0.6767,0.0424,15.782,26.3764,10.5944,0.3702,0.398,0.0278,0.7528,0.2038,0.549,1.2869,1.2521,0.0348,25.1884
