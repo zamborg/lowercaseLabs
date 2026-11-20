@@ -1,0 +1,21 @@
+{
+  "name": "pia-pastry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A guarded, low-latency Hotplate drop runner for Butter & Crumble.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "pia": "node src/cli.mjs",
+    "install-browser": "playwright install chromium",
+    "setup": "node src/cli.mjs setup",
+    "watch": "node src/cli.mjs watch",
+    "rehearse": "node src/cli.mjs rehearse",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "playwright": "1.62.0"
+  }
+}
