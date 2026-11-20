@@ -1,0 +1,25 @@
+{
+  "as_of": "2026-11-08",
+  "status": "Brainstorming cases, separate from the initial financial planning base; no cars selected or available inventory promised.",
+  "currency": "USD",
+  "vehicles": {
+    "miata": {"name": "2019–2022 Mazda MX-5 Miata Club 6-speed", "purchase_low": 25000, "purchase_high": 30000, "target": 27000, "annual_maintenance_low": 1000, "annual_maintenance_high": 2000},
+    "911": {"name": "1987–1989 Porsche 911 Carrera coupe G50", "purchase_low": 80000, "purchase_high": 110000, "target": 95000, "annual_maintenance_low": 4000, "annual_maintenance_high": 7000},
+    "silverado": {"name": "Used 2024 Chevrolet Silverado EV Work Truck", "purchase_low": 40000, "purchase_high": 50000, "target": 45000, "annual_maintenance_low": 1000, "annual_maintenance_high": 2000},
+    "850i": {"name": "1991–1992 BMW 850i 6-speed V12", "purchase_low": 30000, "purchase_high": 45000, "target": 35000, "annual_maintenance_low": 4000, "annual_maintenance_high": 8000},
+    "12c": {"name": "McLaren MP4-12C coupe / 12C", "purchase_low": 80000, "purchase_high": 110000, "target": 95000, "annual_maintenance_low": 10000, "annual_maintenance_high": 18000},
+    "360": {"name": "Ferrari 360 Modena factory gated manual", "purchase_low": 110000, "purchase_high": 145000, "target": 125000, "annual_maintenance_low": 8000, "annual_maintenance_high": 15000}
+  },
+  "scenarios": [
+    {"id": "A", "name": "The shared third garage", "vehicles": ["miata", "911", "silverado", "850i"], "initial_mechanical_work": 20000, "buyer_and_dealer_fee_allowance": 5000, "inspection_and_transport": 6000, "repair_cash_earmark": 35000},
+    {"id": "B", "name": "One spaceship", "vehicles": ["miata", "911", "silverado", "12c"], "initial_mechanical_work": 30000, "buyer_and_dealer_fee_allowance": 6000, "inspection_and_transport": 8000, "repair_cash_earmark": 50000},
+    {"id": "C", "name": "The gated Ferrari garage", "vehicles": ["miata", "911", "silverado", "360"], "initial_mechanical_work": 30000, "buyer_and_dealer_fee_allowance": 7000, "inspection_and_transport": 8000, "repair_cash_earmark": 50000}
+  ],
+  "limits": [
+    "Purchase bands and targets are editorial search budgets inferred from a small set of specific observed results and asks, not statistical market valuations or executable offers. Source details are in docs/sample-fleets.md.",
+    "Maintenance ranges are unquoted annual funding allowances for low-mileage recreational use of already-sorted cars, including servicing/wear/minor repairs. They exclude storage, insurance, fuel/electricity, depreciation, major failures and initial catch-up work; no statistical confidence implied.",
+    "Setup arithmetic uses acquisition tax, formation/setup and initial management fee from finance/assumptions.json. Fee, transport and initial work allowances are additional estimates; replace them with listing-specific fees/quotes. No tax credits, incentives or resale gains assumed.",
+    "Repair cash is held in the bank and is not counted as spending. Cash shown after setup excludes future operating spend; preserve an operating buffer separately. Neither repair earmark estimates a maximum potential loss.",
+    "Model figures retain the initial $10k management setup fee for comparability; member-led coordination could change that if the founder decides. These cases do not automatically change insurance or other recurring base inputs."
+  ]
+}

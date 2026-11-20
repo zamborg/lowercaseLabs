@@ -1,0 +1,43 @@
+{
+  "as_of": "2026-11-08",
+  "currency": "USD",
+  "status": "Illustrative planning assumptions; no quotes or commitments unless a source explicitly says advertised pricing.",
+  "member_counts": [8, 10],
+  "monthly_dues_options": [400, 450, 500],
+  "capital_per_member": 50000,
+  "fleet_purchase_allocations": [
+    {"role": "Approachable roadster", "ceiling": 30000},
+    {"role": "Distinct sports car", "ceiling": 65000},
+    {"role": "Classic anchor", "ceiling": 110000},
+    {"role": "Contrasting experience", "ceiling": 40000}
+  ],
+  "acquisition_tax_rate": 0.09,
+  "one_time_costs": {
+    "inspections_and_transport": 4000,
+    "initial_mechanical_work": 20000,
+    "formation_and_setup": 10000,
+    "initial_management_fee": 10000
+  },
+  "monthly_costs": {
+    "storage_per_car": 500,
+    "insurance_per_car": 375,
+    "routine_maintenance_per_car": 250,
+    "administration_and_bookkeeping": 300,
+    "management": 1000,
+    "operating_contingency": 500
+  },
+  "annual_entity_tax": 800,
+  "monthly_repair_reserve_contribution": 500,
+  "initial_repair_reserve": 25000,
+  "operating_buffer_months": 6,
+  "annual_miles_per_car": 3000,
+  "sources_and_limits": {
+    "storage_per_car": "AutoKeep advertises $500/month for multiple indoor cars, checked 2026-11-08: https://www.theautokeep.com/ . Shared-club eligibility, availability and extra fees unconfirmed.",
+    "annual_entity_tax": "California FTB LLC overview: https://www.ftb.ca.gov/file/business/types/limited-liability-company/index.html . $800 modeled only if an LLC is selected; other taxes/fees not determined.",
+    "all_other_costs": "Unquoted planning inputs. Purchase allocations are ceilings, not vehicle appraisals or current market estimates. Initial management fee and monthly management are separate hypothetical payments, not approved compensation.",
+    "tax": "9% acquisition rate is a sensitivity placeholder. Actual jurisdiction, use classification, and tax on acquisition versus receipts require accountant confirmation; taxes on usage receipts are not modeled.",
+    "reserve": "Repair contributions are earmarking of cash, not an external expense. Funding need includes saving this amount; total bank cash decreases only by external cash costs less revenue. Routine maintenance excludes major repairs covered by reserves.",
+    "mileage": "3000 annual miles per car is a planning scenario, not an insurer limit or forecast. Maintenance is a flat placeholder at this scenario's mileage; adjust costs with usage rather than treating extra miles as free.",
+    "excluded": "Driver-paid fuel, depreciation/appreciation, capital opportunity cost, debt, major uninsured losses, usage taxes, unquoted lease deposits/fit-out, and professional fees beyond the placeholder allocations. Contingency is budgeted as spent; unspent contingency would improve cash. This is not a full economic return model."
+  }
+}
