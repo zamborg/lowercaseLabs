@@ -29,6 +29,9 @@ build/
 
 # Local tool state
 .claude/
+!/phone-control/.claude/
+/phone-control/.claude/*
+!/phone-control/.claude/skills/
 .trust-engine-data/
 
 # Xcode and test artifacts
