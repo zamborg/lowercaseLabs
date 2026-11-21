@@ -6,6 +6,12 @@ import ControllrCore
 /// Native modules and contact resolution. Permissions are requested from the Setup screen, never here.
 struct NativeExecutor: ModuleExecutor {
     func prepare(_ module: Module, arguments: [String: JSONValue]) async throws -> [String: JSONValue] {
+        if module.id == "start_timer" {
+            var out = arguments
+            let m = Int(arguments["minutes"]?.numberValue ?? 0), sec = Int(arguments["seconds"]?.numberValue ?? 0)
+            out["seconds_total"] = .string(String(max(1, m * 60 + sec)))
+            return out
+        }
         guard module.id == "send_message", let who = arguments["recipient"]?.stringValue else { return arguments }
         let c = try Contacts.resolve(who)
         var out = arguments

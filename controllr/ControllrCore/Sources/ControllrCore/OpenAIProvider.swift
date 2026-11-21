@@ -17,8 +17,8 @@ public struct OpenAIProvider: LLMProvider {
 
     private var headers: [String: String] { ["Authorization": "Bearer \(apiKey)"] }
 
-    func requestBody(system: String, transcript: String, tools: [ToolSpec]) -> JSONValue {
-        .object([
+    func requestBody(system: String, transcript: String, tools: [ToolSpec], reasoningNone: Bool = true) -> JSONValue {
+        var body: [String: JSONValue] = [
             "model": .string(model),
             "messages": .array([
                 .object(["role": .string("system"), "content": .string(system)]),
@@ -31,14 +31,23 @@ public struct OpenAIProvider: LLMProvider {
             "tool_choice": .string("required"),
             "parallel_tool_calls": .bool(false),
             "max_completion_tokens": .number(Double(maxTokens)),
-        ])
+        ]
+        // Routing needs no thinking, and some models reject tools while reasoning is on.
+        if reasoningNone { body["reasoning_effort"] = .string("none") }
+        return .object(body)
     }
 
     public func route(system: String, transcript: String, tools: [ToolSpec]) async throws -> ToolCall {
-        let req = jsonRequest(url: "https://api.openai.com/v1/chat/completions", headers: headers,
-                              body: requestBody(system: system, transcript: transcript, tools: tools), timeout: timeout)
-        let json = try checked(try await transport.send(req))
-        return try Self.parseToolCall(json)
+        func attempt(_ none: Bool) async throws -> JSONValue {
+            let req = jsonRequest(url: "https://api.openai.com/v1/chat/completions", headers: headers,
+                                  body: requestBody(system: system, transcript: transcript, tools: tools, reasoningNone: none), timeout: timeout)
+            return try checked(try await transport.send(req))
+        }
+        do { return try Self.parseToolCall(try await attempt(true)) }
+        catch ProviderError.http(let status, let body) where status == 400 && body.contains("reasoning_effort") {
+            // Model doesn't accept reasoning_effort "none" (older models): retry without it.
+            return try Self.parseToolCall(try await attempt(false))
+        }
     }
 
     static func parseToolCall(_ json: JSONValue) throws -> ToolCall {

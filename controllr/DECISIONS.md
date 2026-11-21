@@ -11,3 +11,12 @@
 - Native modules that need to open something (tel:, Maps, Uber) return `open_url` / `open_url_confirm` decisions; the router opens the URL (a background App Intent can't). Confirmation is encoded in which id is returned, so the router needs no runtime confirm If.
 - Shortcut modules that need resolution (send_message: contact name -> number) go through `ModuleExecutor.prepare` inside Decide before the decision is returned.
 - Uber deep link format is unverified (no network access to Uber's docs from the agent); check on device.
+
+## Phase 4 (router + modules)
+- Router is inline `If Module Text is <id>` branches, one per module; no Run Shortcut. Voice router = `Controllr · Router` (Dictate Text); `Controllr · Test *` are the same flow with fixed text + alert instead of speech, for testing via iPhone Mirroring.
+- OpenAI: send `reasoning_effort: "none"` (gpt-6-luna rejects tools while reasoning is on); retry without it if the API 400s on that param. Eval gpt-6-luna: 52/52 (see evals/RESULTS.md), p50 ~1.0 s.
+- Timer: the Start Timer duration field cannot take a variable (it shows "Ask each time", a 15:00 picker). Router enumerates durations (10/15/20/30/45 s, 1–120 min) as literal branches keyed on `seconds_total`, computed in `NativeExecutor.prepare`. Minute values use Unit "min"; Unit "sec" is unverified.
+- Verified identifiers/params on device: pausemusic (WFPlayPauseBehavior), skipforward/skipback, timer.start, flashlight (WFFlashlightSetting), openurl, dnd.set (Enabled + FocusModes{DisplayString,Identifier}).
+- NOT working yet: set_alarm (action `com.apple.mobiletimer-framework.MobileTimerIntents.MTCreateAlarmIntent` is recognised but its Time/Label param keys are unknown), create_note (no identifier found), send_message recipients (literal formats all render empty; variable-based form in the router is untested). These branches say "That isn't set up yet" (alarm/note). Needs an exemplar exported from a hand-built shortcut.
+- Reading a stuck editor list through iPhone Mirroring: scroll gestures don't work; deleting the top actions shows the ones below.
+- Importing the same shortcut name repeatedly via Replace creates numbered copies on the phone ("Test Timer 1/2/3", "Router 2"); the newest number is current.
