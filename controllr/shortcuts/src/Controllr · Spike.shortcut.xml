@@ -12,7 +12,7 @@
 				<key>CustomOutputName</key>
 				<string>Dict</string>
 				<key>UUID</key>
-				<string>65DEE9C5-2EC1-4E76-990F-F271EE5A4F07</string>
+				<string>A9C530D5-0329-4DBB-BACA-5BDBE9FC9ADA</string>
 				<key>WFInput</key>
 				<dict>
 					<key>Value</key>
@@ -33,7 +33,7 @@
 				<key>CustomOutputName</key>
 				<string>Echo</string>
 				<key>UUID</key>
-				<string>0BC54178-BC04-4FD7-9BC9-642F73B5B010</string>
+				<string>D1618A5E-61A3-419F-8B8F-A95D4A61AF7E</string>
 				<key>WFDictionaryKey</key>
 				<string>echo</string>
 				<key>WFInput</key>
@@ -43,7 +43,7 @@
 						<key>OutputName</key>
 						<string>Dict</string>
 						<key>OutputUUID</key>
-						<string>65DEE9C5-2EC1-4E76-990F-F271EE5A4F07</string>
+						<string>A9C530D5-0329-4DBB-BACA-5BDBE9FC9ADA</string>
 						<key>Type</key>
 						<string>ActionOutput</string>
 					</dict>
@@ -70,7 +70,7 @@
 								<key>OutputName</key>
 								<string>Echo</string>
 								<key>OutputUUID</key>
-								<string>0BC54178-BC04-4FD7-9BC9-642F73B5B010</string>
+								<string>D1618A5E-61A3-419F-8B8F-A95D4A61AF7E</string>
 								<key>Type</key>
 								<string>ActionOutput</string>
 							</dict>

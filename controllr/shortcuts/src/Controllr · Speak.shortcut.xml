@@ -12,7 +12,7 @@
 				<key>CustomOutputName</key>
 				<string>Dict</string>
 				<key>UUID</key>
-				<string>08E542B8-1243-4949-BC3C-83A2522D9A75</string>
+				<string>0C76AB60-192B-40B1-ABB9-3DDE91703B6D</string>
 				<key>WFInput</key>
 				<dict>
 					<key>Value</key>
@@ -33,7 +33,7 @@
 				<key>CustomOutputName</key>
 				<string>Speak</string>
 				<key>UUID</key>
-				<string>EBD3D3EE-219A-4CD8-9256-C597A5CADF99</string>
+				<string>515C43DB-A4D9-499F-B671-D49053D281CA</string>
 				<key>WFDictionaryKey</key>
 				<string>speak</string>
 				<key>WFInput</key>
@@ -43,7 +43,7 @@
 						<key>OutputName</key>
 						<string>Dict</string>
 						<key>OutputUUID</key>
-						<string>08E542B8-1243-4949-BC3C-83A2522D9A75</string>
+						<string>0C76AB60-192B-40B1-ABB9-3DDE91703B6D</string>
 						<key>Type</key>
 						<string>ActionOutput</string>
 					</dict>
@@ -68,7 +68,7 @@
 								<key>OutputName</key>
 								<string>Speak</string>
 								<key>OutputUUID</key>
-								<string>EBD3D3EE-219A-4CD8-9256-C597A5CADF99</string>
+								<string>515C43DB-A4D9-499F-B671-D49053D281CA</string>
 								<key>Type</key>
 								<string>ActionOutput</string>
 							</dict>
