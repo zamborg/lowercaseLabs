@@ -72,7 +72,8 @@ def router(text=None):
     # send_message
     bt, bn = pk("body"); rt, rn = pk("recipient")
     A += iff(modt, modn, "send_message", [confirm(), act("is.workflow.actions.sendmessage",
-        {"WFSendMessageContent": text_ref(bt, bn), "WFSendMessageActionRecipients": text_ref(rt, rn), "ShowWhenRun": False})])
+        {"WFSendMessageContent": text_ref(bt, bn), "WFSendMessageActionRecipients": text_ref(rt, rn),
+        "IntentAppDefinition": {"BundleIdentifier": "com.apple.MobileSMS", "Name": "Messages", "TeamIdentifier": "0000000000"}})])
     # media_control
     ct, cn = pk("command")
     media = (iff(ct, cn, "play", [act("is.workflow.actions.pausemusic", {"WFPlayPauseBehavior": "Play"})])
@@ -83,7 +84,7 @@ def router(text=None):
     # start_timer: Decide supplies total seconds in "seconds_total"
     tt, tn = pk("seconds_total")
     # Quantity fields can't take a variable (shows "Ask each time"), so enumerate durations.
-    secs = [10, 15, 20, 30, 45] + [60 * m for m in range(1, 121)]
+    secs = ([10, 15, 20, 30, 45] + [60 * m for m in list(range(1, 31)) + [35, 40, 45, 50, 60, 75, 90, 120]]) if text is None else [300]
     def timer(n):
         u, m = ("min", n // 60) if n % 60 == 0 else ("sec", n)
         return act("is.workflow.actions.timer.start", {"WFDuration": {"Value": {"Unit": u, "Magnitude": m}, "WFSerializationType": "WFQuantityFieldValue"}})
@@ -100,15 +101,31 @@ def router(text=None):
     lt, ln = pk("on")
     A += iff(modt, modn, "flashlight", iff(lt, ln, "0", [act("is.workflow.actions.flashlight", {"WFFlashlightSetting": "Off"})])
                                       + iff(lt, ln, "1", [act("is.workflow.actions.flashlight", {"WFFlashlightSetting": "On"})]))
-    # not yet supported via shortcut actions (see DECISIONS.md)
-    for m in ("set_alarm", "create_note"):
-        n = U()
-        A += iff(modt, modn, m, [act("is.workflow.actions.gettext", {"WFTextActionText": "That isn't set up yet.", "UUID": n, "CustomOutputName": "Msg"}), say(n, "Msg")])
+    # set_alarm / create_note: parameter shapes copied from exported exemplars (shortcuts/exemplars/)
+    at, an = pk("time"); lt2, ln2 = pk("label")
+    A += iff(modt, modn, "set_alarm", [act("com.apple.mobiletimer-framework.MobileTimerIntents.MTCreateAlarmIntent", {
+        "AppIntentDescriptor": {"AppIntentIdentifier": "CreateAlarmIntent", "BundleIdentifier": "com.apple.mobiletimer", "Name": "Clock", "TeamIdentifier": "0000000000"},
+        "dateComponents": text_ref(at, an), "name": text_ref(lt2, ln2)})])
+    nt, nn = pk("text")
+    A += iff(modt, modn, "create_note", [act("com.apple.mobilenotes.SharingExtension", {
+        "AppIntentDescriptor": {"AppIntentIdentifier": "CreateNoteLinkAction", "BundleIdentifier": "com.apple.Notes", "Name": "Notes", "TeamIdentifier": "0000000000"},
+        "WFCreateNoteInput": text_ref(nt, nn),
+        "WFNoteGroup": {"DisplayString": "Notes", "Identifier": "applenotes:folder/DefaultFolder-CloudKit"},
+        "folder": {"identifier": "applenotes:folder/DefaultFolder-CloudKit", "subtitle": {"key": "Notes"}, "symbol": {"systemName": "folder"}, "title": {"key": "Notes"}}})])
     return shortcut(A)
 
+def note_probe(var):
+    t = U()
+    note = {"AppIntentDescriptor": {"AppIntentIdentifier": "CreateNoteLinkAction", "BundleIdentifier": "com.apple.Notes", "Name": "Notes", "TeamIdentifier": "0000000000"},
+            "WFCreateNoteInput": text_ref(t, "Text") if var else "hello from controllr",
+            "WFNoteGroup": {"DisplayString": "Notes", "Identifier": "applenotes:folder/DefaultFolder-CloudKit"},
+            "folder": {"identifier": "applenotes:folder/DefaultFolder-CloudKit", "subtitle": {"key": "Notes"}, "symbol": {"systemName": "folder"}, "title": {"key": "Notes"}}}
+    A = ([act("is.workflow.actions.gettext", {"WFTextActionText": "hello from var", "UUID": t, "CustomOutputName": "Text"})] if var else [])
+    return shortcut(A + [act("com.apple.mobilenotes.SharingExtension", note)])
+
 import sys
-PHRASES = {"Txt": "what time is it in Tokyo", "Timer": "set a timer for 5 minutes", "Focus": "turn on do not disturb", "Text": "text mom I'm running late"}
-SHORTCUTS = {"Controllr · Router": router()}
+PHRASES = {"Note": "make a note that the wifi password is on the fridge"}
+SHORTCUTS = {"Controllr · Router": router(), "Controllr · Note Static": note_probe(False), "Controllr · Note Var": note_probe(True)}
 SHORTCUTS.update({f"Controllr · Test {k}": router(v) for k, v in PHRASES.items()})
 
 for n, s in SHORTCUTS.items():
