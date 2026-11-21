@@ -73,8 +73,12 @@ struct SetupView: View {
                     Button(reminders ? "Reminders: allowed" : "Allow Reminders") { Task { reminders = await Reminders.request() } }.disabled(reminders)
                 }
 
+                Section("Diagnostics") {
+                    NavigationLink("Preview a request") { TryItView() }
+                }
+
                 Section("Router shortcut") {
-                    Text("1. Install `Controllr · Router` in Shortcuts.\n2. Run it once and tap Allow when asked.\n3. Bind it: Settings → Action Button → Shortcut, or Accessibility → Touch → Back Tap, or add it to Control Center.\nSay what you want after the router starts listening.")
+                    Text("1. Install `Controllr Voice` in Shortcuts.\n2. Run it once and tap Allow when asked.\n3. Bind it: Settings → Action Button → Shortcut, or Accessibility → Touch → Back Tap, or add it to Control Center.\nSay what you want after the router starts listening.")
                         .font(.footnote)
                 }
             }

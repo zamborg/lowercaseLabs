@@ -1,0 +1,35 @@
+{
+  "id": "clarify",
+  "kind": "builtin",
+  "description": "Ask a short spoken follow-up when needed to continue the conversation or disambiguate the user's request. Keep earlier details.",
+  "params": [
+    {
+      "name": "question",
+      "type": "string",
+      "description": "Short spoken question",
+      "required": true
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "{question}",
+  "evals": [
+    {
+      "utterance": "text them I'm late"
+    },
+    {
+      "utterance": "send it to him"
+    },
+    {
+      "utterance": "call"
+    },
+    {
+      "utterance": "get me a ride"
+    },
+    {
+      "utterance": "directions"
+    },
+    {
+      "utterance": "remind me"
+    }
+  ]
+}

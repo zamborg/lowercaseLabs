@@ -12,11 +12,11 @@ enum Engine {
         return name == "anthropic" ? AnthropicProvider(apiKey: key, model: model) : OpenAIProvider(apiKey: key, model: model)
     }
 
-    static func run(_ transcript: String, context: [Exchange] = [], source: String, execute: Bool) async -> RouteResult {
+    static func run(_ transcript: String, messages: [ConversationMessage]? = nil, source: String, execute: Bool) async -> RouteResult {
         let result: RouteResult
         if let provider = makeProvider() {
             let router = Router(provider: provider, settings: Settings.routerSettings, executor: execute ? NativeExecutor() : nil)
-            result = await router.route(transcript, context: context, execute: execute)
+            result = await router.route(messages: messages ?? [.user(transcript)], execute: execute)
         } else {
             result = RouteResult(decision: .speak(.error, "Add your API key and model in controllr."), toolCall: nil, latencyMs: 0,
                                  provider: Settings.provider, model: Settings.model(for: Settings.provider), error: "no key or model configured")

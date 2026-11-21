@@ -8,17 +8,32 @@ public enum ParamType: Sendable, Equatable {
     case oneOf([String])
 }
 
-public struct Param: Sendable {
+public struct Param: Decodable, Sendable {
     public let name: String
     public let type: ParamType
     public let description: String
     public let required: Bool
-    public init(_ name: String, _ type: ParamType, _ description: String, required: Bool = true) {
-        self.name = name; self.type = type; self.description = description; self.required = required
+    public let missingQuestion: String?
+    private enum CodingKeys: String, CodingKey { case name, type, description, required, values, missingQuestion }
+
+    public init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        name = try fields.decode(String.self, forKey: .name)
+        description = try fields.decode(String.self, forKey: .description)
+        required = try fields.decode(Bool.self, forKey: .required)
+        missingQuestion = try fields.decodeIfPresent(String.self, forKey: .missingQuestion)
+        switch try fields.decode(String.self, forKey: .type) {
+        case "string": type = .string
+        case "number": type = .number
+        case "integer": type = .integer
+        case "bool": type = .bool
+        case "oneOf": type = .oneOf(try fields.decode([String].self, forKey: .values))
+        default: throw DecodingError.dataCorruptedError(forKey: .type, in: fields, debugDescription: "Unknown parameter type")
+        }
     }
 }
 
-public enum ModuleKind: Sendable, Equatable {
+public enum ModuleKind: String, Decodable, Sendable, Equatable {
     /// Executed by the router shortcut (inline If branch). `shortcutName` is the router's module id label.
     case shortcut
     /// Executed by our app inside the Decide intent.
@@ -27,7 +42,27 @@ public enum ModuleKind: Sendable, Equatable {
     case builtin
 }
 
-public struct Module: Sendable {
+public struct ActionEval: Decodable, Sendable {
+    public let utterance: String
+    public let arguments: [String: JSONValue]?
+    public let history: [Turn]?
+
+    public struct Turn: Decodable, Sendable {
+        public enum Role: String, Decodable, Sendable { case user, assistant }
+
+        public let role: Role
+        public let text: String
+
+        public var message: ConversationMessage {
+            switch role {
+            case .user: .user(text)
+            case .assistant: .assistant(text)
+            }
+        }
+    }
+}
+
+public struct Module: Decodable, Sendable {
     public let id: String
     public let description: String
     public let kind: ModuleKind
@@ -36,11 +71,9 @@ public struct Module: Sendable {
     /// Spoken/alert summary template; `{name}` placeholders are filled from arguments.
     public let summary: String
 
-    public init(id: String, description: String, kind: ModuleKind, params: [Param] = [],
-                requiresConfirmation: Bool = false, summary: String) {
-        self.id = id; self.description = description; self.kind = kind; self.params = params
-        self.requiresConfirmation = requiresConfirmation; self.summary = summary
-    }
+    public let shortcutHandler: String?
+    public let supportedSeconds: [Int]?
+    public let evals: [ActionEval]
 
     /// JSON Schema for this module's arguments.
     public var parametersSchema: JSONValue {
@@ -69,7 +102,7 @@ public struct Module: Sendable {
     public func renderSummary(_ args: [String: JSONValue]) -> String {
         var out = summary
         for (k, v) in args {
-            let text = v.stringValue ?? v.numberValue.map { $0 == $0.rounded() ? String(Int($0)) : String($0) } ?? v.boolValue.map(String.init) ?? ""
+            let text = v.stringValue ?? v.numberValue.map { Int(exactly: $0).map(String.init) ?? String($0) } ?? v.boolValue.map(String.init) ?? ""
             out = out.replacingOccurrences(of: "{\(k)}", with: text)
         }
         return out

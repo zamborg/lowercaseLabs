@@ -1,0 +1,20 @@
+{
+  "id": "create_bear_note",
+  "kind": "native",
+  "description": "Create a note in Bear when the user specifically names Bear.",
+  "params": [
+    {
+      "name": "text",
+      "type": "string",
+      "description": "Note text",
+      "required": true
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "Bear note: {text}",
+  "evals": [
+    {
+      "utterance": "make a note in Bear that the wifi password is on the fridge"
+    }
+  ]
+}

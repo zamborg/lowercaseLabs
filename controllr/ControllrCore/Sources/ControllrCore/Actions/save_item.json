@@ -1,0 +1,45 @@
+{
+  "id": "save_item",
+  "kind": "native",
+  "description": "Save or update a Controllr memory or a named skill only when the user explicitly asks to remember or save it. Use create_note for a note.",
+  "params": [
+    {
+      "name": "kind",
+      "type": "oneOf",
+      "description": "Type of saved item",
+      "required": true,
+      "values": [
+        "memory",
+        "skill"
+      ]
+    },
+    {
+      "name": "title",
+      "type": "string",
+      "description": "Concise name for the fact or skill",
+      "required": true
+    },
+    {
+      "name": "text",
+      "type": "string",
+      "description": "Fact to remember or the user's instructions for the skill",
+      "required": true
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "Save {title}",
+  "evals": [
+    {
+      "utterance": "remember that my gym closes at nine",
+      "arguments": {
+        "kind": "memory"
+      }
+    },
+    {
+      "utterance": "save a skill called meeting recap with this instruction: put decisions first",
+      "arguments": {
+        "kind": "skill"
+      }
+    }
+  ]
+}

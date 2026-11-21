@@ -17,13 +17,28 @@ public struct OpenAIProvider: LLMProvider {
 
     private var headers: [String: String] { ["Authorization": "Bearer \(apiKey)"] }
 
-    func requestBody(system: String, transcript: String, tools: [ToolSpec], reasoningNone: Bool = true) -> JSONValue {
+    func requestBody(system: String, messages: [ConversationMessage], tools: [ToolSpec], reasoningNone: Bool = true) -> JSONValue {
+        let history: [JSONValue] = messages.flatMap { message -> [JSONValue] in
+            switch message {
+            case .user(let text):
+                return [.object(["role": .string("user"), "content": .string(text)])]
+            case .assistant(let text):
+                return [.object(["role": .string("assistant"), "content": .string(text)])]
+            case .tool(let call, let output):
+                let id = call.id ?? "call_\(UUID().uuidString)"
+                let toolCall: JSONValue = .object([
+                    "id": .string(id), "type": .string("function"),
+                    "function": .object(["name": .string(call.name), "arguments": .string(call.arguments.jsonString())]),
+                ])
+                return [
+                    .object(["role": .string("assistant"), "tool_calls": .array([toolCall])]),
+                    .object(["role": .string("tool"), "tool_call_id": .string(id), "content": .string(output)]),
+                ]
+            }
+        }
         var body: [String: JSONValue] = [
             "model": .string(model),
-            "messages": .array([
-                .object(["role": .string("system"), "content": .string(system)]),
-                .object(["role": .string("user"), "content": .string(transcript)]),
-            ]),
+            "messages": .array([.object(["role": .string("system"), "content": .string(system)])] + history),
             "tools": .array(tools.map { t in
                 .object(["type": .string("function"),
                          "function": .object(["name": .string(t.name), "description": .string(t.description), "parameters": t.parameters])])
@@ -37,10 +52,10 @@ public struct OpenAIProvider: LLMProvider {
         return .object(body)
     }
 
-    public func route(system: String, transcript: String, tools: [ToolSpec]) async throws -> ToolCall {
+    public func route(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> ToolCall {
         func attempt(_ none: Bool) async throws -> JSONValue {
             let req = jsonRequest(url: "https://api.openai.com/v1/chat/completions", headers: headers,
-                                  body: requestBody(system: system, transcript: transcript, tools: tools, reasoningNone: none), timeout: timeout)
+                                  body: requestBody(system: system, messages: messages, tools: tools, reasoningNone: none), timeout: timeout)
             return try checked(try await transport.send(req))
         }
         do { return try Self.parseToolCall(try await attempt(true)) }
@@ -62,7 +77,7 @@ public struct OpenAIProvider: LLMProvider {
         guard let args = try? JSONValue.parse(Data(argText.utf8)) else {
             throw ProviderError.badResponse("tool arguments are not JSON")
         }
-        return ToolCall(name: name, arguments: args)
+        return ToolCall(name: name, arguments: args, id: first["id"]?.stringValue)
     }
 
     public func listModels() async throws -> [String] {

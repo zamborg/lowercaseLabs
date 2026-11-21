@@ -1,0 +1,60 @@
+{
+  "id": "send_message",
+  "kind": "shortcut",
+  "description": "Send an iMessage or SMS. Ask for the recipient or message body when missing. A follow-up can supply either.",
+  "params": [
+    {
+      "name": "recipient",
+      "type": "string",
+      "description": "Contact name exactly as the user said it",
+      "required": true,
+      "missingQuestion": "Who should I text?"
+    },
+    {
+      "name": "body",
+      "type": "string",
+      "description": "Message text to send, written in the user's voice",
+      "required": true,
+      "missingQuestion": "What should I say?"
+    }
+  ],
+  "requiresConfirmation": true,
+  "summary": "Text {recipient}: {body}",
+  "shortcutHandler": "messages",
+  "evals": [
+    {
+      "utterance": "text Sam I'm running ten minutes late"
+    },
+    {
+      "utterance": "send a message to Alex saying I'll be there at six"
+    },
+    {
+      "utterance": "tell my wife I love her"
+    },
+    {
+      "utterance": "text jordan are we still on for tonight"
+    },
+    {
+      "utterance": "message dad happy birthday"
+    },
+    {
+      "utterance": "text sam i'm running tin minutes late"
+    },
+    {
+      "utterance": "I'll be ten minutes late",
+      "history": [
+        {
+          "role": "user",
+          "text": "Text Sam"
+        },
+        {
+          "role": "assistant",
+          "text": "What would you like me to say?"
+        }
+      ],
+      "arguments": {
+        "recipient": "Sam"
+      }
+    }
+  ]
+}

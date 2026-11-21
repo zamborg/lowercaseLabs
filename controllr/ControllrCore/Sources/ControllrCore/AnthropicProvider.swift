@@ -17,12 +17,33 @@ public struct AnthropicProvider: LLMProvider {
 
     private var headers: [String: String] { ["x-api-key": apiKey, "anthropic-version": "2023-06-01"] }
 
-    func requestBody(system: String, transcript: String, tools: [ToolSpec]) -> JSONValue {
-        .object([
+    func requestBody(system: String, messages: [ConversationMessage], tools: [ToolSpec]) -> JSONValue {
+        let history: [JSONValue] = messages.flatMap { message -> [JSONValue] in
+            switch message {
+            case .user(let text):
+                return [.object(["role": .string("user"), "content": .string(text)])]
+            case .assistant(let text):
+                return [.object(["role": .string("assistant"), "content": .string(text)])]
+            case .tool(let call, let output):
+                let id = call.id ?? "toolu_\(UUID().uuidString)"
+                let use: JSONValue = .object([
+                    "type": .string("tool_use"), "id": .string(id),
+                    "name": .string(call.name), "input": call.arguments,
+                ])
+                let result: JSONValue = .object([
+                    "type": .string("tool_result"), "tool_use_id": .string(id), "content": .string(output),
+                ])
+                return [
+                    .object(["role": .string("assistant"), "content": .array([use])]),
+                    .object(["role": .string("user"), "content": .array([result])]),
+                ]
+            }
+        }
+        return .object([
             "model": .string(model),
             "max_tokens": .number(Double(maxTokens)),
             "system": .string(system),
-            "messages": .array([.object(["role": .string("user"), "content": .string(transcript)])]),
+            "messages": .array(history),
             "tools": .array(tools.map { t in
                 .object(["name": .string(t.name), "description": .string(t.description), "input_schema": t.parameters])
             }),
@@ -30,9 +51,9 @@ public struct AnthropicProvider: LLMProvider {
         ])
     }
 
-    public func route(system: String, transcript: String, tools: [ToolSpec]) async throws -> ToolCall {
+    public func route(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> ToolCall {
         let req = jsonRequest(url: "https://api.anthropic.com/v1/messages", headers: headers,
-                              body: requestBody(system: system, transcript: transcript, tools: tools), timeout: timeout)
+                              body: requestBody(system: system, messages: messages, tools: tools), timeout: timeout)
         let json = try checked(try await transport.send(req))
         return try Self.parseToolCall(json)
     }
@@ -40,7 +61,9 @@ public struct AnthropicProvider: LLMProvider {
     static func parseToolCall(_ json: JSONValue) throws -> ToolCall {
         guard case .array(let content)? = json["content"] else { throw ProviderError.badResponse("no content") }
         for block in content where block["type"]?.stringValue == "tool_use" {
-            if let name = block["name"]?.stringValue, let input = block["input"] { return ToolCall(name: name, arguments: input) }
+            if let name = block["name"]?.stringValue, let input = block["input"] {
+                return ToolCall(name: name, arguments: input, id: block["id"]?.stringValue)
+            }
         }
         throw ProviderError.noToolCall(raw: json.jsonString())
     }

@@ -7,10 +7,21 @@ import ControllrCore
 struct NativeExecutor: ModuleExecutor {
     func prepare(_ module: Module, arguments: [String: JSONValue]) async throws -> [String: JSONValue] {
         if module.id == "start_timer" {
-            var out = arguments
-            let m = Int(arguments["minutes"]?.numberValue ?? 0), sec = Int(arguments["seconds"]?.numberValue ?? 0)
-            out["seconds_total"] = .string(String(max(1, m * 60 + sec)))
-            return out
+            let minutes = Int(exactly: arguments["minutes"]?.numberValue ?? 0) ?? 0
+            let seconds = Int(exactly: arguments["seconds"]?.numberValue ?? 0) ?? 0
+            guard !arguments.isEmpty else { throw ExecutionError.clarify("How long should I set it for?") }
+            guard (0...120).contains(minutes), (0...7200).contains(seconds),
+                  module.supportedSeconds?.contains(minutes * 60 + seconds) == true else {
+                throw ExecutionError.clarify("This shortcut can set common timer lengths, like 30 seconds or 5 minutes. What duration should I use?")
+            }
+            var prepared = arguments
+            prepared["seconds_total"] = .string(String(minutes * 60 + seconds))
+            return prepared
+        }
+        if module.id == "flashlight" {
+            var prepared = arguments
+            prepared["setting"] = .string(arguments["on"] == .bool(true) ? "On" : "Off")
+            return prepared
         }
         guard module.id == "send_message", let who = arguments["recipient"]?.stringValue else { return arguments }
         let c = try Contacts.resolve(who)
@@ -28,7 +39,22 @@ struct NativeExecutor: ModuleExecutor {
             return .openURL("tel:\(digits)", summary: "Call \(c.name)")
         case "add_reminder":
             return .spoken(try await Reminders.add(title: a["title"]?.stringValue ?? "", due: a["due"]?.stringValue))
+        case "save_item":
+            guard let kind = a["kind"]?.stringValue.flatMap(SavedItemKind.init(rawValue:)), kind != .note,
+                  let title = a["title"]?.stringValue, let text = a["text"]?.stringValue else {
+                throw ExecutionError.failed("invalid saved item")
+            }
+            let saved = try await SavedItems.shared.save(kind: kind, title: title, text: text, matchByTitle: true)
+            return .spoken(kind == .memory ? "I'll remember that." : "Saved the skill \(saved).")
+        case "search_saved_items":
+            let kind = a["kind"]?.stringValue.flatMap(SavedItemKind.init(rawValue:))
+            return .toolResult(try await SavedItems.shared.search(kind: kind, query: a["query"]?.stringValue ?? ""))
         case "create_note":
+            guard let text = a["text"]?.stringValue else { throw ExecutionError.failed("missing note text") }
+            let title = a["title"]?.stringValue ?? String((text.split(whereSeparator: \.isNewline).first ?? "Note").prefix(70))
+            let saved = try await SavedItems.shared.save(kind: .note, title: title, text: text)
+            return .spoken("Saved the note \(saved).")
+        case "create_bear_note":
             // Bear's URL scheme; the router opens it. First line becomes the title.
             let text = a["text"]?.stringValue ?? ""
             let enc = Places.encode(text)
@@ -53,7 +79,7 @@ enum Places {
         let s = spoken.trimmingCharacters(in: .whitespaces)
         if s.lowercased() == "home" {
             let home = Settings.homeAddress
-            guard !home.isEmpty else { throw ExecutionError.clarify("Set your home address in controllr first.") }
+            guard !home.isEmpty else { throw ExecutionError.clarify("What address should I use for home?") }
             return home
         }
         return s
@@ -66,10 +92,14 @@ enum Places {
 enum Contacts {
     struct Match { let name: String; let number: String }
 
-    static var authorized: Bool { CNContactStore.authorizationStatus(for: .contacts) == .authorized }
+    static var authorized: Bool {
+        let status = CNContactStore.authorizationStatus(for: .contacts)
+        if #available(iOS 18.0, *), status == .limited { return true }
+        return status == .authorized
+    }
 
     static func resolve(_ spoken: String) throws -> Match {
-        guard authorized else { throw ExecutionError.clarify("Open controllr and allow contacts access.") }
+        guard authorized else { throw ExecutionError.unavailable("Open Controllr and allow Contacts access.") }
         let query = Settings.nicknames[spoken.lowercased()] ?? spoken
         let store = CNContactStore()
         let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactPhoneNumbersKey] as [CNKeyDescriptor]
@@ -82,7 +112,7 @@ enum Contacts {
             found = [exact]
         }
         switch found.count {
-        case 0: throw ExecutionError.clarify("I couldn't find \(spoken) in your contacts.")
+        case 0: throw ExecutionError.clarify("I couldn't find \(spoken) in your contacts. What name should I look for?")
         case 1:
             let c = found[0]
             let phones = c.phoneNumbers
@@ -102,7 +132,7 @@ enum Reminders {
     static func request() async -> Bool { (try? await EKEventStore().requestFullAccessToReminders()) ?? false }
 
     static func add(title: String, due: String?) async throws -> String {
-        guard authorized else { throw ExecutionError.clarify("Open controllr and allow reminders access.") }
+        guard authorized else { throw ExecutionError.unavailable("Open Controllr and allow Reminders access.") }
         let store = EKEventStore()
         let r = EKReminder(eventStore: store)
         r.title = title

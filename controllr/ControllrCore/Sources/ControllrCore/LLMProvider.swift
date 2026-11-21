@@ -9,10 +9,16 @@ public struct ToolSpec: Sendable {
     }
 }
 
-public struct ToolCall: Sendable, Equatable {
+public struct ToolCall: Codable, Sendable, Equatable {
+    public let id: String?
     public let name: String
     public let arguments: JSONValue
-    public init(name: String, arguments: JSONValue) { self.name = name; self.arguments = arguments }
+
+    public init(name: String, arguments: JSONValue, id: String? = nil) {
+        self.name = name
+        self.arguments = arguments
+        self.id = id
+    }
 }
 
 public enum ProviderError: Error, Sendable, Equatable {
@@ -25,7 +31,7 @@ public enum ProviderError: Error, Sendable, Equatable {
 public protocol LLMProvider: Sendable {
     var name: String { get }
     var model: String { get }
-    func route(system: String, transcript: String, tools: [ToolSpec]) async throws -> ToolCall
+    func route(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> ToolCall
     func listModels() async throws -> [String]
 }
 

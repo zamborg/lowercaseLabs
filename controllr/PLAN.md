@@ -1,6 +1,8 @@
 
 # controllr build plan
- · 
+
+> Original spike plan. See [STATUS.md](STATUS.md) and [the Controllr Voice spec](shortcuts/specs/router.md) for the current build.
+
 controllr is a voice-first "better Siri" for iPhone: one router shortcut dictates a request, our App Intent asks an LLM (the user's own OpenAI or Anthropic key) to pick a module, and the router runs it. This is the full execution plan for an agent building it. Read it end to end, run the phases in order, and stop after Phase 0 to report results.
 
 ## 1. What we're building

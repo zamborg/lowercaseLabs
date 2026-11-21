@@ -6,10 +6,11 @@ struct ControllrApp: App {
     var body: some Scene {
         WindowGroup {
             TabView {
-                SetupView().tabItem { Label("Setup", systemImage: "gearshape") }
+                ThreadsView().tabItem { Label("Threads", systemImage: "bubble.left.and.bubble.right") }
+                SavedItemsView().tabItem { Label("Saved", systemImage: "bookmark") }
                 ModulesView().tabItem { Label("Modules", systemImage: "square.grid.2x2") }
                 HistoryView().tabItem { Label("History", systemImage: "clock") }
-                TryItView().tabItem { Label("Try it", systemImage: "text.cursor") }
+                SetupView().tabItem { Label("Setup", systemImage: "gearshape") }
             }
         }
         .modelContainer(Store.container)

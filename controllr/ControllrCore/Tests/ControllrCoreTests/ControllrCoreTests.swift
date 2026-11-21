@@ -4,7 +4,7 @@ import XCTest
 struct MockProvider: LLMProvider {
     let name = "mock"; let model = "mock-1"
     let result: Result<ToolCall, ProviderError>
-    func route(system: String, transcript: String, tools: [ToolSpec]) async throws -> ToolCall { try result.get() }
+    func route(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> ToolCall { try result.get() }
     func listModels() async throws -> [String] { [] }
 }
 
@@ -65,6 +65,13 @@ final class ControllrCoreTests: XCTestCase {
         let r = await router(call("send_message", ["recipient": .string("Sam"), "body": .string("late")])).route("text sam")
         XCTAssertTrue(r.decision.confirm)
         XCTAssertEqual(r.decision.summary, "Text Sam: late")
+    }
+
+    func testMissingMessageBodyAsksForItWithoutPreparingAction() async {
+        let ex = MockExecutor(prepareError: .failed("unexpected prepare"))
+        let result = await router(call("send_message", ["recipient": .string("Sam")]), executor: ex).route("text Sam")
+        XCTAssertEqual(result.decision.action, .clarify)
+        XCTAssertEqual(result.decision.summary, "What should I say?")
     }
 
     func testModelCannotSkipConfirmation() async {
@@ -148,14 +155,14 @@ final class ControllrCoreTests: XCTestCase {
     // providers
     func testOpenAIRequestForcesToolCall() throws {
         let p = OpenAIProvider(apiKey: "k", model: "m")
-        let body = p.requestBody(system: "s", transcript: "t", tools: router(call("answer", [:])).tools)
+        let body = p.requestBody(system: "s", messages: [.user("t")], tools: router(call("answer", [:])).tools)
         XCTAssertEqual(body["tool_choice"], .string("required"))
         XCTAssertEqual(body["model"], .string("m"))
     }
 
     func testAnthropicRequestForcesToolUse() throws {
         let p = AnthropicProvider(apiKey: "k", model: "m")
-        let body = p.requestBody(system: "s", transcript: "t", tools: router(call("answer", [:])).tools)
+        let body = p.requestBody(system: "s", messages: [.user("t")], tools: router(call("answer", [:])).tools)
         XCTAssertEqual(body["tool_choice"]?["type"], .string("any"))
         XCTAssertEqual(body["system"], .string("s"))
     }
@@ -184,14 +191,74 @@ final class ControllrCoreTests: XCTestCase {
     }
 }
 
-final class ClarifyComposeTests: XCTestCase {
-    func testComposeWithoutContextIsIdentity() {
-        XCTAssertEqual(Router.compose("text mom", context: []), "text mom")
+actor ScriptedProvider: LLMProvider {
+    let name = "scripted"
+    let model = "scripted-1"
+    private var calls: [ToolCall]
+    private(set) var requests: [[ConversationMessage]] = []
+
+    init(_ calls: [ToolCall]) { self.calls = calls }
+
+    func route(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> ToolCall {
+        requests.append(messages)
+        guard !calls.isEmpty else { throw ProviderError.badResponse("unexpected request") }
+        return calls.removeFirst()
     }
-    func testComposeIncludesHistoryAndAnswer() {
-        let t = Router.compose("running late", context: [Exchange(user: "text mom", question: "What should I say?")])
-        XCTAssertTrue(t.contains("User: text mom"))
-        XCTAssertTrue(t.contains("You asked: What should I say?"))
-        XCTAssertTrue(t.hasSuffix("User's answer: running late"))
+
+    func listModels() async throws -> [String] { [] }
+}
+
+final class ConversationRoutingTests: XCTestCase {
+    func testFollowUpUsesUserAndAssistantRoles() async throws {
+        let call = ToolCall(name: "send_message", arguments: .object([
+            "recipient": .string("Sam"), "body": .string("Running late."),
+        ]))
+        let provider = ScriptedProvider([call])
+        let history: [ConversationMessage] = [
+            .user("Text Sam"), .assistant("What should I say?"), .user("Running late."),
+        ]
+        let result = await Router(provider: provider).route(messages: history, execute: false)
+        let requests = await provider.requests
+        XCTAssertEqual(requests, [history])
+        XCTAssertEqual(result.decision.shortcut, "send_message")
+        XCTAssertTrue(result.decision.confirm)
+        XCTAssertEqual(result.decision.input["body"], .string("Running late."))
+    }
+
+    func testSavedLookupContinuesTheSameTurn() async throws {
+        let lookup = ToolCall(name: "search_saved_items", arguments: .object(["query": .string("gym")]), id: "call_gym")
+        let answer = ToolCall(name: "answer", arguments: .object(["text": .string("Nine.")]))
+        let provider = ScriptedProvider([lookup, answer])
+        let message = ConversationMessage.user("When does my gym close?")
+        let savedFacts = #"[{"kind":"memory","title":"Gym hours","text":"Closes at 9 PM"}]"#
+        let router = Router(provider: provider, executor: MockExecutor(outcome: .success(.toolResult(savedFacts))))
+
+        let result = await router.route(messages: [message])
+        let exchange = ConversationMessage.tool(call: lookup, output: savedFacts)
+        let requests = await provider.requests
+        XCTAssertEqual(requests, [[message], [message, exchange]])
+        XCTAssertEqual(result.toolMessages, [exchange])
+        XCTAssertEqual(result.decision.action, .respond)
+        XCTAssertEqual(result.decision.summary, "Nine.")
+    }
+
+    func testProvidersEncodeToolResultsWithMatchingIDs() throws {
+        let lookup = ToolCall(name: "search_saved_items", arguments: .object([:]), id: "toolu_memory")
+        let messages: [ConversationMessage] = [.user("What's saved?"), .tool(call: lookup, output: "[]")]
+        let openAI = OpenAIProvider(apiKey: "dummy", model: "test")
+        let anthropic = AnthropicProvider(apiKey: "dummy", model: "test")
+
+        let openAIBody = openAI.requestBody(system: "s", messages: messages, tools: [])
+        guard case .array(let openAIMessages) = openAIBody["messages"],
+              case .array(let calls) = openAIMessages[2]["tool_calls"] else { return XCTFail("missing OpenAI tool call") }
+        XCTAssertEqual(openAIMessages[3]["role"], .string("tool"))
+        XCTAssertEqual(calls.first?["id"], openAIMessages[3]["tool_call_id"])
+
+        let anthropicBody = anthropic.requestBody(system: "s", messages: messages, tools: [])
+        guard case .array(let anthropicMessages) = anthropicBody["messages"],
+              case .array(let uses) = anthropicMessages[1]["content"],
+              case .array(let results) = anthropicMessages[2]["content"] else { return XCTFail("missing Anthropic tool exchange") }
+        XCTAssertEqual(anthropicMessages[2]["role"], .string("user"))
+        XCTAssertEqual(uses.first?["id"], results.first?["tool_use_id"])
     }
 }

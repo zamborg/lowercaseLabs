@@ -12,6 +12,8 @@ public struct Decision: Sendable, Equatable {
     public var input: [String: JSONValue]
     public var confirm: Bool
     public var summary: String
+    public var threadID: String? = nil
+    public var actionID: String? = nil
 
     public static let speakID = "speak"
     public static let openURLID = "open_url"
@@ -22,12 +24,15 @@ public struct Decision: Sendable, Equatable {
     }
 
     public var json: String {
-        JSONValue.object([
+        let fields: [String: JSONValue] = [
             "action": .string(action.rawValue),
             "shortcut": .string(shortcut),
             "input": .object(input),
             "confirm": .bool(confirm),
             "summary": .string(summary),
-        ]).jsonString()
+            "thread_id": .string(threadID ?? ""),
+            "action_id": .string(actionID ?? ""),
+        ]
+        return JSONValue.object(fields).jsonString()
     }
 }

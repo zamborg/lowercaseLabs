@@ -1,0 +1,42 @@
+{
+  "id": "media_control",
+  "kind": "shortcut",
+  "description": "Control whatever audio is playing: play, pause, next track, previous track.",
+  "params": [
+    {
+      "name": "command",
+      "type": "oneOf",
+      "description": "Playback command",
+      "required": true,
+      "values": [
+        "play",
+        "pause",
+        "next",
+        "previous"
+      ]
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "Media: {command}",
+  "shortcutHandler": "media",
+  "evals": [
+    {
+      "utterance": "skip this song"
+    },
+    {
+      "utterance": "pause the music"
+    },
+    {
+      "utterance": "play"
+    },
+    {
+      "utterance": "go back to the previous track"
+    },
+    {
+      "utterance": "next song"
+    },
+    {
+      "utterance": "scip this song"
+    }
+  ]
+}

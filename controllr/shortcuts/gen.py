@@ -1,123 +1,268 @@
 #!/usr/bin/env python3
-"""Generate Controllr shortcut XML plists (src/) and sign them (signed/). macOS only."""
-import plistlib, subprocess, uuid, sys, pathlib
+"""Generate the Controllr Voice shortcut from the app's action manifests."""
+import argparse
+from contextlib import contextmanager
+from dataclasses import dataclass
+import json
+from pathlib import Path
+import plistlib
+import uuid
 
-HERE = pathlib.Path(__file__).parent
+HERE = Path(__file__).resolve().parent
+MANIFESTS = HERE.parent / "ControllrCore/Sources/ControllrCore/Actions"
+NAME = "Controllr Voice"
 BUNDLE = "com.lowercaselabs.controllr"
-U = lambda: str(uuid.uuid4()).upper()
-
-def out_ref(uid, name):
-    return {"Value": {"OutputUUID": uid, "OutputName": name, "Type": "ActionOutput"},
-            "WFSerializationType": "WFTextTokenAttachment"}
-
-def text_ref(uid, name):
-    return {"Value": {"string": "￼",
-                      "attachmentsByRange": {"{0, 1}": {"OutputUUID": uid, "OutputName": name, "Type": "ActionOutput"}}},
-            "WFSerializationType": "WFTextTokenString"}
-
-def act(ident, params=None):
-    return {"WFWorkflowActionIdentifier": ident, "WFWorkflowActionParameters": params or {}}
-
-def get_key(key, src_uid, src_name, uid, name):
-    return act("is.workflow.actions.getvalueforkey",
-               {"WFDictionaryKey": key, "WFInput": {"Value": {"OutputUUID": src_uid, "OutputName": src_name, "Type": "ActionOutput"},
-                "WFSerializationType": "WFTextTokenAttachment"}, "UUID": uid, "CustomOutputName": name})
-
-def shortcut(actions):
-    return {"WFWorkflowActions": actions, "WFWorkflowClientVersion": "2900", "WFWorkflowMinimumClientVersion": 900,
-            "WFWorkflowIcon": {"WFWorkflowIconStartColor": 463140863, "WFWorkflowIconGlyphNumber": 59511},
-            "WFWorkflowImportQuestions": [], "WFWorkflowInputContentItemClasses": [], "WFWorkflowTypes": []}
 
 
-def tok(uid, name):
-    return {"Value": {"OutputUUID": uid, "OutputName": name, "Type": "ActionOutput"}, "WFSerializationType": "WFTextTokenAttachment"}
+@dataclass(frozen=True)
+class Reference:
+    value: dict
 
-def iff(val_uid, val_name, equals, body):
-    g = U()
-    ref = {"Type": "Variable", "Variable": out_ref(val_uid, val_name)}
-    return ([act("is.workflow.actions.conditional", {"WFControlFlowMode": 0, "GroupingIdentifier": g, "WFInput": ref, "WFCondition": 4, "WFConditionalActionString": equals})]
-            + body + [act("is.workflow.actions.conditional", {"GroupingIdentifier": g, "WFControlFlowMode": 2})])
+    @property
+    def attachment(self):
+        return {"Value": self.value, "WFSerializationType": "WFTextTokenAttachment"}
 
-def router(text=None):
-    """Voice router (text=None) or text-input test router (text=phrase). No Run Shortcut: inline If branches."""
-    A = []
-    def key_text(key, src, srcname):
-        k, t = U(), U()
-        A.append(get_key(key, src, srcname, k, key))
-        A.append(act("is.workflow.actions.gettext", {"WFTextActionText": text_ref(k, key), "UUID": t, "CustomOutputName": key.title()}))
-        return t, key.title()
-    dictate, decide, dec, payload, mod = (U() for _ in range(5))
-    A.append(act("is.workflow.actions.gettext", {"WFTextActionText": text, "UUID": dictate, "CustomOutputName": "Dictated Text"}) if text
-             else act("is.workflow.actions.dictatetext", {"UUID": dictate, "CustomOutputName": "Dictated Text"}))
-    A.append(act(f"{BUNDLE}.DecideIntent", {"UUID": decide, "CustomOutputName": "Decision JSON", "transcript": text_ref(dictate, "Dictated Text"),
-        "AppIntentDescriptor": {"AppIntentIdentifier": "DecideIntent", "BundleIdentifier": BUNDLE, "Name": "controllr", "TeamIdentifier": "9G57J2JMF7"}}))
-    A.append(act("is.workflow.actions.detect.dictionary", {"WFInput": out_ref(decide, "Decision JSON"), "UUID": dec, "CustomOutputName": "Decision"}))
-    A.append(get_key("input", dec, "Decision", payload, "Payload"))
-    modt, modn = key_text("shortcut", dec, "Decision")
-    summ, summn = key_text("summary", dec, "Decision")
-    def pk(key):
-        k, t = U(), U()
-        A.append(get_key(key, payload, "Payload", k, key))
-        A.append(act("is.workflow.actions.gettext", {"WFTextActionText": text_ref(k, key), "UUID": t, "CustomOutputName": key.title()}))
-        return t, key.title()
-    say = lambda t, n: (act("is.workflow.actions.alert", {"WFAlertActionTitle": "controllr", "WFAlertActionMessage": text_ref(t, n), "WFAlertActionCancelButtonShown": False}) if text
-                        else act("is.workflow.actions.speaktext", {"WFText": text_ref(t, n)}))
-    confirm = lambda: act("is.workflow.actions.alert", {"WFAlertActionTitle": "controllr", "WFAlertActionMessage": text_ref(summ, summn), "WFAlertActionCancelButtonShown": True})
-    # speak
-    st, sn = pk("speak"); A += iff(modt, modn, "speak", [say(st, sn)])
-    # open_url / open_url_confirm
-    ut, un = pk("url")
-    A += iff(modt, modn, "open_url", [act("is.workflow.actions.openurl", {"WFInput": text_ref(ut, un)})])
-    A += iff(modt, modn, "open_url_confirm", [confirm(), act("is.workflow.actions.openurl", {"WFInput": text_ref(ut, un)})])
-    # send_message
-    bt, bn = pk("body"); rt, rn = pk("recipient")
-    A += iff(modt, modn, "send_message", [confirm(), act("is.workflow.actions.sendmessage",
-        {"WFSendMessageContent": text_ref(bt, bn), "WFSendMessageActionRecipients": text_ref(rt, rn),
-        "IntentAppDefinition": {"BundleIdentifier": "com.apple.MobileSMS", "Name": "Messages", "TeamIdentifier": "0000000000"}})])
-    # media_control
-    ct, cn = pk("command")
-    media = (iff(ct, cn, "play", [act("is.workflow.actions.pausemusic", {"WFPlayPauseBehavior": "Play"})])
-           + iff(ct, cn, "pause", [act("is.workflow.actions.pausemusic", {"WFPlayPauseBehavior": "Pause"})])
-           + iff(ct, cn, "next", [act("is.workflow.actions.skipforward")])
-           + iff(ct, cn, "previous", [act("is.workflow.actions.skipback")]))
-    A += iff(modt, modn, "media_control", media)
-    # start_timer: Decide supplies total seconds in "seconds_total"
-    tt, tn = pk("seconds_total")
-    # Quantity fields can't take a variable (shows "Ask each time"), so enumerate durations.
-    secs = ([10, 15, 20, 30, 45] + [60 * m for m in list(range(1, 31)) + [35, 40, 45, 50, 60, 75, 90, 120]]) if text is None else [300]
-    def timer(n):
-        u, m = ("min", n // 60) if n % 60 == 0 else ("sec", n)
-        return act("is.workflow.actions.timer.start", {"WFDuration": {"Value": {"Unit": u, "Magnitude": m}, "WFSerializationType": "WFQuantityFieldValue"}})
-    body = [x for n in secs for x in iff(tt, tn, str(n), [timer(n)])]
-    A += iff(modt, modn, "start_timer", body)
-    # set_focus
-    ft, fn = pk("focus")
-    focus = (iff(ft, fn, "dnd", [act("is.workflow.actions.dnd.set", {"Enabled": 1})])
-           + iff(ft, fn, "sleep", [act("is.workflow.actions.dnd.set", {"Enabled": 1, "FocusModes": {"DisplayString": "Sleep", "Identifier": "com.apple.sleep.sleep-mode"}})])
-           + iff(ft, fn, "work", [act("is.workflow.actions.dnd.set", {"Enabled": 1, "FocusModes": {"DisplayString": "Work", "Identifier": "com.apple.focus.work"}})])
-           + iff(ft, fn, "off", [act("is.workflow.actions.dnd.set", {"Enabled": 0})]))
-    A += iff(modt, modn, "set_focus", focus)
-    # flashlight
-    lt, ln = pk("on")
-    A += iff(modt, modn, "flashlight", iff(lt, ln, "0", [act("is.workflow.actions.flashlight", {"WFFlashlightSetting": "Off"})])
-                                      + iff(lt, ln, "1", [act("is.workflow.actions.flashlight", {"WFFlashlightSetting": "On"})]))
-    # set_alarm: parameter shapes copied from exported exemplars (shortcuts/exemplars/)
-    at, an = pk("time"); lt2, ln2 = pk("label")
-    A += iff(modt, modn, "set_alarm", [act("com.apple.mobiletimer-framework.MobileTimerIntents.MTCreateAlarmIntent", {
-        "AppIntentDescriptor": {"AppIntentIdentifier": "CreateAlarmIntent", "BundleIdentifier": "com.apple.mobiletimer", "Name": "Clock", "TeamIdentifier": "0000000000"},
-        "dateComponents": text_ref(at, an), "name": text_ref(lt2, ln2)})])
-    return shortcut(A)
+    @property
+    def text(self):
+        return {
+            "Value": {"string": "\ufffc", "attachmentsByRange": {"{0, 1}": self.value}},
+            "WFSerializationType": "WFTextTokenString",
+        }
 
-import sys
-PHRASES = {"Note": "make a note that the wifi password is on the fridge"}
-SHORTCUTS = {"Controllr · Router": router(), }
-SHORTCUTS.update({f"Controllr · Test {k}": router(v) for k, v in PHRASES.items()})
 
-for n, s in SHORTCUTS.items():
-    src = HERE / "src" / f"{n}.shortcut.xml"
-    src.write_bytes(plistlib.dumps(s, fmt=plistlib.FMT_XML))
-    raw = HERE / "signed" / f"unsigned-{n}.shortcut"
-    raw.write_bytes(plistlib.dumps(s, fmt=plistlib.FMT_BINARY))
-    r = subprocess.run(["shortcuts", "sign", "--mode", "anyone", "--input", str(raw), "--output", str(HERE / "signed" / f"{n}.shortcut")], capture_output=True, text=True)
-    raw.unlink()
-    print(n, "OK" if r.returncode == 0 else f"FAIL: {r.stderr.strip()[:300]}")
+class Workflow:
+    def __init__(self, team_id):
+        self.actions = []
+        self.team_id = team_id
+        self.next_id = 0
+
+    def identifier(self):
+        self.next_id += 1
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{BUNDLE}/voice/{self.next_id}")).upper()
+
+    def add(self, action, **params):
+        self.actions.append({"WFWorkflowActionIdentifier": action, "WFWorkflowActionParameters": params})
+
+    def system(self, name, **params):
+        self.add(f"is.workflow.actions.{name}", **params)
+
+    def output(self, action, name, **params):
+        identifier = self.identifier()
+        self.add(action, UUID=identifier, CustomOutputName=name, **params)
+        return Reference({"Type": "ActionOutput", "OutputUUID": identifier, "OutputName": name})
+
+    def text(self, value, name):
+        return self.output("is.workflow.actions.gettext", name, WFTextActionText=value)
+
+    def key(self, dictionary, key, *, as_text=True):
+        value = self.output("is.workflow.actions.getvalueforkey", key,
+                            WFInput=dictionary.attachment, WFDictionaryKey=key)
+        return self.text(value.text, key.title()) if as_text else value
+
+    def set_variable(self, name, ref):
+        self.system("setvariable", WFVariableName=name, WFInput=ref.attachment)
+
+    def comment(self, text):
+        self.system("comment", WFCommentActionText=text)
+
+    def app_intent(self, intent, output=None, **params):
+        descriptor = {"AppIntentIdentifier": intent, "BundleIdentifier": BUNDLE,
+                      "Name": "controllr", "TeamIdentifier": self.team_id}
+        params["AppIntentDescriptor"] = descriptor
+        action = f"{BUNDLE}.{intent}"
+        if output:
+            return self.output(action, output, **params)
+        self.add(action, **params)
+
+    @contextmanager
+    def when(self, ref, value):
+        self.comment(f"- Run this branch when the input is {value}.")
+        group = self.identifier()
+        self.system("conditional", GroupingIdentifier=group, WFControlFlowMode=0,
+                    WFInput={"Type": "Variable", "Variable": ref.attachment},
+                    WFCondition=4, WFConditionalActionString=value)
+
+        def otherwise():
+            self.system("conditional", GroupingIdentifier=group, WFControlFlowMode=1)
+
+        yield otherwise
+        self.system("conditional", GroupingIdentifier=group, WFControlFlowMode=2)
+
+    @contextmanager
+    def repeat(self, count):
+        self.comment("- Dictate and pass the current thread ID.\n- Repeat only while Controllr asks for details.")
+        group = self.identifier()
+        self.system("repeat.count", GroupingIdentifier=group, WFControlFlowMode=0, WFRepeatCount=count)
+        yield
+        self.system("repeat.count", GroupingIdentifier=group, WFControlFlowMode=2)
+
+    def speak(self, ref):
+        self.system("speaktext", WFText=ref.text)
+
+    def confirm(self, summary, execute, cancel):
+        self.comment("- Show the proposed action.\n- Run it only when the user selects Continue.")
+        group = self.identifier()
+        self.system("choosefrommenu", GroupingIdentifier=group, WFControlFlowMode=0,
+                    WFMenuPrompt=summary.text, WFMenuItems=["Continue", "Cancel"])
+        self.system("choosefrommenu", GroupingIdentifier=group, WFControlFlowMode=1, WFMenuItemTitle="Continue")
+        execute()
+        self.system("choosefrommenu", GroupingIdentifier=group, WFControlFlowMode=1, WFMenuItemTitle="Cancel")
+        cancel()
+        self.system("choosefrommenu", GroupingIdentifier=group, WFControlFlowMode=2)
+
+
+def send_message(workflow, payload, manifest):
+    body = workflow.key(payload, "body")
+    recipient = workflow.key(payload, "recipient")
+    workflow.system("sendmessage", WFSendMessageContent=body.text,
+                    WFSendMessageActionRecipients=recipient.text,
+                    IntentAppDefinition={"BundleIdentifier": "com.apple.MobileSMS", "Name": "Messages",
+                                         "TeamIdentifier": "0000000000"})
+
+
+def media(workflow, payload, manifest):
+    command = workflow.key(payload, "command")
+    for verb in ("play", "pause"):
+        with workflow.when(command, verb):
+            workflow.system("pausemusic", WFPlayPauseBehavior=verb.title())
+    for verb, action in (("next", "skipforward"), ("previous", "skipback")):
+        with workflow.when(command, verb):
+            workflow.system(action)
+
+
+def timer(workflow, payload, manifest):
+    duration = workflow.key(payload, "seconds_total")
+    for seconds in manifest["supportedSeconds"]:
+        with workflow.when(duration, str(seconds)):
+            unit, magnitude = ("min", seconds // 60) if seconds % 60 == 0 else ("sec", seconds)
+            workflow.system("timer.start", WFDuration={"Value": {"Unit": unit, "Magnitude": magnitude},
+                                                       "WFSerializationType": "WFQuantityFieldValue"})
+
+
+def focus(workflow, payload, manifest):
+    mode = workflow.key(payload, "focus")
+    modes = {
+        "dnd": {"Enabled": True},
+        "sleep": {"Enabled": True, "FocusModes": {"DisplayString": "Sleep", "Identifier": "com.apple.sleep.sleep-mode"}},
+        "work": {"Enabled": True, "FocusModes": {"DisplayString": "Work", "Identifier": "com.apple.focus.work"}},
+        "off": {"Enabled": False},
+    }
+    for label, params in modes.items():
+        with workflow.when(mode, label):
+            workflow.system("dnd.set", **params)
+
+
+def flashlight(workflow, payload, manifest):
+    setting = workflow.key(payload, "setting")
+    for state in ("Off", "On"):
+        with workflow.when(setting, state):
+            workflow.system("flashlight", WFFlashlightSetting=state)
+
+
+def alarm(workflow, payload, manifest):
+    time = workflow.key(payload, "time")
+    label = workflow.key(payload, "label")
+    workflow.add("com.apple.mobiletimer-framework.MobileTimerIntents.MTCreateAlarmIntent",
+                 AppIntentDescriptor={"AppIntentIdentifier": "CreateAlarmIntent", "BundleIdentifier": "com.apple.mobiletimer",
+                                      "Name": "Clock", "TeamIdentifier": "0000000000"},
+                 dateComponents=time.text, name=label.text)
+
+
+HANDLERS = {
+    "messages": send_message,
+    "media": media,
+    "timer": timer,
+    "focus": focus,
+    "flashlight": flashlight,
+    "alarm": alarm,
+}
+
+
+def open_url(workflow, payload, manifest):
+    url = workflow.key(payload, "url")
+    workflow.system("openurl", WFInput=url.attachment)
+
+
+def dispatch(workflow, decision, summary, thread_id):
+    module = workflow.key(decision, "shortcut")
+    action_id = workflow.key(decision, "action_id")
+    payload = workflow.key(decision, "input", as_text=False)
+
+    def receipt(completed):
+        workflow.app_intent("RecordActionIntent", threadID=thread_id.text, actionID=action_id.text, completed=completed)
+
+    def branch(action_id, handler, manifest, confirm):
+        with workflow.when(module, action_id):
+            def execute():
+                handler(workflow, payload, manifest)
+                receipt(True)
+
+            if confirm:
+                workflow.confirm(summary, execute, lambda: receipt(False))
+            else:
+                execute()
+            workflow.system("exit")
+
+    branch("open_url", open_url, {}, False)
+    branch("open_url_confirm", open_url, {}, True)
+    for path in sorted(MANIFESTS.glob("*.json")):
+        manifest = json.loads(path.read_text())
+        if manifest["kind"] == "shortcut":
+            handler = HANDLERS[manifest["shortcutHandler"]]
+            branch(manifest["id"], handler, manifest, manifest["requiresConfirmation"])
+    workflow.speak(workflow.text("This action isn't available in this shortcut.", "Unavailable Action"))
+
+
+def make_router(team_id):
+    workflow = Workflow(team_id)
+    workflow.comment("Dictate a request, continue the same Controllr thread, and run the proposed phone action.")
+    workflow.comment("Shortcuts generated by Shortcuts Playground. Talk to Controllr by voice.")
+    input_ref = Reference({"Type": "ExtensionInput"})
+    thread = workflow.text(input_ref.text, "Input Thread ID")
+    workflow.set_variable("Thread ID", thread)
+    current_thread = Reference({"Type": "Variable", "VariableName": "Thread ID"})
+
+    with workflow.repeat(8):
+        utterance = workflow.output("is.workflow.actions.dictatetext", "Dictated Text")
+        response = workflow.app_intent("DecideIntent", output="Decision JSON",
+                                       transcript=utterance.text, threadID=current_thread.text)
+        decision = workflow.output("is.workflow.actions.detect.dictionary", "Decision", WFInput=response.attachment)
+        thread_id = workflow.key(decision, "thread_id")
+        workflow.set_variable("Thread ID", thread_id)
+        response_type = workflow.key(decision, "action")
+        summary = workflow.key(decision, "summary")
+        with workflow.when(response_type, "clarify") as otherwise:
+            workflow.speak(summary)
+            otherwise()
+            with workflow.when(response_type, "run") as speak_instead:
+                dispatch(workflow, decision, summary, thread_id)
+                speak_instead()
+                workflow.speak(summary)
+            workflow.system("exit")
+
+    workflow.speak(workflow.text("Open Controllr to continue this thread.", "Continue in Controllr"))
+    return {
+        "WFWorkflowName": NAME,
+        "WFWorkflowActions": workflow.actions,
+        "WFWorkflowClientVersion": "2900",
+        "WFWorkflowMinimumClientVersion": 900,
+        "WFWorkflowIcon": {"WFWorkflowIconStartColor": 463140863, "WFWorkflowIconGlyphNumber": 59511},
+        "WFWorkflowImportQuestions": [],
+        "WFWorkflowInputContentItemClasses": ["WFStringContentItem"],
+        "WFWorkflowTypes": [],
+        "WFWorkflowHasOutputFallback": False,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--team-id", required=True, help="Apple Developer team used to sign the iOS app")
+    parser.add_argument("--output", type=Path, default=HERE / "src" / f"{NAME}.xml")
+    args = parser.parse_args()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_bytes(plistlib.dumps(make_router(args.team_id), fmt=plistlib.FMT_XML))
+    print(args.output)
+
+
+if __name__ == "__main__":
+    main()

@@ -8,21 +8,19 @@ struct TryItView: View {
     @State private var running = false
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Say it in text") {
-                    TextField("e.g. text Sam I'm running late", text: $text, axis: .vertical)
-                    Button(running ? "Routing…" : "Route") { Task { await run() } }.disabled(text.isEmpty || running)
-                }
-                if !output.isEmpty {
-                    Section("Decision") {
-                        Text(output).font(.footnote.monospaced()).textSelection(.enabled)
-                        Button("Copy") { UIPasteboard.general.string = output }
-                    }
+        Form {
+            Section("Say it in text") {
+                TextField("e.g. text Sam I'm running late", text: $text, axis: .vertical)
+                Button(running ? "Routing…" : "Route") { Task { await run() } }.disabled(text.isEmpty || running)
+            }
+            if !output.isEmpty {
+                Section("Decision") {
+                    Text(output).font(.footnote.monospaced()).textSelection(.enabled)
+                    Button("Copy") { UIPasteboard.general.string = output }
                 }
             }
-            .navigationTitle("Try it")
         }
+        .navigationTitle("Try it")
     }
 
     private func run() async {

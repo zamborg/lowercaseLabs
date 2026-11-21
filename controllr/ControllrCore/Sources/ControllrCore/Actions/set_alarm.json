@@ -1,0 +1,33 @@
+{
+  "id": "set_alarm",
+  "kind": "shortcut",
+  "description": "Set an alarm for a clock time.",
+  "params": [
+    {
+      "name": "time",
+      "type": "string",
+      "description": "24-hour time HH:mm",
+      "required": true
+    },
+    {
+      "name": "label",
+      "type": "string",
+      "description": "Optional alarm label",
+      "required": false
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "Alarm at {time}",
+  "shortcutHandler": "alarm",
+  "evals": [
+    {
+      "utterance": "wake me up at 7 30"
+    },
+    {
+      "utterance": "set an alarm for six am called gym"
+    },
+    {
+      "utterance": "alarm for quarter to nine tonight"
+    }
+  ]
+}

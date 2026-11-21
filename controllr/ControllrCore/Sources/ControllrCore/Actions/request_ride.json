@@ -1,0 +1,26 @@
+{
+  "id": "request_ride",
+  "kind": "native",
+  "description": "Open Uber with the destination filled in so the user can request a ride.",
+  "params": [
+    {
+      "name": "destination",
+      "type": "string",
+      "description": "Place or address; the word 'home' means the saved home address",
+      "required": true
+    }
+  ],
+  "requiresConfirmation": true,
+  "summary": "Uber to {destination}",
+  "evals": [
+    {
+      "utterance": "get me an uber home"
+    },
+    {
+      "utterance": "order a ride to the airport"
+    },
+    {
+      "utterance": "i need an uber to union station"
+    }
+  ]
+}

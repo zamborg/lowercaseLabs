@@ -1,0 +1,37 @@
+{
+  "id": "search_saved_items",
+  "kind": "native",
+  "description": "Find Controllr memories, notes, or named skills. Use this before answering a question about saved information or applying a skill the user named.",
+  "params": [
+    {
+      "name": "query",
+      "type": "string",
+      "description": "Short keywords or a skill title. Use an empty string to list recent items.",
+      "required": false
+    },
+    {
+      "name": "kind",
+      "type": "oneOf",
+      "description": "Optional category to search",
+      "required": false,
+      "values": [
+        "memory",
+        "skill",
+        "note"
+      ]
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "Search saved items",
+  "evals": [
+    {
+      "utterance": "What do you remember about my gym hours? Look it up in memory."
+    },
+    {
+      "utterance": "What did I write in my note about the fridge?"
+    },
+    {
+      "utterance": "Use my meeting recap skill on this: we moved the launch to March."
+    }
+  ]
+}

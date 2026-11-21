@@ -1,0 +1,29 @@
+{
+  "id": "answer",
+  "kind": "builtin",
+  "description": "Answer a general question, do math, or give a quick fact. Reply in one or two short spoken sentences.",
+  "params": [
+    {
+      "name": "text",
+      "type": "string",
+      "description": "The spoken answer",
+      "required": true
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "{text}",
+  "evals": [
+    {
+      "utterance": "what's 18% of 64"
+    },
+    {
+      "utterance": "how many ounces in a pound"
+    },
+    {
+      "utterance": "who wrote pride and prejudice"
+    },
+    {
+      "utterance": "what is the capital of australia"
+    }
+  ]
+}

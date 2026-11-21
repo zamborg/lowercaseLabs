@@ -9,7 +9,7 @@ let package = Package(
         .executable(name: "controllr-eval", targets: ["controllr-eval"]),
     ],
     targets: [
-        .target(name: "ControllrCore"),
+        .target(name: "ControllrCore", resources: [.copy("Actions")]),
         .executableTarget(name: "controllr-eval", dependencies: ["ControllrCore"]),
         .testTarget(name: "ControllrCoreTests", dependencies: ["ControllrCore"]),
     ]

@@ -93,3 +93,28 @@ latency ms: p50 865 p95 1415 max 2174
 misses:
   "order a ride to the airport" expected request_ride got clarify
 ```
+
+## 2026-11-21T23:27:23Z — Device build with per-action clarification prompts
+```
+provider=openai model=gpt-6-luna cases=61
+accuracy 60/61 = 98%
+  add_reminder        4/4
+  answer              4/4
+  call_contact        4/4
+  clarify             6/6
+  create_bear_note    1/1
+  create_note         3/3
+  directions          5/5
+  flashlight          3/3
+  media_control       6/6
+  request_ride        3/3
+  save_item           2/2
+  search_saved_items  3/3
+  send_message        7/7
+  set_alarm           2/3
+  set_focus           3/3
+  start_timer         4/4
+latency ms: p50 1048 p95 1492 max 2095
+misses:
+  "wake me up at 7 30" expected set_alarm got clarify (requested another turn)
+```

@@ -28,3 +28,20 @@ targets:
         INFOPLIST_KEY_NSContactsUsageDescription: controllr looks up contacts to text or call the person you name.
         INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: controllr adds reminders you ask for.
         INFOPLIST_KEY_NSRemindersUsageDescription: controllr adds reminders you ask for.
+  ControllrTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [AppTests]
+    dependencies:
+      - target: Controllr
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Controllr:
+    build:
+      targets:
+        Controllr: all
+    test:
+      targets:
+        - ControllrTests

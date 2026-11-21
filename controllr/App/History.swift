@@ -34,7 +34,7 @@ final class RunRecord {
 
 enum Store {
     static let container: ModelContainer = {
-        do { return try ModelContainer(for: RunRecord.self) }
+        do { return try ModelContainer(for: RunRecord.self, ChatThread.self, ChatEntry.self, SavedItem.self) }
         catch { fatalError("SwiftData store failed: \(error)") }
     }()
 }
