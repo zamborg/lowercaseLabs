@@ -1,0 +1,52 @@
+{"utterance": "text Sam I'm running ten minutes late", "expect": "send_message"}
+{"utterance": "send a message to Alex saying I'll be there at six", "expect": "send_message"}
+{"utterance": "tell my wife I love her", "expect": "send_message"}
+{"utterance": "text jordan are we still on for tonight", "expect": "send_message"}
+{"utterance": "message dad happy birthday", "expect": "send_message"}
+{"utterance": "call mom", "expect": "call_contact"}
+{"utterance": "phone Dr. Patel", "expect": "call_contact"}
+{"utterance": "give Sam a ring", "expect": "call_contact"}
+{"utterance": "skip this song", "expect": "media_control"}
+{"utterance": "pause the music", "expect": "media_control"}
+{"utterance": "play", "expect": "media_control"}
+{"utterance": "go back to the previous track", "expect": "media_control"}
+{"utterance": "next song", "expect": "media_control"}
+{"utterance": "set a timer for ten minutes", "expect": "start_timer"}
+{"utterance": "timer 90 seconds", "expect": "start_timer"}
+{"utterance": "start a five minute timer", "expect": "start_timer"}
+{"utterance": "wake me up at 7 30", "expect": "set_alarm"}
+{"utterance": "set an alarm for six am called gym", "expect": "set_alarm"}
+{"utterance": "alarm for quarter to nine tonight", "expect": "set_alarm"}
+{"utterance": "remind me to call the dentist tomorrow at 9", "expect": "add_reminder"}
+{"utterance": "remind me to buy milk", "expect": "add_reminder"}
+{"utterance": "add a reminder to submit the report on friday at five pm", "expect": "add_reminder"}
+{"utterance": "note that the wifi password is on the fridge", "expect": "create_note"}
+{"utterance": "take a note buy lightbulbs", "expect": "create_note"}
+{"utterance": "create a note idea for the pitch deck lead with the demo", "expect": "create_note"}
+{"utterance": "directions to the airport", "expect": "directions"}
+{"utterance": "how do I get home", "expect": "directions"}
+{"utterance": "walk to the nearest starbucks", "expect": "directions"}
+{"utterance": "navigate to 1 infinite loop", "expect": "directions"}
+{"utterance": "get me an uber home", "expect": "request_ride"}
+{"utterance": "order a ride to the airport", "expect": "request_ride"}
+{"utterance": "i need an uber to union station", "expect": "request_ride"}
+{"utterance": "do not disturb on", "expect": "set_focus"}
+{"utterance": "turn on sleep focus", "expect": "set_focus"}
+{"utterance": "turn off focus", "expect": "set_focus"}
+{"utterance": "flashlight on", "expect": "flashlight"}
+{"utterance": "turn off the torch", "expect": "flashlight"}
+{"utterance": "what's 18% of 64", "expect": "answer"}
+{"utterance": "how many ounces in a pound", "expect": "answer"}
+{"utterance": "who wrote pride and prejudice", "expect": "answer"}
+{"utterance": "what is the capital of australia", "expect": "answer"}
+{"utterance": "text them I'm late", "expect": "clarify"}
+{"utterance": "send it to him", "expect": "clarify"}
+{"utterance": "call", "expect": "clarify"}
+{"utterance": "get me a ride", "expect": "clarify"}
+{"utterance": "directions", "expect": "clarify"}
+{"utterance": "remind me", "expect": "clarify"}
+{"utterance": "text sam i'm running tin minutes late", "expect": "send_message"}
+{"utterance": "scip this song", "expect": "media_control"}
+{"utterance": "set a time or for ten minutes", "expect": "start_timer"}
+{"utterance": "remind me too call the dentist tomorrow at nine", "expect": "add_reminder"}
+{"utterance": "flash light on", "expect": "flashlight"}

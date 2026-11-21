@@ -4,3 +4,6 @@ shortcuts/signed/
 .env
 *.key
 build/
+
+ControllrCore/.build/
+.swiftpm/

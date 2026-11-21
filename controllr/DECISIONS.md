@@ -7,3 +7,7 @@
 - If step: inputs must be Text (add a Text action that wraps the dictionary value); format = WFCondition 4 + WFConditionalActionString + WFInput variable. A raw dictionary-value input leaves the value empty.
 - Text-input test routers (`Controllr · Alt`, `Alt (network)`) use a fixed "hello" and show results in an alert so they can be driven and read over iPhone Mirroring.
 - Phase 0 measured: network call 998 ms / 815 ms (list-models), Decide runs from Shortcuts without opening the app.
+- Phase 1 eval baseline (v1 prompt): gpt-5.4-mini 94%, gpt-5.4-nano 90%. Misses were over-clarifying; prompt v2 (don't clarify when a name/relationship/place is given) -> both 98%. Models come from the user's list-models, never hard-coded. See evals/RESULTS.md.
+- Native modules that need to open something (tel:, Maps, Uber) return `open_url` / `open_url_confirm` decisions; the router opens the URL (a background App Intent can't). Confirmation is encoded in which id is returned, so the router needs no runtime confirm If.
+- Shortcut modules that need resolution (send_message: contact name -> number) go through `ModuleExecutor.prepare` inside Decide before the decision is returned.
+- Uber deep link format is unverified (no network access to Uber's docs from the agent); check on device.
