@@ -1,0 +1,5 @@
+
+shortcuts/signed/
+*.xcodeproj
+.env
+*.key
