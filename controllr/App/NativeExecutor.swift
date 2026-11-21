@@ -28,6 +28,11 @@ struct NativeExecutor: ModuleExecutor {
             return .openURL("tel:\(digits)", summary: "Call \(c.name)")
         case "add_reminder":
             return .spoken(try await Reminders.add(title: a["title"]?.stringValue ?? "", due: a["due"]?.stringValue))
+        case "create_note":
+            // Bear's URL scheme; the router opens it. First line becomes the title.
+            let text = a["text"]?.stringValue ?? ""
+            let enc = Places.encode(text)
+            return .openURL("bear://x-callback-url/create?text=\(enc)&open_note=no&show_window=no&new_window=no", summary: "Note: \(text)")
         case "directions":
             let dest = try Places.resolve(a["destination"]?.stringValue ?? "")
             let flag = ["drive": "d", "walk": "w", "transit": "r"][a["mode"]?.stringValue ?? "drive"] ?? "d"

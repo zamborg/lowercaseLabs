@@ -101,31 +101,16 @@ def router(text=None):
     lt, ln = pk("on")
     A += iff(modt, modn, "flashlight", iff(lt, ln, "0", [act("is.workflow.actions.flashlight", {"WFFlashlightSetting": "Off"})])
                                       + iff(lt, ln, "1", [act("is.workflow.actions.flashlight", {"WFFlashlightSetting": "On"})]))
-    # set_alarm / create_note: parameter shapes copied from exported exemplars (shortcuts/exemplars/)
+    # set_alarm: parameter shapes copied from exported exemplars (shortcuts/exemplars/)
     at, an = pk("time"); lt2, ln2 = pk("label")
     A += iff(modt, modn, "set_alarm", [act("com.apple.mobiletimer-framework.MobileTimerIntents.MTCreateAlarmIntent", {
         "AppIntentDescriptor": {"AppIntentIdentifier": "CreateAlarmIntent", "BundleIdentifier": "com.apple.mobiletimer", "Name": "Clock", "TeamIdentifier": "0000000000"},
         "dateComponents": text_ref(at, an), "name": text_ref(lt2, ln2)})])
-    nt, nn = pk("text")
-    A += iff(modt, modn, "create_note", [act("com.apple.mobilenotes.SharingExtension", {
-        "AppIntentDescriptor": {"AppIntentIdentifier": "CreateNoteLinkAction", "BundleIdentifier": "com.apple.Notes", "Name": "Notes", "TeamIdentifier": "0000000000"},
-        "contents": text_ref(nt, nn),
-        "WFNoteGroup": {"DisplayString": "Notes", "Identifier": "applenotes:folder/DefaultFolder-CloudKit"},
-        "folder": {"identifier": "applenotes:folder/DefaultFolder-CloudKit", "subtitle": {"key": "Notes"}, "symbol": {"systemName": "folder"}, "title": {"key": "Notes"}}})])
     return shortcut(A)
-
-def note_probe(var):
-    t = U()
-    note = {"AppIntentDescriptor": {"AppIntentIdentifier": "CreateNoteLinkAction", "BundleIdentifier": "com.apple.Notes", "Name": "Notes", "TeamIdentifier": "0000000000"},
-            "contents": text_ref(t, "Text") if var else "hello from controllr",
-            "WFNoteGroup": {"DisplayString": "Notes", "Identifier": "applenotes:folder/DefaultFolder-CloudKit"},
-            "folder": {"identifier": "applenotes:folder/DefaultFolder-CloudKit", "subtitle": {"key": "Notes"}, "symbol": {"systemName": "folder"}, "title": {"key": "Notes"}}}
-    A = ([act("is.workflow.actions.gettext", {"WFTextActionText": "hello from var", "UUID": t, "CustomOutputName": "Text"})] if var else [])
-    return shortcut(A + [act("com.apple.mobilenotes.SharingExtension", note)])
 
 import sys
 PHRASES = {"Note": "make a note that the wifi password is on the fridge"}
-SHORTCUTS = {"Controllr · Router": router(), "Controllr · Note Static": note_probe(False), "Controllr · Note Var": note_probe(True)}
+SHORTCUTS = {"Controllr · Router": router(), }
 SHORTCUTS.update({f"Controllr · Test {k}": router(v) for k, v in PHRASES.items()})
 
 for n, s in SHORTCUTS.items():

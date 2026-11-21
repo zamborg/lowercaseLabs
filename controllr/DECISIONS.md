@@ -27,3 +27,7 @@
 ## Clarify loop (v1)
 - Done inside `DecideIntent`, not the router shortcut: on a `clarify` decision it calls `$answer.requestValue(question)` (Siri speaks and listens; Shortcuts shows a prompt), then re-routes with `Router.compose` (earlier turns + answer) up to 2 rounds. No shortcut changes needed.
 - Unverified on device: whether Siri voice answers work when the router runs from the "controllr" phrase. Fallback if not: unrolled dictate/Decide in the router shortcut.
+
+## Notes -> Bear
+- User uses Bear; `create_note` is now a native module returning `bear://x-callback-url/create` (router opens it via the open_url branch). The Apple Notes shortcut action is removed from the router. The earlier Unknown Action was the Notes app being uninstalled on the phone, not our plist shape.
+- Unverified: Bear URL opens Bear briefly (open_note=no, show_window=no) and creates the note without a token.
