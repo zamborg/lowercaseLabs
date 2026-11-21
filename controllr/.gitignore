@@ -3,3 +3,4 @@ shortcuts/signed/
 *.xcodeproj
 .env
 *.key
+build/
