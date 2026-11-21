@@ -109,7 +109,7 @@ def router(text=None):
     nt, nn = pk("text")
     A += iff(modt, modn, "create_note", [act("com.apple.mobilenotes.SharingExtension", {
         "AppIntentDescriptor": {"AppIntentIdentifier": "CreateNoteLinkAction", "BundleIdentifier": "com.apple.Notes", "Name": "Notes", "TeamIdentifier": "0000000000"},
-        "WFCreateNoteInput": text_ref(nt, nn),
+        "contents": text_ref(nt, nn),
         "WFNoteGroup": {"DisplayString": "Notes", "Identifier": "applenotes:folder/DefaultFolder-CloudKit"},
         "folder": {"identifier": "applenotes:folder/DefaultFolder-CloudKit", "subtitle": {"key": "Notes"}, "symbol": {"systemName": "folder"}, "title": {"key": "Notes"}}})])
     return shortcut(A)
@@ -117,7 +117,7 @@ def router(text=None):
 def note_probe(var):
     t = U()
     note = {"AppIntentDescriptor": {"AppIntentIdentifier": "CreateNoteLinkAction", "BundleIdentifier": "com.apple.Notes", "Name": "Notes", "TeamIdentifier": "0000000000"},
-            "WFCreateNoteInput": text_ref(t, "Text") if var else "hello from controllr",
+            "contents": text_ref(t, "Text") if var else "hello from controllr",
             "WFNoteGroup": {"DisplayString": "Notes", "Identifier": "applenotes:folder/DefaultFolder-CloudKit"},
             "folder": {"identifier": "applenotes:folder/DefaultFolder-CloudKit", "subtitle": {"key": "Notes"}, "symbol": {"systemName": "folder"}, "title": {"key": "Notes"}}}
     A = ([act("is.workflow.actions.gettext", {"WFTextActionText": "hello from var", "UUID": t, "CustomOutputName": "Text"})] if var else [])

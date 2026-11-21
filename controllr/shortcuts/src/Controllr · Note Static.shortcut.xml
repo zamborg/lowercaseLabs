@@ -20,8 +20,6 @@
 					<key>TeamIdentifier</key>
 					<string>0000000000</string>
 				</dict>
-				<key>WFCreateNoteInput</key>
-				<string>hello from controllr</string>
 				<key>WFNoteGroup</key>
 				<dict>
 					<key>DisplayString</key>
@@ -29,6 +27,8 @@
 					<key>Identifier</key>
 					<string>applenotes:folder/DefaultFolder-CloudKit</string>
 				</dict>
+				<key>contents</key>
+				<string>hello from controllr</string>
 				<key>folder</key>
 				<dict>
 					<key>identifier</key>

@@ -61,6 +61,24 @@ public enum ArgumentValidator {
     }
 }
 
+/// One earlier turn of a clarify loop: what the user asked and what the assistant asked back.
+public struct Exchange: Sendable, Equatable {
+    public let user: String
+    public let question: String
+    public init(user: String, question: String) { self.user = user; self.question = question }
+}
+
+public extension Router {
+    /// Folds earlier clarify turns and the user's new answer into one transcript the model can read.
+    static func compose(_ answer: String, context: [Exchange]) -> String {
+        guard !context.isEmpty else { return answer }
+        var lines = ["Conversation so far (you asked for missing details; the last line is the user's answer, so combine everything into one request):"]
+        for e in context { lines.append("User: \(e.user)"); lines.append("You asked: \(e.question)") }
+        lines.append("User's answer: \(answer)")
+        return lines.joined(separator: "\n")
+    }
+}
+
 public struct Router: Sendable {
     public let provider: LLMProvider
     public let registry: Registry
@@ -77,7 +95,7 @@ public struct Router: Sendable {
 
     /// Routes a transcript to a decision. Never throws: failures become `error` decisions.
     /// When `execute` is false, native modules are described instead of run ("Try it" / evals).
-    public func route(_ transcript: String, now: Date = Date(), execute: Bool = true) async -> RouteResult {
+    public func route(_ transcript: String, context: [Exchange] = [], now: Date = Date(), execute: Bool = true) async -> RouteResult {
         let start = ContinuousClock.now
         func result(_ d: Decision, _ call: ToolCall?, _ err: String? = nil) -> RouteResult {
             let c = ContinuousClock.now - start
@@ -87,7 +105,7 @@ public struct Router: Sendable {
 
         let call: ToolCall
         do {
-            call = try await provider.route(system: Prompt.system(now: now, settings: settings), transcript: transcript, tools: tools)
+            call = try await provider.route(system: Prompt.system(now: now, settings: settings), transcript: Self.compose(transcript, context: context), tools: tools)
         } catch let e as ProviderError {
             return result(.speak(.error, Self.spokenError(e)), nil, "\(e)")
         } catch {

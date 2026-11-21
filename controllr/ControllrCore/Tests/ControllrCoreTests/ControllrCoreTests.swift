@@ -183,3 +183,15 @@ final class ControllrCoreTests: XCTestCase {
         XCTAssertTrue(p.contains("mom = Linda"))
     }
 }
+
+final class ClarifyComposeTests: XCTestCase {
+    func testComposeWithoutContextIsIdentity() {
+        XCTAssertEqual(Router.compose("text mom", context: []), "text mom")
+    }
+    func testComposeIncludesHistoryAndAnswer() {
+        let t = Router.compose("running late", context: [Exchange(user: "text mom", question: "What should I say?")])
+        XCTAssertTrue(t.contains("User: text mom"))
+        XCTAssertTrue(t.contains("You asked: What should I say?"))
+        XCTAssertTrue(t.hasSuffix("User's answer: running late"))
+    }
+}

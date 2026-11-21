@@ -1,4 +1,5 @@
 import AppIntents
+import ControllrCore
 import Foundation
 
 /// The router shortcut's brain: transcript in, flat decision JSON out (see DECISIONS.md).
@@ -9,8 +10,20 @@ struct DecideIntent: AppIntent {
 
     @Parameter(title: "Transcript", requestValueDialog: "What do you want to do?") var transcript: String
 
+    @Parameter(title: "Answer") var answer: String?
+
+    /// Up to two clarify rounds: Siri/Shortcuts speaks the question, listens, and we route again with the history.
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        let r = await Engine.run(transcript, source: "intent", execute: true)
+        var context: [Exchange] = []
+        var current = transcript
+        var r = await Engine.run(current, context: context, source: "intent", execute: true)
+        while r.decision.action == .clarify, context.count < 2 {
+            let question = r.decision.summary
+            let reply = try await $answer.requestValue(IntentDialog(stringLiteral: question))
+            context.append(Exchange(user: current, question: question))
+            current = reply
+            r = await Engine.run(current, context: context, source: "intent", execute: true)
+        }
         return .result(value: r.decision.json)
     }
 }

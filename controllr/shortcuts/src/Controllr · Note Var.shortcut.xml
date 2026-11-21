@@ -12,7 +12,7 @@
 				<key>CustomOutputName</key>
 				<string>Text</string>
 				<key>UUID</key>
-				<string>01F3BDF2-FA2A-4D98-AFDF-D0BA63FB8C31</string>
+				<string>D04EE30F-9568-45B6-B93C-05195A5CDEA0</string>
 				<key>WFTextActionText</key>
 				<string>hello from var</string>
 			</dict>
@@ -33,7 +33,14 @@
 					<key>TeamIdentifier</key>
 					<string>0000000000</string>
 				</dict>
-				<key>WFCreateNoteInput</key>
+				<key>WFNoteGroup</key>
+				<dict>
+					<key>DisplayString</key>
+					<string>Notes</string>
+					<key>Identifier</key>
+					<string>applenotes:folder/DefaultFolder-CloudKit</string>
+				</dict>
+				<key>contents</key>
 				<dict>
 					<key>Value</key>
 					<dict>
@@ -44,7 +51,7 @@
 								<key>OutputName</key>
 								<string>Text</string>
 								<key>OutputUUID</key>
-								<string>01F3BDF2-FA2A-4D98-AFDF-D0BA63FB8C31</string>
+								<string>D04EE30F-9568-45B6-B93C-05195A5CDEA0</string>
 								<key>Type</key>
 								<string>ActionOutput</string>
 							</dict>
@@ -54,13 +61,6 @@
 					</dict>
 					<key>WFSerializationType</key>
 					<string>WFTextTokenString</string>
-				</dict>
-				<key>WFNoteGroup</key>
-				<dict>
-					<key>DisplayString</key>
-					<string>Notes</string>
-					<key>Identifier</key>
-					<string>applenotes:folder/DefaultFolder-CloudKit</string>
 				</dict>
 				<key>folder</key>
 				<dict>

@@ -23,3 +23,7 @@
 - Exemplar export (File → Export, then `aea decrypt -sign-pub <leaf cert pubkey from auth data>` and `aa extract`) gave the real param shapes. Alarm (`MTCreateAlarmIntent`: dateComponents "HH:mm", name) and Send Message (recipients as a text variable, `IntentAppDefinition` com.apple.MobileSMS) WORK on device.
 - create_note: the Mac-exported `com.apple.mobilenotes.SharingExtension` action (even byte-for-byte, re-signed) is an Unknown Action on the iPhone ("Note Exemplar/Wrap/Static/Var" all fail). Notes needs a different iOS identifier, or a non-shortcut route. Router currently still emits the Mac form; treat create_note as broken.
 - Timer branches only live in the voice Router; test routers carry one (300 s) so they stay small.
+
+## Clarify loop (v1)
+- Done inside `DecideIntent`, not the router shortcut: on a `clarify` decision it calls `$answer.requestValue(question)` (Siri speaks and listens; Shortcuts shows a prompt), then re-routes with `Router.compose` (earlier turns + answer) up to 2 rounds. No shortcut changes needed.
+- Unverified on device: whether Siri voice answers work when the router runs from the "controllr" phrase. Fallback if not: unrolled dictate/Decide in the router shortcut.
