@@ -4,7 +4,7 @@
 
 The signed iOS build is installed on the paired iPhone 14 Pro. **Controllr Voice** was imported on the Mac and appeared in iPhone Spotlight. The app's Threads screen opened on the phone and the first shortcut launch reached the Speech Recognition prompt.
 
-The physical microphone round trip is pending. iPhone Mirroring cannot use the phone microphone. For the acceptance test, launch Controllr Voice on the phone, allow Speech Recognition, say “Text Sam,” and answer the follow-up with “Running ten minutes late.” Choose **Cancel** if the shortcut offers to send. Both utterances and the cancellation should appear in one thread. Use a contact name on the device if Sam is unavailable.
+The user confirmed the physical microphone test. Controllr Voice captured “Text Sam” and the spoken follow-up “Running ten minutes late” in one thread on the iPhone.
 
 ## Included in this build
 
@@ -18,6 +18,6 @@ The physical microphone round trip is pending. iPhone Mirroring cannot use the p
 - All 26 core tests passed. They cover ordered conversation turns, confirmation and validation, and both providers' tool-result format.
 - All three iOS simulator tests passed. They cover reopening a stored conversation, cancellation receipts, and querying memory, skills, and notes after reopening the database.
 - Live OpenAI routing passed 60 of 61 cases, including the three multi-turn routing cases. One alarm request prompted for clarification. Separate live-model smoke checks used a saved memory and applied a saved skill. See [evals/RESULTS.md](evals/RESULTS.md).
-- Shortcuts signing and plist lint passed. Playground's static check flags the Send Message body binding because it expects a named list variable. The generator uses the working text-token wiring from the repository's earlier device checks. The new router's message/call execution still needs a physical-phone check.
+- Shortcuts signing and plist lint passed. Playground's static check flags the Send Message body binding because it expects a named list variable. The generator uses the working text-token wiring from the repository's earlier device checks. The device test exercised the two-turn text flow. Live message delivery and call placement are unverified in this build.
 
 Calendar and Lyft are follow-on actions. The old shortcuts and stray Clock timers on the devices and API-key rotation are still listed for cleanup.
