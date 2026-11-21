@@ -31,6 +31,11 @@ public struct RouteResult: Sendable {
     public let provider: String
     public let model: String
     public let error: String?
+
+    public init(decision: Decision, toolCall: ToolCall?, latencyMs: Int, provider: String, model: String, error: String?) {
+        self.decision = decision; self.toolCall = toolCall; self.latencyMs = latencyMs
+        self.provider = provider; self.model = model; self.error = error
+    }
 }
 
 public enum ArgumentValidator {

@@ -1,27 +1,17 @@
 import SwiftUI
+import SwiftData
 
 @main
 struct ControllrApp: App {
-    var body: some Scene { WindowGroup { SpikeView() } }
-}
-
-/// Phase 0 only: paste an OpenAI key into the Keychain so DecideNetworkIntent can use it.
-struct SpikeView: View {
-    @State private var key = ""
-    @State private var saved = Keychain.get("openai") != nil
-
-    var body: some View {
-        Form {
-            Section("OpenAI key (spike)") {
-                SecureField("sk-…", text: $key)
-                Button("Save to Keychain") {
-                    Keychain.set(key, for: "openai")
-                    key = ""
-                    saved = true
-                }
-                .disabled(key.isEmpty)
-                Text(saved ? "Key stored" : "No key stored").foregroundStyle(.secondary)
+    var body: some Scene {
+        WindowGroup {
+            TabView {
+                SetupView().tabItem { Label("Setup", systemImage: "gearshape") }
+                ModulesView().tabItem { Label("Modules", systemImage: "square.grid.2x2") }
+                HistoryView().tabItem { Label("History", systemImage: "clock") }
+                TryItView().tabItem { Label("Try it", systemImage: "text.cursor") }
             }
         }
+        .modelContainer(Store.container)
     }
 }

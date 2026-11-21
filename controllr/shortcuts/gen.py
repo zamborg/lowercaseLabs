@@ -99,7 +99,27 @@ def if_test(variant):
         act("is.workflow.actions.conditional", {"GroupingIdentifier": g, "WFControlFlowMode": 2}),
     ])
 
-SHORTCUTS = {"Controllr · Router": router(), "Controllr · Router (network)": router(True), "Controllr · Alt": router(False, True), "Controllr · Alt (network)": router(True, True)}
+
+def probe(which):
+    """Candidate action identifiers to see which ones the phone recognises (Unknown Action = wrong)."""
+    cands = {
+      "A": [("is.workflow.actions.pausemusic", {"WFPlayPauseBehavior": "Play"}),
+            ("is.workflow.actions.skipforward", {}), ("is.workflow.actions.skipback", {}),
+            ("is.workflow.actions.timer.start", {"WFDuration": {"Value": {"Unit": "min", "Magnitude": 5}, "WFSerializationType": "WFQuantityFieldValue"}}),
+            ("is.workflow.actions.flashlight", {"WFFlashlightSetting": "On"}),
+            ("is.workflow.actions.openurl", {"WFInput": "https://maps.apple.com/?daddr=x"})],
+      "B": [("is.workflow.actions.createnote", {"WFCreateNoteInput": "hello"}),
+            ("is.workflow.actions.addnewnote", {"WFCreateNoteInput": "hello"}),
+            ("is.workflow.actions.sendmessage", {"WFSendMessageContent": "hi", "WFSendMessageActionRecipients": ["+15550100"]}),
+            ("is.workflow.actions.dnd.set", {"Enabled": 1}),
+            ("is.workflow.actions.alarm.create", {}),
+            ("is.workflow.actions.setalarm", {}),
+            ("is.workflow.actions.playpause", {}),
+            ("is.workflow.actions.getalarms", {})],
+    }[which]
+    return shortcut([act(i, p) for i, p in cands])
+
+SHORTCUTS = {"Controllr · Probe A": probe("A"), "Controllr · Probe B": probe("B")}
 
 for n, s in SHORTCUTS.items():
     src = HERE / "src" / f"{n}.shortcut.xml"
