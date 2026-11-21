@@ -1,6 +1,6 @@
-# relay — build plan
+# controllr — build plan
 
-> Working name: **relay** (placeholder; rename freely). This document is the full
+> Project name: **controllr**. This document is the full
 > execution plan for an agent building the app. Read it end to end before
 > starting. Execute phases in order; **Phase 0 is a gate** — stop and report
 > its results before building on top of it.
@@ -35,7 +35,7 @@ The router then runs that module.
 - **Fast by default, confirm when it matters.** Harmless actions fire
   immediately; anything that sends, buys, or calls shows a confirmation.
 - **Clean slate.** Do not copy code, patterns, names, or structure from any
-  other project in this repository. Everything lives under `relay/`.
+  other project in this repository. Everything lives under `controllr/`.
 
 ### Out of scope for v1
 
@@ -47,12 +47,12 @@ on-device models, iPad/Mac/Watch targets.
 ## 2. Architecture
 
 ```
- Trigger (Action Button / Back Tap / Control / "Hey Siri, Relay")
+ Trigger (Action Button / Back Tap / Control / "Hey Siri, Controllr")
     │
     ▼
- ┌───────────────── Router shortcut ("Relay") ─────────────────┐
+ ┌─────────────── Router shortcut ("Controllr") ───────────────┐
  │ 1. Dictate Text                                             │
- │ 2. Relay: Decide (our App Intent, input = transcript)       │──► LLM API
+ │ 2. Controllr: Decide (our App Intent, input = transcript)   │──► LLM API
  │      returns JSON text                                      │◄── (tool call)
  │ 3. Get Dictionary from Input                                │
  │ 4. If action == "run":                                      │
@@ -63,7 +63,7 @@ on-device models, iPad/Mac/Watch targets.
  └─────────────────────────────────────────────────────────────┘
     │
     ▼
- Module shortcut, e.g. "Relay · Send Message"
+ Module shortcut, e.g. "Controllr · Send Message"
    Get Dictionary from Input → Get values → Send Message (system action)
 ```
 
@@ -98,7 +98,7 @@ the router never changes.
 - **XcodeGen** (`project.yml`) to generate the Xcode project. Do not hand-edit
   `.pbxproj`. Commit `project.yml`; ignore the generated `.xcodeproj` (or commit
   it, but always regenerate rather than edit).
-- **Swift Package `RelayCore`** for all logic that doesn't need UIKit: registry,
+- **Swift Package `ControllrCore`** for all logic that doesn't need UIKit: registry,
   prompt building, LLM clients, response parsing, the decision contract. It
   builds on macOS too, so it can be unit-tested and evaluated from the command
   line without a phone.
@@ -113,28 +113,28 @@ the router never changes.
 ## 4. Repository layout
 
 ```
-relay/
+controllr/
   PLAN.md                  ← this file
   README.md                ← how to build, install, set up the router
   project.yml              ← XcodeGen spec
   App/
-    RelayApp.swift
+    ControllrApp.swift
     Views/                 ← Settings, Modules, History, Onboarding
     Intents/
       DecideIntent.swift
       AppShortcuts.swift   ← AppShortcutsProvider (Siri phrases)
     Native/                ← native module executors (Reminders, OpenURL…)
     Storage/               ← Keychain wrapper, SwiftData models
-  Packages/RelayCore/
+  Packages/ControllrCore/
     Package.swift
-    Sources/RelayCore/
+    Sources/ControllrCore/
       Registry/            ← Module, InputSchema, builtInModules
       Decision/            ← Decision contract (encode/decode JSON)
       Providers/           ← LLMProvider protocol, OpenAIProvider, AnthropicProvider
       Router/              ← Router: transcript + context → Decision
       Prompt/              ← system prompt builder
-    Sources/relay-eval/    ← macOS CLI: runs evals/utterances.jsonl against a real API
-    Tests/RelayCoreTests/
+    Sources/controllr-eval/    ← macOS CLI: runs evals/utterances.jsonl against a real API
+    Tests/ControllrCoreTests/
   evals/
     utterances.jsonl       ← {"utterance": ..., "expect": {"module": ..., "input": {...}}}
   shortcuts/
@@ -144,7 +144,7 @@ relay/
     Makefile               ← `make sign` (macOS only)
 ```
 
-Add to `.gitignore` (inside `relay/` or repo root): `relay/shortcuts/signed/`,
+Add to `.gitignore` (inside `controllr/` or repo root): `controllr/shortcuts/signed/`,
 `*.xcodeproj` if generated, any `.env`/key files.
 
 ---
@@ -156,7 +156,7 @@ The Decide intent returns a **JSON string**. The router parses it with
 
 ```json
 { "action": "run",
-  "shortcut": "Relay · Send Message",
+  "shortcut": "Controllr · Send Message",
   "input": { "recipient": "+15551234567", "body": "Running ten minutes late" },
   "confirm": true,
   "summary": "Text Sam: \"Running ten minutes late\"" }
@@ -164,7 +164,7 @@ The Decide intent returns a **JSON string**. The router parses it with
 { "action": "done",   "speak": "Reminder set for tomorrow at 9." }   // native module already executed
 { "action": "respond","speak": "18% of 64 is 11.52." }
 { "action": "clarify","speak": "Who should I text?" }
-{ "action": "error",  "speak": "I couldn't reach OpenAI. Check your key in Relay." }
+{ "action": "error",  "speak": "I couldn't reach OpenAI. Check your key in Controllr." }
 ```
 
 Rules:
@@ -193,17 +193,17 @@ struct Module: Sendable, Codable {
 
 | id | kind | input | confirm | notes |
 |---|---|---|---|---|
-| `send_message` | shortcut "Relay · Send Message" | recipient, body | yes | Resolve recipient name → phone number in-app via Contacts framework before returning (more reliable than Find Contacts in Shortcuts). If 0 or >1 matches, return `clarify`. |
+| `send_message` | shortcut "Controllr · Send Message" | recipient, body | yes | Resolve recipient name → phone number in-app via Contacts framework before returning (more reliable than Find Contacts in Shortcuts). If 0 or >1 matches, return `clarify`. |
 | `call_contact` | native (`tel:` URL) | recipient | yes | Same contact resolution. |
-| `media_control` | shortcut "Relay · Media" | command: play/pause/next/previous | no | Uses system Play/Pause and Skip actions; works with whatever is playing (Spotify included). |
-| `start_timer` | shortcut "Relay · Timer" | minutes, seconds | no | |
-| `set_alarm` | shortcut "Relay · Alarm" | time (HH:mm), label | no | |
+| `media_control` | shortcut "Controllr · Media" | command: play/pause/next/previous | no | Uses system Play/Pause and Skip actions; works with whatever is playing (Spotify included). |
+| `start_timer` | shortcut "Controllr · Timer" | minutes, seconds | no | |
+| `set_alarm` | shortcut "Controllr · Alarm" | time (HH:mm), label | no | |
 | `add_reminder` | native (EventKit) | title, due (ISO 8601, optional) | no | LLM gets current date/time + time zone in the prompt. |
-| `create_note` | shortcut "Relay · Note" | text | no | |
+| `create_note` | shortcut "Controllr · Note" | text | no | |
 | `directions` | native (open Apple Maps URL) | destination, mode: drive/walk/transit | no | "home" resolves to the saved home address. |
 | `request_ride` | native (open Uber deep link) | destination | yes | Opens Uber with destination prefilled; user confirms in Uber. Verify the deep link format against Uber's current docs. |
-| `set_focus` | shortcut "Relay · Focus" | focus: dnd/sleep/work/off | no | |
-| `flashlight` | shortcut "Relay · Flashlight" | on: bool | no | |
+| `set_focus` | shortcut "Controllr · Focus" | focus: dnd/sleep/work/off | no | |
+| `flashlight` | shortcut "Controllr · Flashlight" | on: bool | no | |
 | `answer` | built-in | text | no | General questions, math, quick facts → `respond`. |
 | `clarify` | built-in | question | no | When the request is ambiguous or missing required info. |
 
@@ -216,7 +216,7 @@ Settings provide: home address, optional nickname map ("mom" → contact).
 - **One tool per module**; tool name = `module.id`, parameters = `module.input`.
   Force a tool call (OpenAI `tool_choice: "required"`, Anthropic
   `tool_choice: {"type": "any"}`). Exactly one call is used; ignore extras.
-- **System prompt** (built in `RelayCore/Prompt`), keep short:
+- **System prompt** (built in `ControllrCore/Prompt`), keep short:
   - You are the router for a voice assistant on the user's iPhone.
   - Current date, time, time zone, locale.
   - Pick exactly one tool. Prefer `clarify` over guessing a recipient or a destination.
@@ -310,18 +310,18 @@ Acceptance (report each as pass/fail to the user):
 
 **Stop here and report to the user before continuing.**
 
-### Phase 1 — RelayCore + evals
+### Phase 1 — ControllrCore + evals
 
 - `Module`, `InputSchema`, `Decision`, built-in v1 registry (§6).
 - Prompt builder, `OpenAIProvider`, `AnthropicProvider`, `Router`.
 - Unit tests with a mocked provider: schema → tool JSON, tool call → Decision,
   confirmation comes from the registry, invalid args → `error`.
-- `relay-eval` CLI: reads `evals/utterances.jsonl` (write ~40 utterances
+- `controllr-eval` CLI: reads `evals/utterances.jsonl` (write ~40 utterances
   covering every module, ambiguous cases that should `clarify`, and
   dictation-style typos), reads the key from an environment variable, prints
   accuracy per module and latency. Never print the key.
 
-Acceptance: `swift test` passes; `relay-eval` runs against a real key and
+Acceptance: `swift test` passes; `controllr-eval` runs against a real key and
 reports results.
 
 ### Phase 2 — App shell
@@ -338,7 +338,9 @@ Acceptance: builds and runs on the device; keys persist; "Test key" works;
   `tel:`, contact resolution), returns the contract JSON (§5), writes history.
 - Permissions: Contacts, Reminders. Request them from the app's Setup screen,
   not mid-intent.
-- `AppShortcutsProvider` with a phrase like "Relay" so it also works from Siri.
+- `AppShortcutsProvider` with a phrase like "Controllr" so it also works from Siri.
+  Siri hears the name as "controller"; test that the phrase is recognized, and
+  if not, add an easy-to-say alternate phrase.
 
 Acceptance: from the Shortcuts app, Decide returns correct JSON for the eval
 utterances; native modules work.
@@ -373,14 +375,14 @@ Action Button or Back Tap.
 
 ## 11. Rules for the executing agent
 
-- Work only inside `relay/`. Don't read from, import from, or mimic other
+- Work only inside `controllr/`. Don't read from, import from, or mimic other
   projects in this repo.
 - Never commit, log, or print API keys. Use the Keychain in the app and env
-  vars for `relay-eval`.
+  vars for `controllr-eval`.
 - Don't add third-party dependencies without asking.
 - Verify Apple API details (App Intents return types, Shortcuts action names,
   `shortcuts sign` flags) against current documentation or the installed SDK
   instead of trusting this plan. Where reality differs, follow reality and note
-  it in `relay/DECISIONS.md`.
+  it in `controllr/DECISIONS.md`.
 - Stop and ask the user after Phase 0, and whenever a design assumption here
   turns out to be false.
