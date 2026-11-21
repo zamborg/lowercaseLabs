@@ -6,7 +6,7 @@ The signed iOS build is installed on the paired iPhone 14 Pro. **Controllr Voice
 
 The user confirmed the physical microphone test. Controllr Voice captured “Text Sam” and the spoken follow-up “Running ten minutes late” in one thread on the iPhone.
 
-In the first two-follow-up microphone test, the second question went out as a terminal answer. The revised app accepts native assistant text and optional tool calls. A `clarify` tool call keeps the session open, and Controllr returns the next dictation as its tool result. A direct question in plain text also keeps listening. The shortcut continues to use the same protocol. macOS imported the shortcut with the explicit speech wait as **Controllr Voice 1**. The new build's two-follow-up microphone check is pending.
+In the first two-follow-up microphone test, the second question went out as a terminal answer. The revised app accepts native assistant text and optional tool calls. A `clarify` tool call keeps the session open, and Controllr returns the next dictation as its tool result. A direct question in plain text also keeps listening. The shortcut continues to use the same protocol. macOS imported the shortcut with the explicit speech wait as **Controllr Voice 1**. The user confirmed the new build on iPhone: Controllr Voice 1 asked and listened twice, then delivered the final recommendation.
 
 ## Included in this build
 
