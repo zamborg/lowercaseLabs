@@ -1,12 +1,12 @@
 {
   "id": "clarify",
   "kind": "builtin",
-  "description": "Ask a short spoken follow-up when needed to continue the conversation or disambiguate the user's request. Keep earlier details.",
+  "description": "Ask one spoken follow-up and wait for the user's verbal reply. Use this for missing details or to keep a conversation going. You can include a separate spoken introduction in the assistant message.",
   "params": [
     {
       "name": "question",
       "type": "string",
-      "description": "Short spoken question",
+      "description": "The question the user should answer, without any introductory text",
       "required": true
     }
   ],

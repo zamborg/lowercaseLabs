@@ -6,7 +6,7 @@ The signed iOS build is installed on the paired iPhone 14 Pro. **Controllr Voice
 
 The user confirmed the physical microphone test. Controllr Voice captured “Text Sam” and the spoken follow-up “Running ten minutes late” in one thread on the iPhone.
 
-The voice-loop update lets Controllr request another dictation after either a clarification or an answer with a follow-up. The updated shortcut waits for speech to finish before listening. The earlier shortcut can still understand the app's follow-up instruction. macOS imported the updated shortcut as **Controllr Voice 1**. The two-successive-follow-up microphone check is pending.
+In the first two-follow-up microphone test, the second question went out as a terminal answer. The revised app accepts native assistant text and optional tool calls. A `clarify` tool call keeps the session open, and Controllr returns the next dictation as its tool result. A direct question in plain text also keeps listening. The shortcut continues to use the same protocol. macOS imported the shortcut with the explicit speech wait as **Controllr Voice 1**. The new build's two-follow-up microphone check is pending.
 
 ## Included in this build
 
@@ -17,10 +17,10 @@ The voice-loop update lets Controllr request another dictation after either a cl
 
 ## Verification
 
-- All 27 core tests passed. They cover ordered conversation turns, answer-plus-follow-up replies, confirmation and validation, and both providers' tool-result format.
-- All three iOS simulator tests passed. They cover two successive follow-ups in a single thread, reopening a stored conversation, cancellation receipts, and querying memory, skills, and notes after reopening the database.
-- A live-model smoke test completed two successive follow-ups, stopped at the final answer, and read a seeded memory and a seeded note through the lookup tool on separate turns.
-- The latest live OpenAI routing run passed 59 of 61 cases, including the three multi-turn routing cases. A note and an alarm request prompted for clarification. See [evals/RESULTS.md](evals/RESULTS.md).
+- All 30 core tests passed, including native text and mixed responses, follow-up replies as tool results, the plain-question fallback, and decoding older tool history.
+- All three iOS simulator tests passed. They cover persisting successive follow-up calls in a single thread, reopening a stored conversation, cancellation receipts, and saved-item lookup after reopening the database.
+- A live-model smoke test returned an ordinary final answer, used two successive `clarify` calls, and read a seeded memory and a seeded note through the lookup tool on separate turns.
+- The latest live OpenAI routing run passed 61 of 61 cases. See [evals/RESULTS.md](evals/RESULTS.md).
 - Shortcuts signing and plist lint passed. Playground's static check flags the Send Message body binding because it expects a named list variable. The generator uses the working text-token wiring from the repository's earlier device checks. The device test exercised the two-turn text flow. Live message delivery and call placement are unverified in this build.
 
 Calendar and Lyft are follow-on actions. Additional completion providers or multi-stage completions can use Controllr's provider-neutral message history and turn protocol. The old shortcuts and stray Clock timers on the devices and API-key rotation are still listed for cleanup.

@@ -7,6 +7,12 @@ Run Controllr Voice directly in Shortcuts. The optional shortcut input is a thre
 3. On `run`, use the returned `shortcut` and `input`. Show Continue/Cancel for actions whose manifest requires confirmation. Write the step's completion or cancellation to the thread using **Record Controllr Action** and exit. A cancelled or failed system dialog can leave the step without a receipt.
 4. With `voice_next: stop`, speak the final response or dispatch the action, then exit. Controllr can supply an answer plus a follow-up question, so a spoken answer can also lead to another turn.
 
+## Model turn
+
+OpenAI and Anthropic receive the conversation and the available tools. Each completion can contain assistant text, one tool call, or both. Ordinary final text ends the voice session.
+
+The `clarify` tool asks a spoken question. The app saves the assistant text and tool call in the thread and sends the next utterance back as the result of that call. A direct question emitted as plain assistant text also keeps the shortcut listening. Lookup results return to the model during the same turn. The app keeps phone actions behind their existing confirmation rules.
+
 ## Build and install
 
 Generate the Xcode project with `xcodegen generate` from `controllr/` and build the Controllr scheme with your Apple Development team. Generate and sign the shortcut with Python 3.12 and Shortcuts Playground. Set `SHORTCUTS_PLAYGROUND_DIR` to the directory containing `scripts/validate_shortcut.py` and `scripts/sign_shortcut.sh`.

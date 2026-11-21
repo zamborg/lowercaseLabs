@@ -38,8 +38,10 @@ public enum ModuleKind: String, Decodable, Sendable, Equatable {
     case shortcut
     /// Executed by our app inside the Decide intent.
     case native
-    /// Answered by the router/LLM directly (answer, clarify).
+    /// Conversation tool handled by the router.
     case builtin
+    /// Plain assistant replies, included in the eval suite.
+    case response
 }
 
 public struct ActionEval: Decodable, Sendable {

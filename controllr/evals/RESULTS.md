@@ -144,3 +144,26 @@ misses:
   "create a note idea for the pitch deck lead with the demo" expected create_note got clarify (requested another turn)
   "wake me up at 7 30" expected set_alarm got clarify (requested another turn)
 ```
+
+## 2026-11-21T23:56:00Z — Native assistant text and optional tools
+```
+provider=openai model=gpt-6-luna cases=61
+accuracy 61/61 = 100%
+  add_reminder        4/4
+  answer              4/4
+  call_contact        4/4
+  clarify             6/6
+  create_bear_note    1/1
+  create_note         3/3
+  directions          5/5
+  flashlight          3/3
+  media_control       6/6
+  request_ride        3/3
+  save_item           2/2
+  search_saved_items  3/3
+  send_message        7/7
+  set_alarm           3/3
+  set_focus           3/3
+  start_timer         4/4
+latency ms: p50 1048 p95 1519 max 1841
+```

@@ -94,7 +94,7 @@ let outcomes = await withTaskGroup(of: (Int, Outcome).self) { group in
             let unexpectedClarification = result.decision.action == .clarify && test.expectedTool != "clarify"
             let error = result.error ?? mismatch.map { "wrong \($0)" }
                 ?? (unexpectedClarification ? "requested another turn" : nil)
-            return (index, Outcome(test: test, tool: result.toolCall?.name ?? "error", ms: result.latencyMs, error: error))
+            return (index, Outcome(test: test, tool: result.moduleName ?? "error", ms: result.latencyMs, error: error))
         }
     }
     for _ in 0..<4 { add() }

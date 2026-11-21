@@ -3,8 +3,8 @@ import XCTest
 
 struct MockProvider: LLMProvider {
     let name = "mock"; let model = "mock-1"
-    let result: Result<ToolCall, ProviderError>
-    func route(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> ToolCall { try result.get() }
+    let result: Result<AssistantCompletion, ProviderError>
+    func complete(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> AssistantCompletion { try result.get() }
     func listModels() async throws -> [String] { [] }
 }
 
@@ -18,12 +18,12 @@ struct MockExecutor: ModuleExecutor {
     func execute(_ module: Module, arguments: [String: JSONValue]) async throws -> ExecutionOutcome { try outcome.get() }
 }
 
-func call(_ name: String, _ args: [String: JSONValue]) -> Result<ToolCall, ProviderError> {
-    .success(ToolCall(name: name, arguments: .object(args)))
+func call(_ name: String, _ args: [String: JSONValue]) -> Result<AssistantCompletion, ProviderError> {
+    .success(AssistantCompletion(toolCall: ToolCall(name: name, arguments: .object(args))))
 }
 
 final class ControllrCoreTests: XCTestCase {
-    func router(_ r: Result<ToolCall, ProviderError>, executor: ModuleExecutor? = nil) -> Router {
+    func router(_ r: Result<AssistantCompletion, ProviderError>, executor: ModuleExecutor? = nil) -> Router {
         Router(provider: MockProvider(result: r), executor: executor)
     }
 
@@ -36,10 +36,12 @@ final class ControllrCoreTests: XCTestCase {
         XCTAssertEqual(s["additionalProperties"], .bool(false))
     }
 
-    func testEveryModuleBecomesATool() {
-        let tools = router(call("answer", ["text": .string("x")])).tools
-        XCTAssertEqual(tools.count, Registry.v1.modules.count)
+    func testOnlyExecutableModulesBecomeTools() {
+        let tools = router(.success(AssistantCompletion(text: "Hello"))).tools
+        XCTAssertEqual(tools.count, Registry.v1.modules.filter { $0.kind != .response }.count)
         XCTAssertEqual(Set(tools.map(\.name)).count, tools.count)
+        XCTAssertFalse(tools.contains { $0.name == "answer" })
+        XCTAssertTrue(tools.contains { $0.name == "clarify" })
     }
 
     // tool call -> Decision
@@ -52,7 +54,7 @@ final class ControllrCoreTests: XCTestCase {
     }
 
     func testAnswerRespondsAndClarifyClarifies() async {
-        let a = await router(call("answer", ["text": .string("It's 11.52.")])).route("18% of 64")
+        let a = await router(.success(AssistantCompletion(text: "It's 11.52."))).route("18% of 64")
         XCTAssertEqual(a.decision.action, .respond)
         XCTAssertEqual(a.decision.shortcut, "speak")
         XCTAssertEqual(a.decision.input["speak"], .string("It's 11.52."))
@@ -62,19 +64,33 @@ final class ControllrCoreTests: XCTestCase {
         XCTAssertTrue(c.decision.listensAfterSpeaking)
     }
 
-    func testAnswerCanSpeakAndThenListenForAReply() async throws {
-        let result = await router(call("answer", ["text": .string("A quiet walk could help."),
-                                                  "follow_up": .string("Will you be indoors?")])).route("I prefer quiet.")
+    func testAssistantTextAndToolCallSpeakAndListen() async throws {
+        let call = ToolCall(name: "clarify", arguments: .object(["question": .string("Will you be indoors?")]), id: "follow_1")
+        let result = await router(.success(AssistantCompletion(text: "A quiet walk could help.", toolCall: call)))
+            .route("I prefer quiet.")
         let decision = result.decision
-        XCTAssertEqual(decision.action, .respond)
+        XCTAssertEqual(decision.action, .clarify)
         XCTAssertEqual(decision.summary, "A quiet walk could help. Will you be indoors?")
         XCTAssertEqual(decision.input["speak"], .string(decision.summary))
+        XCTAssertEqual(result.assistantMessage, .followUp(call: call, assistantText: "A quiet walk could help.", spoken: decision.summary))
         let payload = try JSONValue.parse(Data(decision.json.utf8))
         XCTAssertEqual(payload["voice_next"], .string("listen"))
         XCTAssertEqual(payload["action"], .string("clarify"))
+    }
 
-        let blank = await router(call("answer", ["text": .string("All set."), "follow_up": .string(" ")])).route("Thanks")
-        XCTAssertEqual(try JSONValue.parse(Data(blank.decision.json.utf8))["voice_next"], .string("stop"))
+    func testDirectSpokenQuestionKeepsListeningWithoutToolCall() async throws {
+        let result = await router(.success(AssistantCompletion(text: "Quiet works. Are you indoors or outdoors? ")))
+            .route("I prefer quiet.")
+        XCTAssertNil(result.toolCall)
+        XCTAssertEqual(result.moduleName, "clarify")
+        XCTAssertEqual(try JSONValue.parse(Data(result.decision.json.utf8))["voice_next"], .string("listen"))
+
+        let example = await router(.success(AssistantCompletion(text: #"Try asking “Are you indoors?”"#)))
+            .route("Give me an example question.")
+        XCTAssertFalse(example.decision.listensAfterSpeaking)
+
+        let empty = await router(.success(AssistantCompletion())).route("Thanks.")
+        XCTAssertEqual(try JSONValue.parse(Data(empty.decision.json.utf8))["voice_next"], .string("stop"))
     }
 
     // confirmation comes from the registry, never the model
@@ -170,33 +186,39 @@ final class ControllrCoreTests: XCTestCase {
     }
 
     // providers
-    func testOpenAIRequestForcesToolCall() throws {
+    func testOpenAIRequestAllowsOptionalToolCall() throws {
         let p = OpenAIProvider(apiKey: "k", model: "m")
-        let body = p.requestBody(system: "s", messages: [.user("t")], tools: router(call("answer", [:])).tools)
-        XCTAssertEqual(body["tool_choice"], .string("required"))
+        let body = p.requestBody(system: "s", messages: [.user("t")], tools: router(.success(AssistantCompletion())).tools)
+        XCTAssertEqual(body["tool_choice"], .string("auto"))
         XCTAssertEqual(body["model"], .string("m"))
     }
 
-    func testAnthropicRequestForcesToolUse() throws {
+    func testAnthropicRequestAllowsOptionalToolUse() throws {
         let p = AnthropicProvider(apiKey: "k", model: "m")
-        let body = p.requestBody(system: "s", messages: [.user("t")], tools: router(call("answer", [:])).tools)
-        XCTAssertEqual(body["tool_choice"]?["type"], .string("any"))
+        let body = p.requestBody(system: "s", messages: [.user("t")], tools: router(.success(AssistantCompletion())).tools)
+        XCTAssertEqual(body["tool_choice"]?["type"], .string("auto"))
         XCTAssertEqual(body["system"], .string("s"))
     }
 
-    func testOpenAIParse() throws {
-        let json = try JSONValue.parse(Data(#"{"choices":[{"message":{"tool_calls":[{"function":{"name":"answer","arguments":"{\"text\":\"hi\"}"}}]}}]}"#.utf8))
-        XCTAssertEqual(try OpenAIProvider.parseToolCall(json), ToolCall(name: "answer", arguments: .object(["text": .string("hi")])))
+    func testOpenAIParsesTextAlongsideToolCall() throws {
+        let json = try JSONValue.parse(Data(#"{"choices":[{"message":{"content":"Good idea.","tool_calls":[{"id":"call_1","function":{"name":"clarify","arguments":"{\"question\":\"Indoors?\"}"}}]}}]}"#.utf8))
+        let completion = try OpenAIProvider.parseCompletion(json)
+        XCTAssertEqual(completion.text, "Good idea.")
+        XCTAssertEqual(completion.toolCall, ToolCall(name: "clarify", arguments: .object(["question": .string("Indoors?")]), id: "call_1"))
     }
 
-    func testAnthropicParse() throws {
-        let json = try JSONValue.parse(Data(#"{"content":[{"type":"text","text":"ok"},{"type":"tool_use","name":"answer","input":{"text":"hi"}}]}"#.utf8))
-        XCTAssertEqual(try AnthropicProvider.parseToolCall(json), ToolCall(name: "answer", arguments: .object(["text": .string("hi")])))
+    func testAnthropicParsesTextAlongsideToolCall() throws {
+        let json = try JSONValue.parse(Data(#"{"content":[{"type":"text","text":"Good idea."},{"type":"tool_use","id":"toolu_1","name":"clarify","input":{"question":"Indoors?"}}]}"#.utf8))
+        let completion = try AnthropicProvider.parseCompletion(json)
+        XCTAssertEqual(completion.text, "Good idea.")
+        XCTAssertEqual(completion.toolCall, ToolCall(name: "clarify", arguments: .object(["question": .string("Indoors?")]), id: "toolu_1"))
     }
 
-    func testProviderWithoutToolCallThrows() throws {
-        let json = try JSONValue.parse(Data(#"{"choices":[{"message":{"content":"hello"}}]}"#.utf8))
-        XCTAssertThrowsError(try OpenAIProvider.parseToolCall(json))
+    func testProvidersAcceptPlainAssistantText() throws {
+        let openAI = try JSONValue.parse(Data(#"{"choices":[{"message":{"content":"Hello."}}]}"#.utf8))
+        let anthropic = try JSONValue.parse(Data(#"{"content":[{"type":"text","text":"Hello."}]}"#.utf8))
+        XCTAssertEqual(try OpenAIProvider.parseCompletion(openAI), AssistantCompletion(text: "Hello."))
+        XCTAssertEqual(try AnthropicProvider.parseCompletion(anthropic), AssistantCompletion(text: "Hello."))
     }
 
     func testPromptIncludesDateAndRules() {
@@ -211,15 +233,15 @@ final class ControllrCoreTests: XCTestCase {
 actor ScriptedProvider: LLMProvider {
     let name = "scripted"
     let model = "scripted-1"
-    private var calls: [ToolCall]
+    private var completions: [AssistantCompletion]
     private(set) var requests: [[ConversationMessage]] = []
 
-    init(_ calls: [ToolCall]) { self.calls = calls }
+    init(_ completions: [AssistantCompletion]) { self.completions = completions }
 
-    func route(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> ToolCall {
+    func complete(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> AssistantCompletion {
         requests.append(messages)
-        guard !calls.isEmpty else { throw ProviderError.badResponse("unexpected request") }
-        return calls.removeFirst()
+        guard !completions.isEmpty else { throw ProviderError.badResponse("unexpected request") }
+        return completions.removeFirst()
     }
 
     func listModels() async throws -> [String] { [] }
@@ -230,7 +252,7 @@ final class ConversationRoutingTests: XCTestCase {
         let call = ToolCall(name: "send_message", arguments: .object([
             "recipient": .string("Sam"), "body": .string("Running late."),
         ]))
-        let provider = ScriptedProvider([call])
+        let provider = ScriptedProvider([AssistantCompletion(toolCall: call)])
         let history: [ConversationMessage] = [
             .user("Text Sam"), .assistant("What should I say?"), .user("Running late."),
         ]
@@ -242,16 +264,49 @@ final class ConversationRoutingTests: XCTestCase {
         XCTAssertEqual(result.decision.input["body"], .string("Running late."))
     }
 
+    func testTwoFollowUpToolsGetHumanRepliesAsResults() async throws {
+        let first = ToolCall(name: "clarify", arguments: .object(["question": .string("Quiet or active?")]), id: "call_first")
+        let second = ToolCall(name: "clarify", arguments: .object(["question": .string("Indoors or outdoors?")]), id: "call_second")
+        let provider = ScriptedProvider([
+            AssistantCompletion(toolCall: first),
+            AssistantCompletion(text: "A quiet break sounds good.", toolCall: second),
+            AssistantCompletion(text: "Try five minutes of stretching."),
+        ])
+        let router = Router(provider: provider)
+        let initial = ConversationMessage.user("Ask me two questions before recommending a break.")
+        let one = await router.route(messages: [initial])
+        let pendingOne = try XCTUnwrap(one.assistantMessage)
+        let two = await router.route(messages: [initial, pendingOne, .user("Quiet.")])
+        let pendingTwo = try XCTUnwrap(two.assistantMessage)
+        let three = await router.route(messages: [initial, pendingOne, .user("Quiet."), pendingTwo, .user("Indoors.")])
+        let requests = await provider.requests
+        XCTAssertEqual(requests.last, [
+            initial,
+            .tool(call: first, output: "Quiet."),
+            .tool(call: second, output: "Indoors.", assistantText: "A quiet break sounds good."),
+        ])
+        XCTAssertTrue(one.decision.listensAfterSpeaking)
+        XCTAssertTrue(two.decision.listensAfterSpeaking)
+        XCTAssertFalse(three.decision.listensAfterSpeaking)
+        XCTAssertEqual(three.decision.summary, "Try five minutes of stretching.")
+    }
+
+    func testStoredToolResultWithoutAssistantTextStillDecodes() throws {
+        let data = Data(#"{"tool":{"call":{"name":"search_saved_items","arguments":{}},"output":"[]"}}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(ConversationMessage.self, from: data),
+                       .tool(call: ToolCall(name: "search_saved_items", arguments: .object([:])), output: "[]"))
+    }
+
     func testSavedLookupContinuesTheSameTurn() async throws {
         let lookup = ToolCall(name: "search_saved_items", arguments: .object(["query": .string("gym")]), id: "call_gym")
-        let answer = ToolCall(name: "answer", arguments: .object(["text": .string("Nine.")]))
-        let provider = ScriptedProvider([lookup, answer])
+        let provider = ScriptedProvider([AssistantCompletion(text: "I'll check.", toolCall: lookup),
+                                         AssistantCompletion(text: "Nine.")])
         let message = ConversationMessage.user("When does my gym close?")
         let savedFacts = #"[{"kind":"memory","title":"Gym hours","text":"Closes at 9 PM"}]"#
         let router = Router(provider: provider, executor: MockExecutor(outcome: .success(.toolResult(savedFacts))))
 
         let result = await router.route(messages: [message])
-        let exchange = ConversationMessage.tool(call: lookup, output: savedFacts)
+        let exchange = ConversationMessage.tool(call: lookup, output: savedFacts, assistantText: "I'll check.")
         let requests = await provider.requests
         XCTAssertEqual(requests, [[message], [message, exchange]])
         XCTAssertEqual(result.toolMessages, [exchange])
@@ -261,13 +316,14 @@ final class ConversationRoutingTests: XCTestCase {
 
     func testProvidersEncodeToolResultsWithMatchingIDs() throws {
         let lookup = ToolCall(name: "search_saved_items", arguments: .object([:]), id: "toolu_memory")
-        let messages: [ConversationMessage] = [.user("What's saved?"), .tool(call: lookup, output: "[]")]
+        let messages: [ConversationMessage] = [.user("What's saved?"), .tool(call: lookup, output: "[]", assistantText: "I'll check.")]
         let openAI = OpenAIProvider(apiKey: "dummy", model: "test")
         let anthropic = AnthropicProvider(apiKey: "dummy", model: "test")
 
         let openAIBody = openAI.requestBody(system: "s", messages: messages, tools: [])
         guard case .array(let openAIMessages) = openAIBody["messages"],
               case .array(let calls) = openAIMessages[2]["tool_calls"] else { return XCTFail("missing OpenAI tool call") }
+        XCTAssertEqual(openAIMessages[2]["content"], .string("I'll check."))
         XCTAssertEqual(openAIMessages[3]["role"], .string("tool"))
         XCTAssertEqual(calls.first?["id"], openAIMessages[3]["tool_call_id"])
 
@@ -276,6 +332,7 @@ final class ConversationRoutingTests: XCTestCase {
               case .array(let uses) = anthropicMessages[1]["content"],
               case .array(let results) = anthropicMessages[2]["content"] else { return XCTFail("missing Anthropic tool exchange") }
         XCTAssertEqual(anthropicMessages[2]["role"], .string("user"))
-        XCTAssertEqual(uses.first?["id"], results.first?["tool_use_id"])
+        XCTAssertEqual(uses.first?["text"], .string("I'll check."))
+        XCTAssertEqual(uses.last?["id"], results.first?["tool_use_id"])
     }
 }

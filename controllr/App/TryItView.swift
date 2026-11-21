@@ -26,7 +26,7 @@ struct TryItView: View {
     private func run() async {
         running = true
         let r = await Engine.run(text, source: "try", execute: false)
-        output = "module: \(r.toolCall?.name ?? "-")\nlatency: \(r.latencyMs) ms (\(r.provider)/\(r.model))\n\(r.error.map { "error: \($0)\n" } ?? "")\n\(r.decision.json)"
+        output = "module: \(r.moduleName ?? "-")\nlatency: \(r.latencyMs) ms (\(r.provider)/\(r.model))\n\(r.error.map { "error: \($0)\n" } ?? "")\n\(r.decision.json)"
         running = false
     }
 }

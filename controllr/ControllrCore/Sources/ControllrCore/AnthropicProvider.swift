@@ -1,6 +1,6 @@
 import Foundation
 
-/// Anthropic Messages API with forced tool use.
+/// Anthropic Messages API with optional tool use.
 public struct AnthropicProvider: LLMProvider {
     public let name = "anthropic"
     public let model: String
@@ -22,9 +22,9 @@ public struct AnthropicProvider: LLMProvider {
             switch message {
             case .user(let text):
                 return [.object(["role": .string("user"), "content": .string(text)])]
-            case .assistant(let text):
+            case .assistant(let text), .followUp(_, _, let text):
                 return [.object(["role": .string("assistant"), "content": .string(text)])]
-            case .tool(let call, let output):
+            case .tool(let call, let output, let assistantText):
                 let id = call.id ?? "toolu_\(UUID().uuidString)"
                 let use: JSONValue = .object([
                     "type": .string("tool_use"), "id": .string(id),
@@ -33,8 +33,11 @@ public struct AnthropicProvider: LLMProvider {
                 let result: JSONValue = .object([
                     "type": .string("tool_result"), "tool_use_id": .string(id), "content": .string(output),
                 ])
+                var blocks: [JSONValue] = []
+                if let assistantText { blocks.append(.object(["type": .string("text"), "text": .string(assistantText)])) }
+                blocks.append(use)
                 return [
-                    .object(["role": .string("assistant"), "content": .array([use])]),
+                    .object(["role": .string("assistant"), "content": .array(blocks)]),
                     .object(["role": .string("user"), "content": .array([result])]),
                 ]
             }
@@ -47,25 +50,29 @@ public struct AnthropicProvider: LLMProvider {
             "tools": .array(tools.map { t in
                 .object(["name": .string(t.name), "description": .string(t.description), "input_schema": t.parameters])
             }),
-            "tool_choice": .object(["type": .string("any"), "disable_parallel_tool_use": .bool(true)]),
+            "tool_choice": .object(["type": .string("auto"), "disable_parallel_tool_use": .bool(true)]),
         ])
     }
 
-    public func route(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> ToolCall {
+    public func complete(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> AssistantCompletion {
         let req = jsonRequest(url: "https://api.anthropic.com/v1/messages", headers: headers,
                               body: requestBody(system: system, messages: messages, tools: tools), timeout: timeout)
         let json = try checked(try await transport.send(req))
-        return try Self.parseToolCall(json)
+        return try Self.parseCompletion(json)
     }
 
-    static func parseToolCall(_ json: JSONValue) throws -> ToolCall {
+    static func parseCompletion(_ json: JSONValue) throws -> AssistantCompletion {
         guard case .array(let content)? = json["content"] else { throw ProviderError.badResponse("no content") }
-        for block in content where block["type"]?.stringValue == "tool_use" {
-            if let name = block["name"]?.stringValue, let input = block["input"] {
-                return ToolCall(name: name, arguments: input, id: block["id"]?.stringValue)
-            }
+        let text = content.compactMap { $0["type"]?.stringValue == "text" ? $0["text"]?.stringValue : nil }
+            .joined(separator: "\n")
+        let calls = content.filter { $0["type"]?.stringValue == "tool_use" }
+        guard !calls.isEmpty else { return AssistantCompletion(text: text.isEmpty ? nil : text) }
+        guard calls.count == 1, let block = calls.first,
+              let name = block["name"]?.stringValue, let input = block["input"] else {
+            throw ProviderError.badResponse("invalid tool use")
         }
-        throw ProviderError.noToolCall(raw: json.jsonString())
+        return AssistantCompletion(text: text.isEmpty ? nil : text,
+                                   toolCall: ToolCall(name: name, arguments: input, id: block["id"]?.stringValue))
     }
 
     public func listModels() async throws -> [String] {

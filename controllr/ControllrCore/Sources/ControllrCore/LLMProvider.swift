@@ -21,9 +21,18 @@ public struct ToolCall: Codable, Sendable, Equatable {
     }
 }
 
+public struct AssistantCompletion: Sendable, Equatable {
+    public let text: String?
+    public let toolCall: ToolCall?
+
+    public init(text: String? = nil, toolCall: ToolCall? = nil) {
+        self.text = text
+        self.toolCall = toolCall
+    }
+}
+
 public enum ProviderError: Error, Sendable, Equatable {
     case http(status: Int, body: String)
-    case noToolCall(raw: String)
     case badResponse(String)
     case transport(String)
 }
@@ -31,7 +40,7 @@ public enum ProviderError: Error, Sendable, Equatable {
 public protocol LLMProvider: Sendable {
     var name: String { get }
     var model: String { get }
-    func route(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> ToolCall
+    func complete(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> AssistantCompletion
     func listModels() async throws -> [String]
 }
 

@@ -90,17 +90,19 @@ final class Conversations {
             let normalized = transcript.lowercased().replacingOccurrences(of: "’", with: "'")
                 .trimmingCharacters(in: .punctuationCharacters)
             var decision: Decision
+            var assistantMessage: ConversationMessage?
             if ["cancel", "stop", "never mind", "nevermind", "stop listening", "that's all", "end conversation"].contains(normalized) {
                 decision = .speak(.respond, "Okay.")
             } else {
                 let result = await route(transcript, Array(history))
                 for message in result.toolMessages { try append(message, to: thread) }
                 decision = result.decision
+                assistantMessage = result.assistantMessage
             }
 
             if decision.action == .run { decision.actionID = UUID().uuidString }
             decision.threadID = thread.id.uuidString
-            try append(.assistant(decision.summary), to: thread, actionID: decision.actionID)
+            try append(assistantMessage ?? .assistant(decision.summary), to: thread, actionID: decision.actionID)
             try save()
             return decision
         } catch {

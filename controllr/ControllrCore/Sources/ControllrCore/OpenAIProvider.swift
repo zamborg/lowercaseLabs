@@ -1,6 +1,6 @@
 import Foundation
 
-/// OpenAI Chat Completions with forced tool calling.
+/// OpenAI Chat Completions with optional function calls.
 public struct OpenAIProvider: LLMProvider {
     public let name = "openai"
     public let model: String
@@ -22,16 +22,18 @@ public struct OpenAIProvider: LLMProvider {
             switch message {
             case .user(let text):
                 return [.object(["role": .string("user"), "content": .string(text)])]
-            case .assistant(let text):
+            case .assistant(let text), .followUp(_, _, let text):
                 return [.object(["role": .string("assistant"), "content": .string(text)])]
-            case .tool(let call, let output):
+            case .tool(let call, let output, let assistantText):
                 let id = call.id ?? "call_\(UUID().uuidString)"
                 let toolCall: JSONValue = .object([
                     "id": .string(id), "type": .string("function"),
                     "function": .object(["name": .string(call.name), "arguments": .string(call.arguments.jsonString())]),
                 ])
+                var assistant: [String: JSONValue] = ["role": .string("assistant"), "tool_calls": .array([toolCall])]
+                if let assistantText { assistant["content"] = .string(assistantText) }
                 return [
-                    .object(["role": .string("assistant"), "tool_calls": .array([toolCall])]),
+                    .object(assistant),
                     .object(["role": .string("tool"), "tool_call_id": .string(id), "content": .string(output)]),
                 ]
             }
@@ -43,7 +45,7 @@ public struct OpenAIProvider: LLMProvider {
                 .object(["type": .string("function"),
                          "function": .object(["name": .string(t.name), "description": .string(t.description), "parameters": t.parameters])])
             }),
-            "tool_choice": .string("required"),
+            "tool_choice": .string("auto"),
             "parallel_tool_calls": .bool(false),
             "max_completion_tokens": .number(Double(maxTokens)),
         ]
@@ -52,32 +54,33 @@ public struct OpenAIProvider: LLMProvider {
         return .object(body)
     }
 
-    public func route(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> ToolCall {
+    public func complete(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> AssistantCompletion {
         func attempt(_ none: Bool) async throws -> JSONValue {
             let req = jsonRequest(url: "https://api.openai.com/v1/chat/completions", headers: headers,
                                   body: requestBody(system: system, messages: messages, tools: tools, reasoningNone: none), timeout: timeout)
             return try checked(try await transport.send(req))
         }
-        do { return try Self.parseToolCall(try await attempt(true)) }
+        do { return try Self.parseCompletion(try await attempt(true)) }
         catch ProviderError.http(let status, let body) where status == 400 && body.contains("reasoning_effort") {
             // Model doesn't accept reasoning_effort "none" (older models): retry without it.
-            return try Self.parseToolCall(try await attempt(false))
+            return try Self.parseCompletion(try await attempt(false))
         }
     }
 
-    static func parseToolCall(_ json: JSONValue) throws -> ToolCall {
+    static func parseCompletion(_ json: JSONValue) throws -> AssistantCompletion {
         guard case .array(let choices)? = json["choices"], let message = choices.first?["message"] else {
             throw ProviderError.badResponse("no choices")
         }
-        guard case .array(let calls)? = message["tool_calls"], let first = calls.first,
-              let fn = first["function"], let name = fn["name"]?.stringValue else {
-            throw ProviderError.noToolCall(raw: message.jsonString())
+        let text = message["content"]?.stringValue
+        guard case .array(let calls)? = message["tool_calls"], !calls.isEmpty else {
+            return AssistantCompletion(text: text)
         }
-        let argText = fn["arguments"]?.stringValue ?? "{}"
-        guard let args = try? JSONValue.parse(Data(argText.utf8)) else {
-            throw ProviderError.badResponse("tool arguments are not JSON")
+        guard calls.count == 1, let first = calls.first, let fn = first["function"],
+              let name = fn["name"]?.stringValue, let arguments = fn["arguments"]?.stringValue,
+              let args = try? JSONValue.parse(Data(arguments.utf8)) else {
+            throw ProviderError.badResponse("invalid function call")
         }
-        return ToolCall(name: name, arguments: args, id: first["id"]?.stringValue)
+        return AssistantCompletion(text: text, toolCall: ToolCall(name: name, arguments: args, id: first["id"]?.stringValue))
     }
 
     public func listModels() async throws -> [String] {

@@ -112,7 +112,7 @@ private struct ThreadView: View {
                 .padding(12)
                 .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
                 .frame(maxWidth: .infinity, alignment: .trailing)
-        case .assistant(let text):
+        case .assistant(let text), .followUp(_, _, let text):
             VStack(alignment: .leading, spacing: 4) {
                 Text(text).textSelection(.enabled)
                 if entry.actionID != nil {
@@ -122,7 +122,12 @@ private struct ThreadView: View {
             }
             .padding(12)
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
-        case .tool(let call, _):
+        case .tool(let call, _, let text):
+            if let text {
+                Text(text).textSelection(.enabled)
+                    .padding(12)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
+            }
             if call.name == "search_saved_items" {
                 Label("Searched saved items", systemImage: "magnifyingglass")
                     .font(.caption).foregroundStyle(.secondary)

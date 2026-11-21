@@ -29,7 +29,7 @@ enum Engine {
     private static func record(_ r: RouteResult, transcript: String, source: String) {
         let ctx = ModelContext(Store.container)
         ctx.insert(RunRecord(source: source, transcript: transcript, provider: r.provider, model: r.model,
-                             module: r.toolCall?.name ?? "-", argumentsJSON: r.toolCall?.arguments.jsonString() ?? "",
+                             module: r.moduleName ?? "-", argumentsJSON: r.toolCall?.arguments.jsonString() ?? "",
                              decisionJSON: r.decision.json, latencyMs: r.latencyMs, error: r.error ?? ""))
         try? ctx.save()
     }

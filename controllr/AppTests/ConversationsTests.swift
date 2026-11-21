@@ -12,13 +12,17 @@ final class ConversationsTests: XCTestCase {
         let url = storeURL.appendingPathComponent("test.store")
         var requests: [[ConversationMessage]] = []
         let sms = DecisionFixture.sendMessage
+        let recipientCall = ToolCall(name: "clarify", arguments: .object(["question": .string("Who should I text?")]), id: "call_recipient")
+        let bodyCall = ToolCall(name: "clarify", arguments: .object(["question": .string("What should I say?")]), id: "call_body")
+        let recipientQuestion = ConversationMessage.followUp(call: recipientCall, assistantText: nil, spoken: "Who should I text?")
+        let bodyQuestion = ConversationMessage.followUp(call: bodyCall, assistantText: nil, spoken: "What should I say?")
 
         let next: Decision = try await withStore(url: url) { context in
             let conversations = Conversations(context: context) { _, history in
                 requests.append(history)
                 switch requests.count {
-                case 1: return Self.result(.speak(.clarify, "Who should I text?"))
-                case 2: return Self.result(.speak(.clarify, "What should I say?"))
+                case 1: return Self.result(.speak(.clarify, "Who should I text?"), assistantMessage: recipientQuestion)
+                case 2: return Self.result(.speak(.clarify, "What should I say?"), assistantMessage: bodyQuestion)
                 default: return Self.result(sms)
                 }
             }
@@ -43,9 +47,8 @@ final class ConversationsTests: XCTestCase {
 
         XCTAssertEqual(requests, [
             [.user("Send a text")],
-            [.user("Send a text"), .assistant("Who should I text?"), .user("Sam")],
-            [.user("Send a text"), .assistant("Who should I text?"), .user("Sam"),
-             .assistant("What should I say?"), .user("Running late.")],
+            [.user("Send a text"), recipientQuestion, .user("Sam")],
+            [.user("Send a text"), recipientQuestion, .user("Sam"), bodyQuestion, .user("Running late.")],
         ])
         try await withStore(url: url) { context in
             let threads = try context.fetch(FetchDescriptor<ChatThread>())
@@ -53,6 +56,8 @@ final class ConversationsTests: XCTestCase {
             XCTAssertEqual(threads.count, 1)
             XCTAssertEqual(thread.id.uuidString, next.threadID)
             XCTAssertEqual(thread.orderedEntries.count, 6)
+            XCTAssertEqual(thread.orderedEntries[1].message, recipientQuestion)
+            XCTAssertEqual(thread.orderedEntries[3].message, bodyQuestion)
             XCTAssertEqual(thread.orderedEntries.last?.actionStatus, "Cancelled")
 
             let conversations = Conversations(context: context) { _, history in
@@ -122,8 +127,9 @@ final class ConversationsTests: XCTestCase {
         return try await body(container.mainContext)
     }
 
-    private static func result(_ decision: Decision) -> RouteResult {
-        RouteResult(decision: decision, toolCall: nil, latencyMs: 0, provider: "test", model: "test", error: nil)
+    private static func result(_ decision: Decision, assistantMessage: ConversationMessage? = nil) -> RouteResult {
+        RouteResult(decision: decision, toolCall: nil, latencyMs: 0, provider: "test", model: "test", error: nil,
+                    assistantMessage: assistantMessage)
     }
 }
 

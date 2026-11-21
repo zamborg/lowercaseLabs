@@ -1,23 +1,10 @@
 {
   "id": "answer",
-  "kind": "builtin",
-  "description": "Give a short spoken answer or useful response. Include a follow-up question separately if the user should respond again in this session.",
-  "params": [
-    {
-      "name": "text",
-      "type": "string",
-      "description": "The spoken answer, without any follow-up question",
-      "required": true
-    },
-    {
-      "name": "follow_up",
-      "type": "string",
-      "description": "One optional question to keep the voice conversation going. Use it when you expect an answer.",
-      "required": false
-    }
-  ],
+  "kind": "response",
+  "description": "Plain assistant replies.",
+  "params": [],
   "requiresConfirmation": false,
-  "summary": "{text}",
+  "summary": "",
   "evals": [
     {
       "utterance": "what's 18% of 64"

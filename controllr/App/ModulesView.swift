@@ -4,7 +4,7 @@ import ControllrCore
 struct ModulesView: View {
     var body: some View {
         NavigationStack {
-            List(Registry.v1.modules, id: \.id) { m in
+            List(Registry.v1.modules.filter { $0.kind != .response }, id: \.id) { m in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(m.id).font(.headline.monospaced())
@@ -23,6 +23,11 @@ struct ModulesView: View {
         }
     }
     private func kind(_ m: Module) -> String {
-        switch m.kind { case .shortcut: "router"; case .native: "app"; case .builtin: "built-in" }
+        switch m.kind {
+        case .shortcut: "router"
+        case .native: "app"
+        case .builtin: "built-in"
+        case .response: "reply"
+        }
     }
 }

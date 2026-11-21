@@ -35,12 +35,21 @@ public struct RouteResult: Sendable {
     public let model: String
     public let error: String?
     public let toolMessages: [ConversationMessage]
+    public let assistantMessage: ConversationMessage?
 
     public init(decision: Decision, toolCall: ToolCall?, latencyMs: Int, provider: String, model: String, error: String?,
-                toolMessages: [ConversationMessage] = []) {
+                toolMessages: [ConversationMessage] = [], assistantMessage: ConversationMessage? = nil) {
         self.decision = decision; self.toolCall = toolCall; self.latencyMs = latencyMs
         self.provider = provider; self.model = model; self.error = error
         self.toolMessages = toolMessages
+        self.assistantMessage = assistantMessage
+    }
+
+    public var moduleName: String? {
+        if let toolCall { return toolCall.name }
+        if decision.action == .respond { return "answer" }
+        if decision.action == .clarify { return "clarify" }
+        return nil
     }
 }
 
@@ -80,7 +89,9 @@ public struct Router: Sendable {
     }
 
     public var tools: [ToolSpec] {
-        registry.modules.map { ToolSpec(name: $0.id, description: $0.description, parameters: $0.parametersSchema) }
+        registry.modules.filter { $0.kind != .response }.map {
+            ToolSpec(name: $0.id, description: $0.description, parameters: $0.parametersSchema)
+        }
     }
 
     public func route(_ transcript: String, now: Date = Date(), execute: Bool = true) async -> RouteResult {
@@ -92,25 +103,34 @@ public struct Router: Sendable {
         let start = ContinuousClock.now
         let system = Prompt.system(now: now, settings: settings)
         let availableTools = tools
+        let history = ConversationMessage.completedHistory(messages)
         var toolMessages: [ConversationMessage] = []
-        func result(_ decision: Decision, _ call: ToolCall?, _ error: String? = nil) -> RouteResult {
+        func result(_ decision: Decision, _ call: ToolCall?, _ error: String? = nil,
+                    assistantMessage: ConversationMessage? = nil) -> RouteResult {
             let elapsed = (ContinuousClock.now - start).components
             let ms = Int(elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000)
             return RouteResult(decision: decision, toolCall: call, latencyMs: ms, provider: provider.name,
-                               model: provider.model, error: error, toolMessages: toolMessages)
+                               model: provider.model, error: error, toolMessages: toolMessages, assistantMessage: assistantMessage)
         }
 
         for _ in 0..<4 {
-            let call: ToolCall
+            let completion: AssistantCompletion
             do {
-                call = try await provider.route(system: system, messages: messages + toolMessages, tools: availableTools)
+                completion = try await provider.complete(system: system, messages: history + toolMessages, tools: availableTools)
             } catch let e as ProviderError {
                 return result(.speak(.error, Self.spokenError(e)), nil, "\(e)")
             } catch {
                 return result(.speak(.error, "Something went wrong."), nil, "\(error)")
             }
 
-            guard let module = registry.module(id: call.name) else {
+            let text = completion.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard let call = completion.toolCall else {
+                if text.isEmpty { return result(.speak(.done, "Okay."), nil) }
+                // Keep listening when a model asks a direct question without calling clarify.
+                let asksQuestion = text.last.map { "?؟？".contains($0) } ?? false
+                return result(.speak(asksQuestion ? .clarify : .respond, text), nil)
+            }
+            guard let module = registry.module(id: call.name), module.kind != .response else {
                 return result(.speak(.error, "I couldn't work out what to do."), call, "unknown tool \(call.name)")
             }
             if let problem = ArgumentValidator.validate(module, call.arguments) {
@@ -125,10 +145,12 @@ public struct Router: Sendable {
             do {
                 switch module.kind {
                 case .builtin:
-                    if module.id == "clarify" {
-                        return result(.speak(.clarify, args["question"]?.stringValue ?? "Can you say that again?"), call)
-                    }
-                    return result(.answer(args["text"]?.stringValue ?? "", followUp: args["follow_up"]?.stringValue), call)
+                    let question = args["question"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Can you say that again?"
+                    let spoken = text.isEmpty ? question : (text.hasSuffix(question) ? text : "\(text) \(question)")
+                    let message = ConversationMessage.followUp(call: call, assistantText: text.isEmpty ? nil : text, spoken: spoken)
+                    return result(.speak(.clarify, spoken), call, assistantMessage: message)
+                case .response:
+                    return result(.speak(.error, "I couldn't work out what to do."), call, "not an executable tool")
                 case .shortcut:
                     let prepared = execute ? try await executor?.prepare(module, arguments: args) ?? args : args
                     var summaryArguments = args
@@ -148,7 +170,7 @@ public struct Router: Sendable {
                         return result(Decision(action: .run, shortcut: id, input: ["url": .string(url)],
                                                confirm: module.requiresConfirmation, summary: summary), call)
                     case .toolResult(let output):
-                        toolMessages.append(.tool(call: call, output: output))
+                        toolMessages.append(.tool(call: call, output: output, assistantText: text.isEmpty ? nil : text))
                     }
                 }
             } catch ExecutionError.clarify(let question) {
