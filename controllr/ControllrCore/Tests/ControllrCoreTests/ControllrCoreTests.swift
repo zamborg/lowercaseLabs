@@ -56,8 +56,25 @@ final class ControllrCoreTests: XCTestCase {
         XCTAssertEqual(a.decision.action, .respond)
         XCTAssertEqual(a.decision.shortcut, "speak")
         XCTAssertEqual(a.decision.input["speak"], .string("It's 11.52."))
+        XCTAssertFalse(a.decision.listensAfterSpeaking)
         let c = await router(call("clarify", ["question": .string("Who?")])).route("text them")
         XCTAssertEqual(c.decision.action, .clarify)
+        XCTAssertTrue(c.decision.listensAfterSpeaking)
+    }
+
+    func testAnswerCanSpeakAndThenListenForAReply() async throws {
+        let result = await router(call("answer", ["text": .string("A quiet walk could help."),
+                                                  "follow_up": .string("Will you be indoors?")])).route("I prefer quiet.")
+        let decision = result.decision
+        XCTAssertEqual(decision.action, .respond)
+        XCTAssertEqual(decision.summary, "A quiet walk could help. Will you be indoors?")
+        XCTAssertEqual(decision.input["speak"], .string(decision.summary))
+        let payload = try JSONValue.parse(Data(decision.json.utf8))
+        XCTAssertEqual(payload["voice_next"], .string("listen"))
+        XCTAssertEqual(payload["action"], .string("clarify"))
+
+        let blank = await router(call("answer", ["text": .string("All set."), "follow_up": .string(" ")])).route("Thanks")
+        XCTAssertEqual(try JSONValue.parse(Data(blank.decision.json.utf8))["voice_next"], .string("stop"))
     }
 
     // confirmation comes from the registry, never the model

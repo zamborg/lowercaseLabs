@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class ConversationsTests: XCTestCase {
-    func testFollowUpAndActionCancellationPersistInOneThread() async throws {
+    func testSuccessiveFollowUpsAndActionCancellationPersistInOneThread() async throws {
         let storeURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: storeURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: storeURL) }
@@ -16,16 +16,23 @@ final class ConversationsTests: XCTestCase {
         let next: Decision = try await withStore(url: url) { context in
             let conversations = Conversations(context: context) { _, history in
                 requests.append(history)
-                let decision = requests.count == 1 ? Decision.speak(.clarify, "What should I say?") : sms
-                return Self.result(decision)
+                switch requests.count {
+                case 1: return Self.result(.speak(.clarify, "Who should I text?"))
+                case 2: return Self.result(.speak(.clarify, "What should I say?"))
+                default: return Self.result(sms)
+                }
             }
 
-            let question = await conversations.turn("Text Sam", threadID: nil)
-            XCTAssertEqual(question.action, .clarify)
-            let id = try XCTUnwrap(question.threadID)
+            let firstQuestion = await conversations.turn("Send a text", threadID: nil)
+            XCTAssertTrue(firstQuestion.listensAfterSpeaking)
+            let id = try XCTUnwrap(firstQuestion.threadID)
+            let secondQuestion = await conversations.turn("Sam", threadID: id)
+            XCTAssertEqual(secondQuestion.threadID, id)
+            XCTAssertTrue(secondQuestion.listensAfterSpeaking)
             let decision = await conversations.turn("Running late.", threadID: id)
             XCTAssertEqual(decision.threadID, id)
             XCTAssertEqual(decision.action, .run)
+            XCTAssertFalse(decision.listensAfterSpeaking)
             XCTAssertTrue(decision.confirm)
 
             let actionID = try XCTUnwrap(decision.actionID)
@@ -35,15 +42,17 @@ final class ConversationsTests: XCTestCase {
         }
 
         XCTAssertEqual(requests, [
-            [.user("Text Sam")],
-            [.user("Text Sam"), .assistant("What should I say?"), .user("Running late.")],
+            [.user("Send a text")],
+            [.user("Send a text"), .assistant("Who should I text?"), .user("Sam")],
+            [.user("Send a text"), .assistant("Who should I text?"), .user("Sam"),
+             .assistant("What should I say?"), .user("Running late.")],
         ])
         try await withStore(url: url) { context in
             let threads = try context.fetch(FetchDescriptor<ChatThread>())
             let thread = try XCTUnwrap(threads.first)
             XCTAssertEqual(threads.count, 1)
             XCTAssertEqual(thread.id.uuidString, next.threadID)
-            XCTAssertEqual(thread.orderedEntries.count, 4)
+            XCTAssertEqual(thread.orderedEntries.count, 6)
             XCTAssertEqual(thread.orderedEntries.last?.actionStatus, "Cancelled")
 
             let conversations = Conversations(context: context) { _, history in
@@ -53,7 +62,7 @@ final class ConversationsTests: XCTestCase {
             }
             let reply = await conversations.turn("What did you do?", threadID: thread.id.uuidString)
             XCTAssertEqual(reply.summary, "You cancelled the text.")
-            XCTAssertEqual(thread.orderedEntries.count, 6)
+            XCTAssertEqual(thread.orderedEntries.count, 8)
         }
     }
 
@@ -73,6 +82,11 @@ final class ConversationsTests: XCTestCase {
             let stopped = await conversations.turn("Cancel.", threadID: nil)
             XCTAssertEqual(stopped.action, .respond)
             XCTAssertEqual(stopped.summary, "Okay.")
+            XCTAssertFalse(stopped.listensAfterSpeaking)
+
+            let ended = await conversations.turn("That’s all.", threadID: stopped.threadID)
+            XCTAssertFalse(ended.listensAfterSpeaking)
+            XCTAssertEqual(ended.summary, "Okay.")
         }
     }
 

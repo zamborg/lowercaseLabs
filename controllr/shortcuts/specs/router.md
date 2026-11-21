@@ -3,9 +3,9 @@
 Run Controllr Voice directly in Shortcuts. The optional shortcut input is a thread UUID, used by **Continue by voice** in Controllr. The app retains the full thread and uses up to the 48 most recent entries for model context.
 
 1. Dictate the user turn and call Controllr's **Decide** action with the text and current thread ID.
-2. Save the returned `thread_id` locally in the shortcut. On `clarify`, speak the question and dictate again in the same thread. Saying “cancel” or “stop” ends the conversation. After eight clarification turns, the thread can continue from Controllr.
+2. Save the returned `thread_id` in the shortcut. When Controllr returns `voice_next: listen`, finish speaking before starting the next dictation. Each reply goes through the same turn function. Saying “cancel,” “stop,” or “that’s all” ends the session. Shortcuts uses a 32-turn repeat, after which the thread can resume from Controllr.
 3. On `run`, use the returned `shortcut` and `input`. Show Continue/Cancel for actions whose manifest requires confirmation. Write the step's completion or cancellation to the thread using **Record Controllr Action** and exit. A cancelled or failed system dialog can leave the step without a receipt.
-4. For an answer, a completed app-side action, or an error, speak the summary and exit.
+4. With `voice_next: stop`, speak the final response or dispatch the action, then exit. Controllr can supply an answer plus a follow-up question, so a spoken answer can also lead to another turn.
 
 ## Build and install
 

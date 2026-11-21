@@ -128,7 +128,7 @@ public struct Router: Sendable {
                     if module.id == "clarify" {
                         return result(.speak(.clarify, args["question"]?.stringValue ?? "Can you say that again?"), call)
                     }
-                    return result(.speak(.respond, args["text"]?.stringValue ?? ""), call)
+                    return result(.answer(args["text"]?.stringValue ?? "", followUp: args["follow_up"]?.stringValue), call)
                 case .shortcut:
                     let prepared = execute ? try await executor?.prepare(module, arguments: args) ?? args : args
                     var summaryArguments = args

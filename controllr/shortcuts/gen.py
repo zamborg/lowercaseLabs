@@ -90,14 +90,14 @@ class Workflow:
 
     @contextmanager
     def repeat(self, count):
-        self.comment("- Dictate and pass the current thread ID.\n- Repeat only while Controllr asks for details.")
+        self.comment("- Dictate and pass the current thread ID.\n- Keep listening while Controllr expects a reply.")
         group = self.identifier()
         self.system("repeat.count", GroupingIdentifier=group, WFControlFlowMode=0, WFRepeatCount=count)
         yield
         self.system("repeat.count", GroupingIdentifier=group, WFControlFlowMode=2)
 
     def speak(self, ref):
-        self.system("speaktext", WFText=ref.text)
+        self.system("speaktext", WFText=ref.text, WFSpeakTextWait=True)
 
     def confirm(self, summary, execute, cancel):
         self.comment("- Show the proposed action.\n- Run it only when the user selects Continue.")
@@ -213,6 +213,27 @@ def dispatch(workflow, decision, summary, thread_id):
     workflow.speak(workflow.text("This action isn't available in this shortcut.", "Unavailable Action"))
 
 
+def voice_turn(workflow, current_thread):
+    utterance = workflow.output("is.workflow.actions.dictatetext", "Dictated Text", WFDictateTextStopListening="After Pause")
+    response = workflow.app_intent("DecideIntent", output="Decision JSON",
+                                   transcript=utterance.text, threadID=current_thread.text)
+    decision = workflow.output("is.workflow.actions.detect.dictionary", "Decision", WFInput=response.attachment)
+    thread_id = workflow.key(decision, "thread_id")
+    workflow.set_variable("Thread ID", thread_id)
+    summary = workflow.key(decision, "summary")
+    response_type = workflow.key(decision, "action")
+    voice_next = workflow.key(decision, "voice_next")
+
+    with workflow.when(voice_next, "listen") as otherwise:
+        workflow.speak(summary)
+        otherwise()
+        with workflow.when(response_type, "run") as speak_instead:
+            dispatch(workflow, decision, summary, thread_id)
+            speak_instead()
+            workflow.speak(summary)
+        workflow.system("exit")
+
+
 def make_router(team_id):
     workflow = Workflow(team_id)
     workflow.comment("Dictate a request, continue the same Controllr thread, and run the proposed phone action.")
@@ -222,23 +243,8 @@ def make_router(team_id):
     workflow.set_variable("Thread ID", thread)
     current_thread = Reference({"Type": "Variable", "VariableName": "Thread ID"})
 
-    with workflow.repeat(8):
-        utterance = workflow.output("is.workflow.actions.dictatetext", "Dictated Text")
-        response = workflow.app_intent("DecideIntent", output="Decision JSON",
-                                       transcript=utterance.text, threadID=current_thread.text)
-        decision = workflow.output("is.workflow.actions.detect.dictionary", "Decision", WFInput=response.attachment)
-        thread_id = workflow.key(decision, "thread_id")
-        workflow.set_variable("Thread ID", thread_id)
-        response_type = workflow.key(decision, "action")
-        summary = workflow.key(decision, "summary")
-        with workflow.when(response_type, "clarify") as otherwise:
-            workflow.speak(summary)
-            otherwise()
-            with workflow.when(response_type, "run") as speak_instead:
-                dispatch(workflow, decision, summary, thread_id)
-                speak_instead()
-                workflow.speak(summary)
-            workflow.system("exit")
+    with workflow.repeat(32):
+        voice_turn(workflow, current_thread)
 
     workflow.speak(workflow.text("Open Controllr to continue this thread.", "Continue in Controllr"))
     return {

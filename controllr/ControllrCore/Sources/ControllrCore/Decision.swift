@@ -14,6 +14,7 @@ public struct Decision: Sendable, Equatable {
     public var summary: String
     public var threadID: String? = nil
     public var actionID: String? = nil
+    private(set) var expectsReply = false
 
     public static let speakID = "speak"
     public static let openURLID = "open_url"
@@ -23,13 +24,27 @@ public struct Decision: Sendable, Equatable {
         Decision(action: action, shortcut: speakID, input: ["speak": .string(text)], confirm: false, summary: text)
     }
 
+    static func answer(_ text: String, followUp: String?) -> Decision {
+        guard let question = followUp?.trimmingCharacters(in: .whitespacesAndNewlines), !question.isEmpty else {
+            return .speak(.respond, text)
+        }
+        var decision = speak(.respond, "\(text) \(question)")
+        decision.expectsReply = true
+        return decision
+    }
+
+    public var listensAfterSpeaking: Bool { action == .clarify || (action == .respond && expectsReply) }
+
     public var json: String {
+        // Earlier versions of the shortcut only reopen dictation for a clarify action.
+        let shortcutAction: DecisionAction = listensAfterSpeaking ? .clarify : action
         let fields: [String: JSONValue] = [
-            "action": .string(action.rawValue),
+            "action": .string(shortcutAction.rawValue),
             "shortcut": .string(shortcut),
             "input": .object(input),
             "confirm": .bool(confirm),
             "summary": .string(summary),
+            "voice_next": .string(listensAfterSpeaking ? "listen" : "stop"),
             "thread_id": .string(threadID ?? ""),
             "action_id": .string(actionID ?? ""),
         ]

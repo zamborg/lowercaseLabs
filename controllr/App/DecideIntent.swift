@@ -5,11 +5,11 @@ struct DecideIntent: AppIntent {
     static let description = IntentDescription("Adds one spoken turn to a Controllr thread and returns the next step.")
     static let openAppWhenRun = false
 
-    @Parameter(title: "Transcript") var transcript: String
+    @Parameter(title: "Transcript") var transcript: String?
     @Parameter(title: "Thread ID") var threadID: String?
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        let decision = await Conversations.shared.turn(transcript, threadID: threadID)
+        let decision = await Conversations.shared.turn(transcript ?? "", threadID: threadID)
         return .result(value: decision.json)
     }
 }

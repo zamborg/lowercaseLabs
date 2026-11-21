@@ -87,9 +87,10 @@ final class Conversations {
                 return true
             }
 
-            let normalized = transcript.lowercased().trimmingCharacters(in: .punctuationCharacters)
+            let normalized = transcript.lowercased().replacingOccurrences(of: "’", with: "'")
+                .trimmingCharacters(in: .punctuationCharacters)
             var decision: Decision
-            if ["cancel", "stop", "never mind", "nevermind"].contains(normalized) {
+            if ["cancel", "stop", "never mind", "nevermind", "stop listening", "that's all", "end conversation"].contains(normalized) {
                 decision = .speak(.respond, "Okay.")
             } else {
                 let result = await route(transcript, Array(history))
