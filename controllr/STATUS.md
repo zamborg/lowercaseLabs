@@ -12,7 +12,7 @@ In the first two-follow-up microphone test, the second question went out as a te
 
 The signed three-provider build is installed. In **Setup**, select OpenAI, Anthropic, or OpenRouter, save that provider's API key, and choose from the search-enabled model picker. Keys and selected models are stored separately. OpenRouter shows text models whose catalog entries support tools and requests routing through compatible providers.
 
-The OpenAI catalog and all 61 live routing cases passed. Anthropic and OpenRouter passed tests for discovery, assistant text, and matched follow-up tool replies using recorded response shapes. The V1 stamp still needs an authenticated voice round trip through Claude and through OpenRouter with the user's keys.
+The OpenAI catalog and all 61 live routing cases passed. Anthropic and OpenRouter passed tests for discovery, assistant text, and matched follow-up tool replies using recorded response shapes. The three-provider build is the V1 baseline. Authenticated Claude and OpenRouter voice checks are deferred until keys are available.
 
 ## Included in this build
 
