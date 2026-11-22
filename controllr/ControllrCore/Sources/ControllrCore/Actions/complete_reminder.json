@@ -1,0 +1,36 @@
+{
+  "id": "complete_reminder",
+  "kind": "native",
+  "description": "Mark an existing Apple Reminders item complete.",
+  "params": [
+    {
+      "name": "title",
+      "type": "string",
+      "description": "Exact existing reminder title",
+      "required": true
+    },
+    {
+      "name": "reminder_id",
+      "type": "string",
+      "description": "Identifier from a prior reminders lookup, if available.",
+      "required": false
+    },
+    {
+      "name": "list",
+      "type": "string",
+      "description": "Exact list name to disambiguate, if provided.",
+      "required": false
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "Complete {title}",
+  "operation": "change",
+  "evals": [
+    {
+      "utterance": "Mark Buy Milk complete in Reminders"
+    }
+  ],
+  "permissions": [
+    "reminders"
+  ]
+}

@@ -10,13 +10,22 @@ import uuid
 
 HERE = Path(__file__).resolve().parent
 MANIFESTS = HERE.parent / "ControllrCore/Sources/ControllrCore/Actions"
-NAME = "Controllr Voice"
+NAME = "Controllr Voice 1.5.1"
 BUNDLE = "com.lowercaselabs.controllr"
 
 
 @dataclass(frozen=True)
 class Reference:
     value: dict
+
+    @classmethod
+    def variable(cls, name):
+        return cls({"Type": "Variable", "VariableName": name})
+
+    def selecting_properties(self, *names):
+        return Reference({**self.value, "Aggrandizements": [
+            {"Type": "WFPropertyVariableAggrandizement", "PropertyName": name} for name in names
+        ]})
 
     @property
     def attachment(self):
@@ -65,22 +74,23 @@ class Workflow:
     def comment(self, text):
         self.system("comment", WFCommentActionText=text)
 
-    def app_intent(self, intent, output=None, **params):
+    def app_intent(self, intent, result_name=None, **params):
         descriptor = {"AppIntentIdentifier": intent, "BundleIdentifier": BUNDLE,
                       "Name": "controllr", "TeamIdentifier": self.team_id}
         params["AppIntentDescriptor"] = descriptor
         action = f"{BUNDLE}.{intent}"
-        if output:
-            return self.output(action, output, **params)
+        if result_name:
+            return self.output(action, result_name, **params)
         self.add(action, **params)
 
     @contextmanager
     def when(self, ref, value):
-        self.comment(f"- Run this branch when the input is {value}.")
+        label = "the requested value" if isinstance(value, Reference) else value
+        self.comment(f"- Run this branch when the input is {label}.")
         group = self.identifier()
         self.system("conditional", GroupingIdentifier=group, WFControlFlowMode=0,
                     WFInput={"Type": "Variable", "Variable": ref.attachment},
-                    WFCondition=4, WFConditionalActionString=value)
+                    WFCondition=4, WFConditionalActionString=value.text if isinstance(value, Reference) else value)
 
         def otherwise():
             self.system("conditional", GroupingIdentifier=group, WFControlFlowMode=1)
@@ -90,11 +100,19 @@ class Workflow:
 
     @contextmanager
     def repeat(self, count):
-        self.comment("- Dictate and pass the current thread ID.\n- Keep listening while Controllr expects a reply.")
+        self.comment("- Listen when the thread expects a reply.\n- Route action results before listening again.")
         group = self.identifier()
         self.system("repeat.count", GroupingIdentifier=group, WFControlFlowMode=0, WFRepeatCount=count)
         yield
         self.system("repeat.count", GroupingIdentifier=group, WFControlFlowMode=2)
+
+    @contextmanager
+    def repeat_each(self, items):
+        self.comment("- Read the next recent message.\n- Check its sender or conversation before returning its body.")
+        group = self.identifier()
+        self.system("repeat.each", GroupingIdentifier=group, WFControlFlowMode=0, WFInput=items.attachment)
+        yield Reference.variable("Repeat Item 2")
+        self.system("repeat.each", GroupingIdentifier=group, WFControlFlowMode=2, UUID=self.identifier())
 
     def speak(self, ref):
         self.system("speaktext", WFText=ref.text, WFSpeakTextWait=True)
@@ -167,6 +185,68 @@ def alarm(workflow, payload, manifest):
                                       "Name": "Clock", "TeamIdentifier": "0000000000"},
                  dateComponents=time.text, name=label.text)
 
+def read_clipboard(workflow, payload, manifest):
+    return workflow.output("is.workflow.actions.getclipboard", "Clipboard")
+
+
+def recent_messages(workflow, limit, **filters):
+    return workflow.output(
+        "com.apple.MobileSMS.MessageEntity", "Messages",
+        AppIntentDescriptor={"AppIntentIdentifier": "MessageEntity", "BundleIdentifier": "com.apple.MobileSMS",
+                             "Name": "Messages", "TeamIdentifier": "0000000000"},
+        WFCompoundType=1, WFContentItemSortProperty="date", WFContentItemSortOrder="Latest First",
+        WFContentItemLimitEnabled=True, WFContentItemLimitNumber=limit, **filters,
+    )
+
+
+def find_messages(workflow, payload, manifest):
+    phrase = workflow.key(payload, "query")
+    message = recent_messages(workflow, 1, WFContentItemFilter={
+        "WFSerializationType": "WFContentPredicateTableTemplate",
+        "Value": {"WFActionParameterFilterPrefix": 1, "WFContentPredicateBoundedDate": False,
+                  "WFActionParameterFilterTemplates": [
+                      {"Property": "body", "Operator": 99, "Removable": True, "Values": {"String": phrase.text}}
+                  ]},
+    })
+    return message.selecting_properties("body")
+
+
+def find_recent_messages(workflow, payload, manifest):
+    scope = workflow.key(payload, "scope")
+    name = workflow.key(payload, "name")
+    results = Reference.variable("Matched Messages")
+    found = Reference.variable("Found Message")
+    workflow.set_variable("Matched Messages", workflow.text("No match", "No Matches"))
+    workflow.set_variable("Found Message", workflow.text("no", "Searching"))
+
+    def capture(label, message):
+        with workflow.when(label, name):
+            body = message.selecting_properties("body")
+            text = {"WFSerializationType": "WFTextTokenString",
+                    "Value": {"string": "\ufffc\n\ufffc", "attachmentsByRange": {"{0, 1}": label.value, "{2, 1}": body.value}}}
+            workflow.set_variable("Matched Messages", workflow.text(text, "Matched Message"))
+            workflow.set_variable("Found Message", workflow.text("yes", "Found"))
+
+    with workflow.repeat_each(recent_messages(workflow, 120)) as message:
+        with workflow.when(found, "no"):
+            with workflow.when(scope, "sender") as conversation:
+                sender = workflow.text(message.selecting_properties("author", "person").text, "Sender Name")
+                capture(sender, message)
+                conversation()
+                group = workflow.text(message.selecting_properties("conversation", "displayName").text, "Conversation Name")
+                capture(group, message)
+    return results
+
+
+def set_brightness(workflow, payload, manifest):
+    level = workflow.key(payload, "level", as_text=False)
+    workflow.system("setbrightness", WFBrightness=level.attachment)
+
+
+def set_volume(workflow, payload, manifest):
+    level = workflow.key(payload, "level", as_text=False)
+    workflow.system("setvolume", WFVolume=level.attachment)
+
 
 HANDLERS = {
     "messages": send_message,
@@ -175,6 +255,11 @@ HANDLERS = {
     "focus": focus,
     "flashlight": flashlight,
     "alarm": alarm,
+    "read_clipboard": read_clipboard,
+    "find_messages": find_messages,
+    "find_recent_messages": find_recent_messages,
+    "set_brightness": set_brightness,
+    "set_volume": set_volume,
 }
 
 
@@ -187,51 +272,77 @@ def dispatch(workflow, decision, summary, thread_id):
     module = workflow.key(decision, "shortcut")
     action_id = workflow.key(decision, "action_id")
     payload = workflow.key(decision, "input", as_text=False)
+    confirmation = workflow.key(decision, "confirmation")
+    callback = {"threadID": thread_id.text, "actionID": action_id.text}
 
-    def receipt(completed):
-        workflow.app_intent("RecordActionIntent", threadID=thread_id.text, actionID=action_id.text, completed=completed)
+    def cancel():
+        workflow.app_intent("RecordActionIntent", **callback, completed=False)
+        workflow.system("exit")
 
-    def branch(action_id, handler, manifest, confirm):
-        with workflow.when(module, action_id):
-            def execute():
-                handler(workflow, payload, manifest)
-                receipt(True)
+    def approve():
+        workflow.set_variable("Approval", workflow.text("approved", "Approved"))
 
-            if confirm:
-                workflow.confirm(summary, execute, lambda: receipt(False))
-            else:
-                execute()
+    workflow.set_variable("Approval", workflow.text("automatic", "Automatic"))
+    with workflow.when(confirmation, "ask"):
+        workflow.confirm(summary, approve, cancel)
+
+    authorization = workflow.app_intent("AuthorizeActionIntent", result_name="Authorization", **callback,
+                                        approval=Reference.variable("Approval").text)
+
+    def branch(identifier, handler=None, manifest=None):
+        with workflow.when(module, identifier):
+            output = handler(workflow, payload, manifest) if handler else None
+            params = {"output": output.text} if output else {}
+            response = workflow.app_intent("CompleteActionIntent", result_name="Next Decision", **callback, **params)
+            workflow.set_variable("Decision JSON", response)
+            workflow.set_variable("Next Step", workflow.text("dispatch", "Handle Result"))
+            workflow.set_variable("Handled", workflow.text("yes", "Handled"))
+
+    with workflow.when(authorization, "ready") as denied:
+        workflow.set_variable("Handled", workflow.text("no", "Unhandled"))
+        branch("open_url", open_url)
+        branch("open_url_confirm", open_url)
+        branch("approved_native")
+        for path in sorted(MANIFESTS.glob("*.json")):
+            manifest = json.loads(path.read_text())
+            if manifest["kind"] == "shortcut":
+                handler = HANDLERS[manifest["shortcutHandler"]]
+                branch(manifest["id"], handler, manifest)
+        with workflow.when(Reference.variable("Handled"), "no"):
+            workflow.speak(workflow.text("This action isn't available in this shortcut.", "Unavailable Action"))
             workflow.system("exit")
-
-    branch("open_url", open_url, {}, False)
-    branch("open_url_confirm", open_url, {}, True)
-    for path in sorted(MANIFESTS.glob("*.json")):
-        manifest = json.loads(path.read_text())
-        if manifest["kind"] == "shortcut":
-            handler = HANDLERS[manifest["shortcutHandler"]]
-            branch(manifest["id"], handler, manifest, manifest["requiresConfirmation"])
-    workflow.speak(workflow.text("This action isn't available in this shortcut.", "Unavailable Action"))
+        denied()
+        workflow.speak(authorization)
+        workflow.system("exit")
 
 
 def voice_turn(workflow, current_thread):
-    utterance = workflow.output("is.workflow.actions.dictatetext", "Dictated Text", WFDictateTextStopListening="After Pause")
-    response = workflow.app_intent("DecideIntent", output="Decision JSON",
-                                   transcript=utterance.text, threadID=current_thread.text)
-    decision = workflow.output("is.workflow.actions.detect.dictionary", "Decision", WFInput=response.attachment)
+    with workflow.when(Reference.variable("Next Step"), "dictate"):
+        utterance = workflow.output("is.workflow.actions.dictatetext", "Dictated Text",
+                                    WFDictateTextStopListening="After Pause")
+        response = workflow.app_intent("DecideIntent", result_name="User Turn",
+                                       transcript=utterance.text, threadID=current_thread.text, routerVersion=3)
+        workflow.set_variable("Decision JSON", response)
+    decision = workflow.output("is.workflow.actions.detect.dictionary", "Decision",
+                               WFInput=Reference.variable("Decision JSON").attachment)
     thread_id = workflow.key(decision, "thread_id")
     workflow.set_variable("Thread ID", thread_id)
     summary = workflow.key(decision, "summary")
     response_type = workflow.key(decision, "action")
     voice_next = workflow.key(decision, "voice_next")
 
-    with workflow.when(voice_next, "listen") as otherwise:
-        workflow.speak(summary)
-        otherwise()
-        with workflow.when(response_type, "run") as speak_instead:
-            dispatch(workflow, decision, summary, thread_id)
-            speak_instead()
+    with workflow.when(response_type, "run") as spoken:
+        dispatch(workflow, decision, summary, thread_id)
+        spoken()
+        with workflow.when(voice_next, "listen") as finish:
             workflow.speak(summary)
-        workflow.system("exit")
+            workflow.set_variable("Next Step", workflow.text("dictate", "Listen for Reply"))
+            finish()
+            with workflow.when(voice_next, "silent") as speak:
+                workflow.system("exit")
+                speak()
+                workflow.speak(summary)
+                workflow.system("exit")
 
 
 def make_router(team_id):
@@ -241,7 +352,8 @@ def make_router(team_id):
     input_ref = Reference({"Type": "ExtensionInput"})
     thread = workflow.text(input_ref.text, "Input Thread ID")
     workflow.set_variable("Thread ID", thread)
-    current_thread = Reference({"Type": "Variable", "VariableName": "Thread ID"})
+    current_thread = Reference.variable("Thread ID")
+    workflow.set_variable("Next Step", workflow.text("dictate", "Listen"))
 
     with workflow.repeat(32):
         voice_turn(workflow, current_thread)

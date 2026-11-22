@@ -8,8 +8,10 @@ struct DecideIntent: AppIntent {
     @Parameter(title: "Transcript") var transcript: String?
     @Parameter(title: "Thread ID") var threadID: String?
 
+    @Parameter(title: "Router Version") var routerVersion: Int?
+
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        let decision = await Conversations.shared.turn(transcript ?? "", threadID: threadID)
+        let decision = await Conversations.shared.turn(transcript ?? "", threadID: threadID, routerVersion: routerVersion ?? 1)
         return .result(value: decision.json)
     }
 }
@@ -26,5 +28,35 @@ struct RecordActionIntent: AppIntent {
     func perform() async throws -> some IntentResult {
         try await Conversations.shared.recordAction(threadID: threadID, actionID: actionID, completed: completed)
         return .result()
+    }
+}
+
+struct AuthorizeActionIntent: AppIntent {
+    static let title: LocalizedStringResource = "Authorize Controllr Action"
+    static let openAppWhenRun = false
+
+    @Parameter(title: "Thread ID") var threadID: String
+    @Parameter(title: "Action ID") var actionID: String
+    @Parameter(title: "Approval") var approval: String
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        let authorization = await Conversations.shared.authorizeAction(
+            threadID: threadID, actionID: actionID, approved: approval == "approved"
+        )
+        return .result(value: authorization)
+    }
+}
+
+struct CompleteActionIntent: AppIntent {
+    static let title: LocalizedStringResource = "Complete Controllr Action"
+    static let openAppWhenRun = false
+
+    @Parameter(title: "Thread ID") var threadID: String
+    @Parameter(title: "Action ID") var actionID: String
+    @Parameter(title: "Output") var output: String?
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        let decision = await Conversations.shared.completeAction(threadID: threadID, actionID: actionID, output: output)
+        return .result(value: decision.json)
     }
 }

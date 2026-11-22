@@ -5,7 +5,36 @@ import ControllrCore
 
 /// Native modules and contact resolution. Permissions are requested from the Setup screen, never here.
 struct NativeExecutor: ModuleExecutor {
+    private func checkEnabled(_ module: Module) throws {
+        guard ModuleSettings.policy.isEnabled(module) else {
+            throw ExecutionError.unavailable("That action is turned off in Modules.")
+        }
+    }
+
     func prepare(_ module: Module, arguments: [String: JSONValue]) async throws -> [String: JSONValue] {
+        try checkEnabled(module)
+        if ["find_messages", "find_recent_messages"].contains(module.id) {
+            guard #available(iOS 27, *) else {
+                throw ExecutionError.unavailable("Messages lookup in Controllr requires iOS 27.")
+            }
+            if module.id == "find_messages" {
+                let query = arguments["query"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard query.count >= 3 else { throw ExecutionError.clarify("What phrase should I look for in Messages?") }
+                return ["query": .string(query)]
+            }
+            let name = arguments["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            var prepared = arguments
+            prepared["name"] = .string(name)
+            return prepared
+        }
+        if module.id == "set_brightness" || module.id == "set_volume" {
+            guard let level = arguments["percent"]?.numberValue, (0...100).contains(level) else {
+                throw ExecutionError.clarify("What percentage between zero and one hundred?")
+            }
+            var prepared = arguments
+            prepared["level"] = .number(level / 100)
+            return prepared
+        }
         if module.id == "start_timer" {
             let minutes = Int(exactly: arguments["minutes"]?.numberValue ?? 0) ?? 0
             let seconds = Int(exactly: arguments["seconds"]?.numberValue ?? 0) ?? 0
@@ -32,6 +61,7 @@ struct NativeExecutor: ModuleExecutor {
     }
 
     func execute(_ module: Module, arguments a: [String: JSONValue]) async throws -> ExecutionOutcome {
+        try checkEnabled(module)
         switch module.id {
         case "call_contact":
             let c = try Contacts.resolve(a["recipient"]?.stringValue ?? "")
@@ -39,6 +69,30 @@ struct NativeExecutor: ModuleExecutor {
             return .openURL("tel:\(digits)", summary: "Call \(c.name)")
         case "add_reminder":
             return .spoken(try await Reminders.add(title: a["title"]?.stringValue ?? "", due: a["due"]?.stringValue))
+        case "list_reminders":
+            return .toolResult(try await Reminders.list())
+        case "complete_reminder", "reschedule_reminder":
+            return .spoken(try await Reminders.change(a, complete: module.id == "complete_reminder"))
+        case "calendar_agenda", "calendar_availability":
+            return .toolResult(try PhoneCalendar.agenda(from: a["start"]?.stringValue ?? "", to: a["end"]?.stringValue,
+                                                       availability: module.id == "calendar_availability"))
+        case "add_calendar_event":
+            return .spoken(try PhoneCalendar.add(title: a["title"]?.stringValue ?? "", start: a["start"]?.stringValue ?? "",
+                                                 end: a["end"]?.stringValue, location: a["location"]?.stringValue))
+        case "edit_calendar_event":
+            return .spoken(try PhoneCalendar.edit(a))
+        case "request_lyft":
+            let destination = try Places.resolve(a["destination"]?.stringValue ?? "")
+            guard let shortcut = UserDefaults.standard.string(forKey: "lyftShortcut"), !shortcut.isEmpty else {
+                throw ExecutionError.unavailable("Set your Lyft shortcut name in Modules.")
+            }
+            var url = URLComponents()
+            url.scheme = "shortcuts"
+            url.host = "run-shortcut"
+            url.queryItems = [URLQueryItem(name: "name", value: shortcut), URLQueryItem(name: "input", value: "text"),
+                              URLQueryItem(name: "text", value: destination)]
+            guard let link = url.string else { throw ExecutionError.failed("invalid shortcut name") }
+            return .openURL(link, summary: "Lyft to \(destination)")
         case "save_item":
             guard let kind = a["kind"]?.stringValue.flatMap(SavedItemKind.init(rawValue:)), kind != .note,
                   let title = a["title"]?.stringValue, let text = a["text"]?.stringValue else {
@@ -131,28 +185,102 @@ enum Reminders {
 
     static func request() async -> Bool { (try? await EKEventStore().requestFullAccessToReminders()) ?? false }
 
+    static var writableLists: [CalendarChoice] {
+        guard authorized else { return [] }
+        return PhoneCalendar.calendarChoices(EKEventStore().calendars(for: .reminder))
+    }
+
+    @MainActor
+    private static func incomplete(_ store: EKEventStore) async -> [EKReminder] {
+        let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
+        let ids = await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { reminders in
+                continuation.resume(returning: (reminders ?? []).map(\.calendarItemIdentifier))
+            }
+        }
+        return ids.compactMap { store.calendarItem(withIdentifier: $0) as? EKReminder }
+    }
+
+    @MainActor
+    static func list() async throws -> String {
+        guard authorized else { throw ExecutionError.unavailable("Open Controllr and allow Reminders access.") }
+        let store = EKEventStore()
+        let reminders = await incomplete(store)
+        let ordered = reminders.sorted {
+            ($0.dueDateComponents?.date ?? .distantFuture) < ($1.dueDateComponents?.date ?? .distantFuture)
+        }
+        let rows = ordered.prefix(30).map { reminder in
+            JSONValue.object(["id": .string(reminder.calendarItemIdentifier), "title": .string(reminder.title ?? "Untitled"),
+                              "list": .string(reminder.calendar.title),
+                              "due": reminder.dueDateComponents?.date.map { .string(ScheduleDate.format($0)) } ?? .null])
+        }
+        return JSONValue.object(["reminders": .array(Array(rows)), "total": .number(Double(reminders.count))]).jsonString()
+    }
+
+    @MainActor
+    static func change(_ arguments: [String: JSONValue], complete: Bool) async throws -> String {
+        guard authorized else { throw ExecutionError.unavailable("Open Controllr and allow Reminders access.") }
+        let store = EKEventStore()
+        let reminder: EKReminder
+        if let id = arguments["reminder_id"]?.stringValue,
+           let selected = store.calendarItem(withIdentifier: id) as? EKReminder, !selected.isCompleted {
+            reminder = selected
+        } else {
+            guard let title = arguments["title"]?.stringValue, !title.isEmpty else {
+                throw ExecutionError.clarify("Which reminder?")
+            }
+            let list = arguments["list"]?.stringValue
+            let matches = await incomplete(store).filter { reminder in
+                reminder.title?.localizedCaseInsensitiveCompare(title) == .orderedSame &&
+                    (list.map { reminder.calendar.title.localizedCaseInsensitiveCompare($0) == .orderedSame } ?? true)
+            }
+            guard matches.count == 1, let found = matches.first else {
+                let question = matches.isEmpty ? "I couldn't find \(title). Which reminder?" : "Which list is \(title) in?"
+                throw ExecutionError.clarify(question)
+            }
+            reminder = found
+        }
+        if complete {
+            reminder.isCompleted = true
+        } else {
+            guard let due = arguments["due"]?.stringValue else { throw ExecutionError.clarify("When should it be due?") }
+            _ = try setDue(due, on: reminder)
+        }
+        try store.save(reminder, commit: true)
+        return complete ? "Completed \(reminder.title ?? "the reminder")." : "Rescheduled \(reminder.title ?? "the reminder")."
+    }
+
     static func add(title: String, due: String?) async throws -> String {
         guard authorized else { throw ExecutionError.unavailable("Open Controllr and allow Reminders access.") }
         let store = EKEventStore()
         let r = EKReminder(eventStore: store)
         r.title = title
-        r.calendar = store.defaultCalendarForNewReminders()
-        var when: Date?
-        if let due, !due.isEmpty {
-            let f = ISO8601DateFormatter()
-            when = f.date(from: due) ?? { f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f.date(from: due) }()
-            if when == nil { // tolerate a missing zone offset
-                let g = DateFormatter(); g.locale = Locale(identifier: "en_US_POSIX"); g.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"; when = g.date(from: due)
-            }
+        let preferred = UserDefaults.standard.string(forKey: "preferredReminderList")
+        guard let list = preferred.flatMap(store.calendar(withIdentifier:)) ?? store.defaultCalendarForNewReminders(),
+              list.allowsContentModifications else {
+            throw ExecutionError.unavailable("I couldn't find a writable reminder list.")
         }
-        if let when {
-            r.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: when)
-            r.addAlarm(EKAlarm(absoluteDate: when))
-        }
+        r.calendar = list
+        let when = try due.flatMap { $0.isEmpty ? nil : try setDue($0, on: r) }
         do { try store.save(r, commit: true) } catch { throw ExecutionError.failed("reminder save failed") }
         if let when {
+            if due?.count == 10 {
+                return "Okay, I'll remind you to \(title) \(when.formatted(.relative(presentation: .named)))."
+            }
             return "Okay, I'll remind you to \(title) \(when.formatted(.relative(presentation: .named))) at \(when.formatted(date: .omitted, time: .shortened))."
         }
         return "Okay, reminder added: \(title)."
+    }
+
+    private static func setDue(_ due: String, on reminder: EKReminder) throws -> Date {
+        let date = try ScheduleDate.parse(due)
+        if due.count == 10 {
+            reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day], from: date)
+            reminder.alarms = nil
+        } else {
+            reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+            reminder.alarms = [EKAlarm(absoluteDate: date)]
+        }
+        return date
     }
 }

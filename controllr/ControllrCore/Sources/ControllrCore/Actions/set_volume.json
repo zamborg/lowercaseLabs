@@ -1,0 +1,25 @@
+{
+  "id": "set_volume",
+  "kind": "shortcut",
+  "description": "Set the iPhone media volume to a specific percentage.",
+  "params": [
+    {
+      "name": "percent",
+      "type": "number",
+      "description": "Target percentage from 0 through 100",
+      "required": true
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "Set media volume to {percent}%",
+  "operation": "change",
+  "evals": [
+    {
+      "utterance": "Set my media volume to 20 percent"
+    }
+  ],
+  "permissions": [
+    "shortcuts"
+  ],
+  "shortcutHandler": "set_volume"
+}

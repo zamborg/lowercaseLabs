@@ -100,6 +100,34 @@ final class ControllrCoreTests: XCTestCase {
         XCTAssertEqual(r.decision.summary, "Text Sam: late")
     }
 
+    func testModulePolicyHidesDisabledToolAndRejectsStaleCalls() async {
+        let policy = ModulePolicy(preferences: ["flashlight": .init(enabled: false)])
+        let ex = MockExecutor(prepareError: .failed("should never prepare"))
+        let router = Router(provider: MockProvider(result: call("flashlight", ["on": .bool(true)])),
+                            executor: ex, policy: policy)
+        XCTAssertFalse(router.tools.contains { $0.name == "flashlight" })
+        let result = await router.route("Turn on the flashlight")
+        XCTAssertEqual(result.decision.summary, "That action is turned off in Modules.")
+    }
+
+    func testModulePolicyOverridesShortcutAndStagesNativeWrites() async throws {
+        let policy = ModulePolicy(preferences: [
+            "send_message": .init(confirmation: .runDirectly),
+            "add_reminder": .init(confirmation: .askFirst)
+        ])
+        let message = Router(provider: MockProvider(result: call("send_message", ["recipient": .string("Sam"), "body": .string("Hi")])),
+                             executor: MockExecutor(), policy: policy)
+        let direct = await message.route("Text Sam hi")
+        XCTAssertFalse(direct.decision.confirm)
+        XCTAssertEqual(try JSONValue.parse(Data(direct.decision.json.utf8))["confirmation"], .string("run"))
+
+        let reminder = Router(provider: MockProvider(result: call("add_reminder", ["title": .string("Buy milk")])),
+                              executor: MockExecutor(outcome: .failure(.failed("should never execute"))), policy: policy)
+        let proposed = await reminder.route("Remind me to buy milk")
+        XCTAssertEqual(proposed.decision.shortcut, Decision.nativeActionID)
+        XCTAssertTrue(proposed.decision.confirm)
+    }
+
     func testMissingMessageBodyAsksForItWithoutPreparingAction() async {
         let ex = MockExecutor(prepareError: .failed("unexpected prepare"))
         let result = await router(call("send_message", ["recipient": .string("Sam")]), executor: ex).route("text Sam")

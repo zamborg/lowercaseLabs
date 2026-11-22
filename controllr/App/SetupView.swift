@@ -2,11 +2,14 @@ import SwiftUI
 import ControllrCore
 
 struct SetupView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @State private var provider = Settings.provider
     @State private var home = Settings.homeAddress
     @State private var nicknames = Settings.nicknamesText
-    @State private var contacts = Contacts.authorized
-    @State private var reminders = Reminders.authorized
+    @State private var contacts = ModulePermission.contacts.accessLabel
+    @State private var reminders = ModulePermission.reminders.accessLabel
+    @State private var calendar = ModulePermission.calendar.accessLabel
 
     var body: some View {
         NavigationStack {
@@ -34,8 +37,10 @@ struct SetupView: View {
                 }
 
                 Section("Permissions") {
-                    Button(contacts ? "Contacts: allowed" : "Allow Contacts") { Task { contacts = await Contacts.request() } }.disabled(contacts)
-                    Button(reminders ? "Reminders: allowed" : "Allow Reminders") { Task { reminders = await Reminders.request() } }.disabled(reminders)
+                    permissionButton(.calendar, status: calendar) { await PhoneCalendar.request() }
+                    permissionButton(.contacts, status: contacts) { await Contacts.request() }
+                    permissionButton(.reminders, status: reminders) { await Reminders.request() }
+                    LabeledContent("Messages and other Shortcut actions", value: ModulePermission.shortcuts.accessLabel)
                 }
 
                 Section("Diagnostics") {
@@ -43,12 +48,38 @@ struct SetupView: View {
                 }
 
                 Section("Router shortcut") {
-                    Text("1. Install `Controllr Voice` in Shortcuts.\n2. Run it once and tap Allow when asked.\n3. Bind it: Settings → Action Button → Shortcut, or Accessibility → Touch → Back Tap, or add it to Control Center.\nSay what you want after the router starts listening.")
+                    Text("1. Install `Controllr Voice 1.5.1` in Shortcuts.\n2. Run it once and tap Allow when asked.\n3. Bind it: Settings → Action Button → Shortcut, or Accessibility → Touch → Back Tap, or add it to Control Center.\nSay what you want after the router starts listening.")
                         .font(.footnote)
                 }
             }
             .navigationTitle("Setup")
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { refreshPermissions() }
+            }
         }
+    }
+
+    private func permissionButton(_ permission: ModulePermission, status: String,
+                                  request: @escaping () async -> Bool) -> some View {
+        Button {
+            if status == "Not requested" || status == "Write only" {
+                Task {
+                    _ = await request()
+                    refreshPermissions()
+                }
+            } else if let settings = URL(string: UIApplication.openSettingsURLString) {
+                openURL(settings)
+            }
+        } label: {
+            LabeledContent(permission.title, value: status)
+        }
+        .disabled(status == "Restricted")
+    }
+
+    private func refreshPermissions() {
+        calendar = ModulePermission.calendar.accessLabel
+        contacts = ModulePermission.contacts.accessLabel
+        reminders = ModulePermission.reminders.accessLabel
     }
 }
 

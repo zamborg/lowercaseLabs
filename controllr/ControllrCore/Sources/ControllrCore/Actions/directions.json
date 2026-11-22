@@ -1,7 +1,7 @@
 {
   "id": "directions",
   "kind": "native",
-  "description": "Open Apple Maps with directions to a destination.",
+  "description": "Open Apple Maps with directions to a destination. A request for directions home already names the destination. Pass home to the app and omit the travel mode if unspecified.",
   "params": [
     {
       "name": "destination",
@@ -53,5 +53,9 @@
         "mode": "walk"
       }
     }
+  ],
+  "operation": "handoff",
+  "permissions": [
+    "shortcuts"
   ]
 }

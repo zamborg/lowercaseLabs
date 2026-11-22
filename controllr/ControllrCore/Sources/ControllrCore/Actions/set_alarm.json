@@ -29,5 +29,9 @@
     {
       "utterance": "alarm for quarter to nine tonight"
     }
+  ],
+  "operation": "change",
+  "permissions": [
+    "shortcuts"
   ]
 }

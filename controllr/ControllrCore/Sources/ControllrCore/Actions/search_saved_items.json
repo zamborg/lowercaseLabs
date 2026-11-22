@@ -33,5 +33,6 @@
     {
       "utterance": "Use my meeting recap skill on this: we moved the launch to March."
     }
-  ]
+  ],
+  "operation": "read"
 }

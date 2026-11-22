@@ -83,13 +83,15 @@ public struct Router: Sendable {
     public let registry: Registry
     public let settings: RouterSettings
     public let executor: ModuleExecutor?
+    public let policy: ModulePolicy
 
-    public init(provider: LLMProvider, registry: Registry = .v1, settings: RouterSettings = .init(), executor: ModuleExecutor? = nil) {
-        self.provider = provider; self.registry = registry; self.settings = settings; self.executor = executor
+    public init(provider: LLMProvider, registry: Registry = .v1, settings: RouterSettings = .init(), executor: ModuleExecutor? = nil,
+                policy: ModulePolicy = .init()) {
+        self.provider = provider; self.registry = registry; self.settings = settings; self.executor = executor; self.policy = policy
     }
 
     public var tools: [ToolSpec] {
-        registry.modules.filter { $0.kind != .response }.map {
+        registry.modules.filter { $0.kind != .response && policy.isEnabled($0) }.map {
             ToolSpec(name: $0.id, description: $0.description, parameters: $0.parametersSchema)
         }
     }
@@ -133,6 +135,9 @@ public struct Router: Sendable {
             guard let module = registry.module(id: call.name), module.kind != .response else {
                 return result(.speak(.error, "I couldn't work out what to do."), call, "unknown tool \(call.name)")
             }
+            guard policy.isEnabled(module) else {
+                return result(.speak(.error, "That action is turned off in Modules."), call, "disabled action \(module.id)")
+            }
             if let problem = ArgumentValidator.validate(module, call.arguments) {
                 if let param = module.params.first(where: { problem == "missing \($0.name)" }),
                    let question = param.missingQuestion {
@@ -141,6 +146,7 @@ public struct Router: Sendable {
                 return result(.speak(.error, "I didn't catch that. Try again."), call, "invalid arguments: \(problem)")
             }
             let args = call.arguments.objectValue ?? [:]
+            let confirm = policy.requiresConfirmation(module)
 
             do {
                 switch module.kind {
@@ -156,19 +162,23 @@ public struct Router: Sendable {
                     var summaryArguments = args
                     if let name = prepared["name"] { summaryArguments["recipient"] = name }
                     let decision = Decision(action: .run, shortcut: module.id, input: prepared,
-                                            confirm: module.requiresConfirmation, summary: module.renderSummary(summaryArguments))
+                                            confirm: confirm, summary: module.renderSummary(summaryArguments))
                     return result(decision, call)
                 case .native:
                     guard execute, let executor else {
                         return result(.speak(.done, "Would run: \(module.renderSummary(args))"), call)
                     }
+                    if module.operation == .change && confirm {
+                        return result(Decision(action: .run, shortcut: Decision.nativeActionID, input: [:],
+                                               confirm: true, summary: module.renderSummary(args)), call)
+                    }
                     switch try await executor.execute(module, arguments: args) {
                     case .spoken(let text):
                         return result(.speak(.done, text), call)
                     case .openURL(let url, let summary):
-                        let id = module.requiresConfirmation ? Decision.openURLConfirmID : Decision.openURLID
+                        let id = confirm ? Decision.openURLConfirmID : Decision.openURLID
                         return result(Decision(action: .run, shortcut: id, input: ["url": .string(url)],
-                                               confirm: module.requiresConfirmation, summary: summary), call)
+                                               confirm: confirm, summary: summary), call)
                     case .toolResult(let output):
                         toolMessages.append(.tool(call: call, output: output, assistantText: text.isEmpty ? nil : text))
                     }

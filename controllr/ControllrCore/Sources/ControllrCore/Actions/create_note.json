@@ -29,5 +29,6 @@
     {
       "utterance": "create a note idea for the pitch deck lead with the demo"
     }
-  ]
+  ],
+  "operation": "change"
 }

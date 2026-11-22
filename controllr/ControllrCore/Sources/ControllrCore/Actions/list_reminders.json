@@ -1,0 +1,17 @@
+{
+  "id": "list_reminders",
+  "kind": "native",
+  "description": "Read open items from Apple Reminders, including due dates and list names.",
+  "params": [],
+  "requiresConfirmation": false,
+  "summary": "Read open reminders",
+  "operation": "read",
+  "evals": [
+    {
+      "utterance": "What reminders do I have open?"
+    }
+  ],
+  "permissions": [
+    "reminders"
+  ]
+}

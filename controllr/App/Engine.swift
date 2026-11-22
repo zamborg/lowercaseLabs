@@ -15,7 +15,8 @@ enum Engine {
     static func run(_ transcript: String, messages: [ConversationMessage]? = nil, source: String, execute: Bool) async -> RouteResult {
         let result: RouteResult
         if let provider = makeProvider() {
-            let router = Router(provider: provider, settings: Settings.routerSettings, executor: execute ? NativeExecutor() : nil)
+            let router = Router(provider: provider, settings: Settings.routerSettings, executor: execute ? NativeExecutor() : nil,
+                                policy: ModuleSettings.policy)
             result = await router.route(messages: messages ?? [.user(transcript)], execute: execute)
         } else {
             result = RouteResult(decision: .speak(.error, "Add your API key and model in controllr."), toolCall: nil, latencyMs: 0,

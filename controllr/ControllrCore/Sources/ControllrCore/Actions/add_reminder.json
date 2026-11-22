@@ -31,5 +31,9 @@
     {
       "utterance": "remind me too call the dentist tomorrow at nine"
     }
+  ],
+  "operation": "change",
+  "permissions": [
+    "reminders"
   ]
 }

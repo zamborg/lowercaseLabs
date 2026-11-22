@@ -23,5 +23,9 @@
     {
       "utterance": "flash light on"
     }
+  ],
+  "operation": "change",
+  "permissions": [
+    "shortcuts"
   ]
 }

@@ -44,6 +44,14 @@ public enum ModuleKind: String, Decodable, Sendable, Equatable {
     case response
 }
 
+public enum ModuleOperation: String, Decodable, Sendable {
+    case read, change, handoff
+}
+
+public enum ModulePermission: String, Decodable, Sendable {
+    case calendar, contacts, reminders, shortcuts
+}
+
 public struct ActionEval: Decodable, Sendable {
     public let utterance: String
     public let arguments: [String: JSONValue]?
@@ -75,7 +83,13 @@ public struct Module: Decodable, Sendable {
 
     public let shortcutHandler: String?
     public let supportedSeconds: [Int]?
+    public let operation: ModuleOperation?
+    public let permissions: [ModulePermission]?
     public let evals: [ActionEval]
+
+    public var hasConfirmationSetting: Bool {
+        (kind == .native || kind == .shortcut) && operation != .read
+    }
 
     /// JSON Schema for this module's arguments.
     public var parametersSchema: JSONValue {

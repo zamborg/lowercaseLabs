@@ -56,5 +56,10 @@
         "recipient": "Sam"
       }
     }
+  ],
+  "operation": "change",
+  "permissions": [
+    "contacts",
+    "shortcuts"
   ]
 }

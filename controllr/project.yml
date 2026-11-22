@@ -25,9 +25,10 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: controllr
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: Controllr reads your agenda and adds or changes events you ask for.
         INFOPLIST_KEY_NSContactsUsageDescription: controllr looks up contacts to text or call the person you name.
-        INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: controllr adds reminders you ask for.
-        INFOPLIST_KEY_NSRemindersUsageDescription: controllr adds reminders you ask for.
+        INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: Controllr reads and updates reminders you ask about.
+        INFOPLIST_KEY_NSRemindersUsageDescription: Controllr reads and updates reminders you ask about.
   ControllrTests:
     type: bundle.unit-test
     platform: iOS

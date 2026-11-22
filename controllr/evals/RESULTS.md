@@ -190,3 +190,116 @@ accuracy 61/61 = 100%
   start_timer         4/4
 latency ms: p50 1112 p95 1745 max 2498
 ```
+
+## 2026-11-22T00:42:35Z — V1.5 routing and actuator expansion
+```
+provider=openai model=gpt-6-luna cases=73
+accuracy 71/73 = 97%
+  add_calendar_event  1/1
+  add_reminder        4/4
+  answer              4/4
+  calendar_agenda     1/1
+  calendar_availabili 1/1
+  call_contact        4/4
+  clarify             6/6
+  complete_reminder   1/1
+  create_bear_note    1/1
+  create_note         3/3
+  directions          5/5
+  edit_calendar_event 0/1
+  find_messages       1/1
+  flashlight          3/3
+  list_reminders      1/1
+  media_control       6/6
+  read_clipboard      1/1
+  request_lyft        1/1
+  request_ride        2/3
+  reschedule_reminder 1/1
+  save_item           2/2
+  search_saved_items  3/3
+  send_message        7/7
+  set_alarm           3/3
+  set_brightness      1/1
+  set_focus           3/3
+  set_volume          1/1
+  start_timer         4/4
+latency ms: p50 1137 p95 2289 max 2645
+misses:
+  "Move tomorrow's Design Review to 3 PM tomorrow" expected edit_calendar_event got calendar_agenda
+  "order a ride to the airport" expected request_ride got clarify (requested another turn)
+```
+
+## 2026-11-22T00:44:00Z — V1.5 routing after refining Calendar edit and ride selection
+```
+provider=openai model=gpt-6-luna cases=73
+accuracy 72/73 = 98%
+  add_calendar_event  1/1
+  add_reminder        4/4
+  answer              4/4
+  calendar_agenda     1/1
+  calendar_availabili 1/1
+  call_contact        4/4
+  clarify             6/6
+  complete_reminder   1/1
+  create_bear_note    1/1
+  create_note         3/3
+  directions          4/5
+  edit_calendar_event 1/1
+  find_messages       1/1
+  flashlight          3/3
+  list_reminders      1/1
+  media_control       6/6
+  read_clipboard      1/1
+  request_lyft        1/1
+  request_ride        3/3
+  reschedule_reminder 1/1
+  save_item           2/2
+  search_saved_items  3/3
+  send_message        7/7
+  set_alarm           3/3
+  set_brightness      1/1
+  set_focus           3/3
+  set_volume          1/1
+  start_timer         4/4
+latency ms: p50 1017 p95 1636 max 5388
+misses:
+  "how do I get home" expected directions got clarify (requested another turn)
+```
+
+## 2026-11-22T00:49:20Z — V1.5 routing with Messages sender and conversation
+```
+provider=openai model=gpt-6-luna cases=75
+accuracy 74/75 = 98%
+  add_calendar_event  1/1
+  add_reminder        4/4
+  answer              4/4
+  calendar_agenda     1/1
+  calendar_availabili 1/1
+  call_contact        4/4
+  clarify             6/6
+  complete_reminder   1/1
+  create_bear_note    1/1
+  create_note         2/3
+  directions          5/5
+  edit_calendar_event 1/1
+  find_messages       1/1
+  find_recent_message 2/2
+  flashlight          3/3
+  list_reminders      1/1
+  media_control       6/6
+  read_clipboard      1/1
+  request_lyft        1/1
+  request_ride        3/3
+  reschedule_reminder 1/1
+  save_item           2/2
+  search_saved_items  3/3
+  send_message        7/7
+  set_alarm           3/3
+  set_brightness      1/1
+  set_focus           3/3
+  set_volume          1/1
+  start_timer         4/4
+latency ms: p50 988 p95 1408 max 1763
+misses:
+  "create a note idea for the pitch deck lead with the demo" expected create_note got clarify (requested another turn)
+```

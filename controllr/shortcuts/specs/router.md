@@ -1,17 +1,19 @@
-# Controllr Voice
+# Controllr Voice 1.5.1
 
-Run Controllr Voice directly in Shortcuts. The optional shortcut input is a thread UUID, used by **Continue by voice** in Controllr. The app retains the full thread and uses up to the 48 most recent entries for model context.
+Run **Controllr Voice 1.5.1** directly in Shortcuts. The optional shortcut input is a thread UUID, used by **Continue by voice** in Controllr. The app retains the full thread and uses up to the 48 most recent entries for model context.
 
-1. Dictate the user turn and call Controllr's **Decide** action with the text and current thread ID.
-2. Save the returned `thread_id` in the shortcut. When Controllr returns `voice_next: listen`, finish speaking before starting the next dictation. Each reply goes through the same turn function. Saying “cancel,” “stop,” or “that’s all” ends the session. Shortcuts uses a 32-turn repeat, after which the thread can resume from Controllr.
-3. On `run`, use the returned `shortcut` and `input`. Show Continue/Cancel for actions whose manifest requires confirmation. Write the step's completion or cancellation to the thread using **Record Controllr Action** and exit. A cancelled or failed system dialog can leave the step without a receipt.
-4. With `voice_next: stop`, speak the final response or dispatch the action, then exit. Controllr can supply an answer plus a follow-up question, so a spoken answer can also lead to another turn.
+1. Call **Decide** with the dictation, current thread ID, and `routerVersion: 3`. Store the returned `thread_id`.
+2. On `run`, use the returned `confirmation` value. If it is `ask`, show Continue/Cancel and record cancellation if selected. Call **Authorize Controllr Action** with the thread and action IDs before dispatch. Controllr checks whether the action is enabled, verifies approval, and starts the action once.
+3. Dispatch the returned `shortcut` with its `input`. Then call **Complete Controllr Action** with the same IDs and any text output. For a staged native write, the callback performs the write. For a Shortcut read, it appends a tool result, resumes the model turn, and returns another decision.
+4. On `voice_next: listen`, finish speaking before starting the next dictation. On `stop`, speak and exit. On `silent`, exit. Saying “cancel,” “stop,” or “that’s all” ends the session. The shortcut allows 32 iterations across dictation and action results. Controllr can resume the thread afterwards.
+
+A Shortcut step receipt confirms that the workflow reached the callback. A phone call, message delivery, or ride booking can have its own outcome after the handoff.
 
 ## Model turn
 
 The selected provider receives the conversation and the available tools. Anthropic uses the Claude Messages API. OpenAI and OpenRouter have their own request adapters and share the Chat Completions message format. Each completion can contain assistant text, one tool call, or both. Ordinary final text ends the voice session.
 
-The `clarify` tool asks a spoken question. The app saves the assistant text and tool call in the thread and sends the next utterance back as the result of that call. A direct question emitted as plain assistant text also keeps the shortcut listening. Lookup results return to the model during the same turn. The app keeps phone actions behind their existing confirmation rules.
+The `clarify` tool asks a spoken question. The app saves the assistant text and tool call in the thread and sends the next utterance back as the result of that call. A direct question emitted as plain assistant text also keeps the shortcut listening. Lookup results return to the model during the same turn. Users set per-action enablement and confirmation under **Modules**.
 
 ## Build and install
 
@@ -19,11 +21,11 @@ Generate the Xcode project with `xcodegen generate` from `controllr/` and build 
 
 ```sh
 uv run --python 3.12 --no-project shortcuts/gen.py --team-id 9G57J2JMF7
-plutil -lint 'shortcuts/src/Controllr Voice.xml'
+plutil -lint 'shortcuts/src/Controllr Voice 1.5.1.xml'
 uv run --python 3.12 --no-project "$SHORTCUTS_PLAYGROUND_DIR/scripts/validate_shortcut.py" \
-  --target-platform all --target-macos 27 'shortcuts/src/Controllr Voice.xml'
+  --target-platform all --target-macos 27 'shortcuts/src/Controllr Voice 1.5.1.xml'
 "$SHORTCUTS_PLAYGROUND_DIR/scripts/sign_shortcut.sh" \
-  'shortcuts/src/Controllr Voice.xml' --name 'Controllr Voice' --output-dir shortcuts/signed
+  'shortcuts/src/Controllr Voice 1.5.1.xml' --name 'Controllr Voice 1.5.1' --output-dir shortcuts/signed
 ```
 
 The combined platform catalog accounts for Clock actions that the plugin classifies as Mac-only despite the earlier iPhone checks. The validator can flag the Send Message body token shape described in [STATUS](../../STATUS.md). Check the actual editor and phone before changing the Messages binding.
@@ -32,8 +34,8 @@ Import the signed shortcut in macOS Shortcuts and let it sync to the phone. Star
 
 ## Add an action
 
-1. Add a manifest in [Actions](../../ControllrCore/Sources/ControllrCore/Actions), named after the action ID. Give it parameters, a summary, the confirmation rule, and one or more eval cases. Eval cases can specify earlier turns and selected expected arguments.
-2. Implement an app-side action in `App/NativeExecutor.swift` or assign a `shortcutHandler` implemented in `shortcuts/gen.py`. Native actions that need to open another app return a URL for the shortcut to handle. Rebuild the app after changing the manifests and regenerate the shortcut after changing dispatch.
+1. Add a manifest in [Actions](../../ControllrCore/Sources/ControllrCore/Actions), named after the action ID. Give it parameters, a summary, an operation of `read`, `change`, or `handoff`, any required permissions, the default confirmation setting, and at least one eval. The registry supplies the model schema and Modules page across providers.
+2. Add an app-side case in `App/NativeExecutor.swift` or assign a `shortcutHandler` in `shortcuts/gen.py`. Native reads return `.toolResult`, native writes return `.spoken`, and app handoffs return `.openURL`. A Shortcut read handler returns a text reference. Rebuild the app after changing manifests. Regenerate and sign the shortcut when its dispatch changes.
 3. Run `swift test --package-path ControllrCore` and `swift run --package-path ControllrCore controllr-eval --provider openai --model YOUR_MODEL`. The default eval input is the action manifests. Add `--file PATH` to run an external JSONL suite.
 
 Pass `--provider anthropic` with `ANTHROPIC_API_KEY` or `--provider openrouter` with `OPENROUTER_API_KEY` to run the same suite through either adapter. Use `--list-models` to check the catalog available to that key.

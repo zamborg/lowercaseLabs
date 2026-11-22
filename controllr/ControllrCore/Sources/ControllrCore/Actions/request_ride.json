@@ -1,7 +1,7 @@
 {
   "id": "request_ride",
   "kind": "native",
-  "description": "Open Uber with the destination filled in so the user can request a ride.",
+  "description": "Default tool for a ride request without a named service, or an explicit Uber request. Open Uber with the destination filled in. Only choose Lyft when the user names Lyft.",
   "params": [
     {
       "name": "destination",
@@ -22,5 +22,9 @@
     {
       "utterance": "i need an uber to union station"
     }
+  ],
+  "operation": "handoff",
+  "permissions": [
+    "shortcuts"
   ]
 }

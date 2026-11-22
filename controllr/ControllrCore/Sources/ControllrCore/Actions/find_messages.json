@@ -1,0 +1,25 @@
+{
+  "id": "find_messages",
+  "kind": "shortcut",
+  "description": "Look up the latest iPhone text message whose body contains a specific phrase. Use only when the user explicitly requests a Messages lookup. Ask for a phrase if the user supplies only a sender or requests their entire inbox.",
+  "params": [
+    {
+      "name": "query",
+      "type": "string",
+      "description": "A specific phrase from the message body, at least three characters.",
+      "required": true
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "Look up a message containing {query}",
+  "operation": "read",
+  "evals": [
+    {
+      "utterance": "Find my most recent text containing gate changed"
+    }
+  ],
+  "permissions": [
+    "shortcuts"
+  ],
+  "shortcutHandler": "find_messages"
+}

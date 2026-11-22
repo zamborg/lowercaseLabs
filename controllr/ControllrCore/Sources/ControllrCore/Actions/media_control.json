@@ -38,5 +38,9 @@
     {
       "utterance": "scip this song"
     }
+  ],
+  "operation": "change",
+  "permissions": [
+    "shortcuts"
   ]
 }

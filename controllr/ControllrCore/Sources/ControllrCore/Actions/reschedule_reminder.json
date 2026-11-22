@@ -1,0 +1,42 @@
+{
+  "id": "reschedule_reminder",
+  "kind": "native",
+  "description": "Change the due date of an existing Apple Reminders item.",
+  "params": [
+    {
+      "name": "title",
+      "type": "string",
+      "description": "Exact existing reminder title",
+      "required": true
+    },
+    {
+      "name": "reminder_id",
+      "type": "string",
+      "description": "Identifier from a prior reminders lookup, if available.",
+      "required": false
+    },
+    {
+      "name": "list",
+      "type": "string",
+      "description": "Exact list name to disambiguate, if provided.",
+      "required": false
+    },
+    {
+      "name": "due",
+      "type": "string",
+      "description": "New due date. Use YYYY-MM-DD for a local calendar day, or an ISO 8601 date-time with its time zone offset.",
+      "required": true
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "Reschedule {title} for {due}",
+  "operation": "change",
+  "evals": [
+    {
+      "utterance": "Move my Buy Milk reminder to tomorrow at 6 PM"
+    }
+  ],
+  "permissions": [
+    "reminders"
+  ]
+}

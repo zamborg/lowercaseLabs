@@ -1,0 +1,42 @@
+{
+  "id": "add_calendar_event",
+  "kind": "native",
+  "description": "Create an event in Apple Calendar. Use for appointments or calendar blocks, not reminders. Ask if the date or start time is missing.",
+  "params": [
+    {
+      "name": "title",
+      "type": "string",
+      "description": "Event title",
+      "required": true
+    },
+    {
+      "name": "start",
+      "type": "string",
+      "description": "Start time. Use ISO 8601 with a time zone offset for an exact time.",
+      "required": true
+    },
+    {
+      "name": "end",
+      "type": "string",
+      "description": "End time. Defaults to one hour later. Use ISO 8601 with a time zone offset for an exact time.",
+      "required": false
+    },
+    {
+      "name": "location",
+      "type": "string",
+      "description": "Event location, if provided.",
+      "required": false
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "Add {title} to Calendar at {start}",
+  "operation": "change",
+  "evals": [
+    {
+      "utterance": "Put dental cleaning on my calendar tomorrow at 9 for an hour"
+    }
+  ],
+  "permissions": [
+    "calendar"
+  ]
+}

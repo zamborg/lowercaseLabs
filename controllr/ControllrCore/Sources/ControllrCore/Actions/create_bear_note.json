@@ -16,5 +16,9 @@
     {
       "utterance": "make a note in Bear that the wifi password is on the fridge"
     }
+  ],
+  "operation": "handoff",
+  "permissions": [
+    "shortcuts"
   ]
 }

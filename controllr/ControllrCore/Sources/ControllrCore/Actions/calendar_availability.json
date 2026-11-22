@@ -1,0 +1,30 @@
+{
+  "id": "calendar_availability",
+  "kind": "native",
+  "description": "Read busy periods from Apple Calendar to answer when the user is free. Use this to check a specific time or find open slots in a period.",
+  "params": [
+    {
+      "name": "start",
+      "type": "string",
+      "description": "Start of the requested period. Use YYYY-MM-DD for a local calendar day, or an ISO 8601 date-time with its time zone offset.",
+      "required": true
+    },
+    {
+      "name": "end",
+      "type": "string",
+      "description": "Exclusive end of the requested period. Use YYYY-MM-DD for a local calendar day, or an ISO 8601 date-time with its time zone offset.",
+      "required": true
+    }
+  ],
+  "requiresConfirmation": false,
+  "summary": "Check Calendar availability",
+  "operation": "read",
+  "evals": [
+    {
+      "utterance": "Am I free tomorrow between 2 and 4?"
+    }
+  ],
+  "permissions": [
+    "calendar"
+  ]
+}

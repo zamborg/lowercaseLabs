@@ -1,6 +1,19 @@
 # Controllr status
 
-## Device build
+## V1.5 on iPhone
+
+The paired iPhone has the V1.5 Controllr build. The **Modules** tab now has an on/off switch per action and a confirmation setting for writes and handoffs. In **Setup**, Calendar, Contacts, and Reminders show their current access. Shortcuts manages access for its own actions.
+
+- Calendar supports agenda, availability, event creation, and editing. Reminders supports listing, adding, completing, and rescheduling. Set the default calendar and reminder list under the corresponding Add modules.
+- **Controllr Voice 1.5** passed the physical clipboard and Messages tests. It read the copied test phrase and retrieved a text by a distinctive phrase.
+- **Controllr Voice 1.5.1** passed both sender and named group-chat lookup on the iPhone. It checks the 120 newest messages on the phone and forwards the latest matching body. Shortcut lookup results continue the same Controllr thread and can lead to another spoken question.
+- Brightness and media volume take percentages. **Request Lyft** accepts the name of a user-owned Shortcut and hands off the destination as text.
+
+The [capability map and extension audit](V1.5.md) track the remaining phone surfaces. The [router spec](shortcuts/specs/router.md) covers the protocol, signing, and the steps for adding an actuator.
+
+V1.5 passed 37 core tests and seven simulator tests. A separate simulator smoke test created and edited a Calendar event and created, rescheduled, and completed a Reminder, using temporary fixtures. The live OpenAI eval matched 74 of 75 routes, including sender and conversation lookup. One note-creation prompt asked an unnecessary follow-up. [Routing results](evals/RESULTS.md)
+
+## V1 device verification
 
 The signed iOS build is installed on the paired iPhone 14 Pro. **Controllr Voice** was imported on the Mac and appeared in iPhone Spotlight. The app's Threads screen opened on the phone and the first shortcut launch reached the Speech Recognition prompt.
 

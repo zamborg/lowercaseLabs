@@ -120,6 +120,85 @@ final class ConversationsTests: XCTestCase {
         }
     }
 
+    func testPreparedNativeActionRequiresApprovalAndRunsOnlyOnce() async throws {
+        try await withStore { context in
+            let call = ToolCall(name: "edit_calendar_event", arguments: .object([
+                "title": .string("Test event"), "new_title": .string("Updated event")
+            ]))
+            var action = Decision.speak(.run, "Edit Test event")
+            action.shortcut = Decision.nativeActionID
+            action.confirm = true
+            let executor = CountingExecutor()
+            let conversations = Conversations(context: context, executor: executor) { _, _ in
+                Self.result(action, toolCall: call)
+            }
+
+            let proposed = await conversations.turn("Rename Test event", threadID: nil, routerVersion: 2)
+            let thread = try XCTUnwrap(proposed.threadID)
+            let id = try XCTUnwrap(proposed.actionID)
+            let premature = await conversations.completeAction(threadID: thread, actionID: id, output: nil)
+            XCTAssertEqual(premature.action, .error)
+            XCTAssertNotEqual(conversations.authorizeAction(threadID: thread, actionID: id, approved: false), "ready")
+            XCTAssertEqual(conversations.authorizeAction(threadID: thread, actionID: id, approved: true), "ready")
+            let done = await conversations.completeAction(threadID: thread, actionID: id, output: nil)
+            XCTAssertEqual(done.summary, "Updated event.")
+            let replay = await conversations.completeAction(threadID: thread, actionID: id, output: nil)
+            XCTAssertEqual(replay.action, .error)
+            let count = await executor.executions
+            XCTAssertEqual(count, 1)
+        }
+    }
+
+    func testShortcutReadResumesSameTurnAndKeepsListening() async throws {
+        try await withStore { context in
+            let call = ToolCall(name: "read_clipboard", arguments: .object([:]), id: "read_1")
+            var action = Decision.speak(.run, "Read clipboard text")
+            action.shortcut = call.name
+            let conversations = Conversations(context: context) { _, history in
+                if history == [.user("Read my clipboard")] {
+                    return Self.result(action, toolCall: call)
+                }
+                XCTAssertEqual(history.last, .tool(call: call, output: "A test sentence."))
+                XCTAssertEqual(history.compactMap { item -> String? in
+                    if case .user(let text) = item { return text }
+                    return nil
+                }, ["Read my clipboard"])
+                return Self.result(.speak(.clarify, "Should I summarize it?"))
+            }
+
+            let proposed = await conversations.turn("Read my clipboard", threadID: nil, routerVersion: 2)
+            let thread = try XCTUnwrap(proposed.threadID)
+            let id = try XCTUnwrap(proposed.actionID)
+            XCTAssertEqual(conversations.authorizeAction(threadID: thread, actionID: id, approved: false), "ready")
+            let next = await conversations.completeAction(threadID: thread, actionID: id, output: "A test sentence.")
+            XCTAssertEqual(next.threadID, thread)
+            XCTAssertTrue(next.listensAfterSpeaking)
+        }
+    }
+
+    func testMessagesResultMustMatchRequestedScopeBeforeItReachesModel() async throws {
+        try await withStore { context in
+            let call = ToolCall(name: "find_recent_messages", arguments: .object([
+                "scope": .string("conversation"), "name": .string("Weekend Hike")
+            ]), id: "read_messages")
+            var action = Decision.speak(.run, "Find the recent Weekend Hike message")
+            action.shortcut = call.name
+            let conversations = Conversations(context: context) { _, history in
+                if history == [.user("Latest Weekend Hike message")] {
+                    return Self.result(action, toolCall: call)
+                }
+                XCTAssertEqual(history.last, .tool(call: call, output: "No matching message found among the 120 most recent messages."))
+                return Self.result(.speak(.respond, "I couldn't find a recent message."))
+            }
+            let proposal = await conversations.turn("Latest Weekend Hike message", threadID: nil, routerVersion: 3)
+            let thread = try XCTUnwrap(proposal.threadID)
+            let id = try XCTUnwrap(proposal.actionID)
+            XCTAssertEqual(conversations.authorizeAction(threadID: thread, actionID: id, approved: false), "ready")
+            let reply = await conversations.completeAction(threadID: thread, actionID: id, output: "Other Thread\nAn unrelated message.")
+            XCTAssertEqual(reply.action, .respond)
+        }
+    }
+
     private func withStore<T: Sendable>(url: URL? = nil, body: @MainActor (ModelContext) async throws -> T) async throws -> T {
         let schema = Schema([ChatThread.self, ChatEntry.self, SavedItem.self, RunRecord.self])
         let config = url.map { ModelConfiguration(url: $0) } ?? ModelConfiguration(isStoredInMemoryOnly: true)
@@ -127,9 +206,19 @@ final class ConversationsTests: XCTestCase {
         return try await body(container.mainContext)
     }
 
-    private static func result(_ decision: Decision, assistantMessage: ConversationMessage? = nil) -> RouteResult {
-        RouteResult(decision: decision, toolCall: nil, latencyMs: 0, provider: "test", model: "test", error: nil,
+    private static func result(_ decision: Decision, toolCall: ToolCall? = nil,
+                               assistantMessage: ConversationMessage? = nil) -> RouteResult {
+        RouteResult(decision: decision, toolCall: toolCall, latencyMs: 0, provider: "test", model: "test", error: nil,
                     assistantMessage: assistantMessage)
+    }
+}
+
+private actor CountingExecutor: ModuleExecutor {
+    private(set) var executions = 0
+
+    func execute(_ module: Module, arguments: [String: JSONValue]) async throws -> ExecutionOutcome {
+        executions += 1
+        return .spoken("Updated event.")
     }
 }
 

@@ -29,5 +29,9 @@
     {
       "utterance": "turn off focus"
     }
+  ],
+  "operation": "change",
+  "permissions": [
+    "shortcuts"
   ]
 }
