@@ -29,4 +29,4 @@ The OpenAI catalog and all 61 live routing cases passed. Anthropic and OpenRoute
 - The latest live OpenAI routing run passed 61 of 61 cases. See [evals/RESULTS.md](evals/RESULTS.md).
 - Shortcuts signing and plist lint passed. Playground's static check flags the Send Message body binding because it expects a named list variable. The generator uses the working text-token wiring from the repository's earlier device checks. The device test exercised the two-turn text flow. Live message delivery and call placement are unverified in this build.
 
-After V1, add phone actuators such as Lyft and Calendar and refine the agent loop and service. Additional completion stages can use the same provider-neutral message history and turn protocol. The old shortcuts and stray Clock timers on the devices and API-key rotation are still listed for cleanup.
+The [V1.5 capability map](V1.5.md) covers first-party phone actions, per-module enablement and confirmation, and the actuator extensibility audit. The old shortcuts and stray Clock timers on the devices and API-key rotation are still listed for cleanup.
