@@ -23,6 +23,7 @@ public extension ModuleExecutor {
 
 public enum ExecutionError: Error, Sendable, Equatable {
     case clarify(String)
+    case chooseTextRecipient(RecipientChoice)
     case unavailable(String)
     case failed(String)
 }
@@ -37,14 +38,17 @@ public struct RouteResult: Sendable {
     public let toolMessages: [ConversationMessage]
     public let assistantMessage: ConversationMessage?
     public let systemPrompt: String?
+    public let recipientChoice: RecipientChoice?
 
     public init(decision: Decision, toolCall: ToolCall?, latencyMs: Int, provider: String, model: String, error: String?,
-                toolMessages: [ConversationMessage] = [], assistantMessage: ConversationMessage? = nil, systemPrompt: String? = nil) {
+                toolMessages: [ConversationMessage] = [], assistantMessage: ConversationMessage? = nil, systemPrompt: String? = nil,
+                recipientChoice: RecipientChoice? = nil) {
         self.decision = decision; self.toolCall = toolCall; self.latencyMs = latencyMs
         self.provider = provider; self.model = model; self.error = error
         self.toolMessages = toolMessages
         self.assistantMessage = assistantMessage
         self.systemPrompt = systemPrompt
+        self.recipientChoice = recipientChoice
     }
 
     public var moduleName: String? {
@@ -110,12 +114,12 @@ public struct Router: Sendable {
         let history = ConversationMessage.completedHistory(messages)
         var toolMessages: [ConversationMessage] = []
         func result(_ decision: Decision, _ call: ToolCall?, _ error: String? = nil,
-                    assistantMessage: ConversationMessage? = nil) -> RouteResult {
+                    assistantMessage: ConversationMessage? = nil, recipientChoice: RecipientChoice? = nil) -> RouteResult {
             let elapsed = (ContinuousClock.now - start).components
             let ms = Int(elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000)
             return RouteResult(decision: decision, toolCall: call, latencyMs: ms, provider: provider.name,
                                model: provider.model, error: error, toolMessages: toolMessages, assistantMessage: assistantMessage,
-                               systemPrompt: system)
+                               systemPrompt: system, recipientChoice: recipientChoice)
         }
 
         for _ in 0..<4 {
@@ -162,11 +166,7 @@ public struct Router: Sendable {
                     return result(.speak(.error, "I couldn't work out what to do."), call, "not an executable tool")
                 case .shortcut:
                     let prepared = execute ? try await executor?.prepare(module, arguments: args) ?? args : args
-                    var summaryArguments = args
-                    if let name = prepared["name"] { summaryArguments["recipient"] = name }
-                    let decision = Decision(action: .run, shortcut: module.id, input: prepared,
-                                            confirm: confirm, summary: module.renderSummary(summaryArguments))
-                    return result(decision, call)
+                    return result(.runShortcut(module, arguments: args, prepared: prepared, confirm: confirm), call)
                 case .native:
                     guard execute, let executor else {
                         return result(.speak(.done, "Would run: \(module.renderSummary(args))"), call)
@@ -186,6 +186,8 @@ public struct Router: Sendable {
                         toolMessages.append(.tool(call: call, output: output, assistantText: text.isEmpty ? nil : text))
                     }
                 }
+            } catch ExecutionError.chooseTextRecipient(let choice) {
+                return result(.speak(.clarify, choice.question), call, recipientChoice: choice)
             } catch ExecutionError.clarify(let question) {
                 return result(.speak(.clarify, question), call)
             } catch ExecutionError.unavailable(let message) {

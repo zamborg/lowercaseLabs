@@ -11,6 +11,8 @@
 
 **Controllr Voice 1.6** brings the router from 486 actions to 433 by sharing completion across handlers. The iPhone checks covered clipboard and group-chat reads, cancelling a text proposal, and resuming its thread through two consecutive follow-ups. The signed 1.6 workflow matches the audit workflow action for action and passed a spoken-answer smoke test. Controllr opens 1.6 for new and resumed voice sessions.
 
+The installed app update resolves duplicate contacts and multiple phone numbers in the thread before handing off to Send Message. The draft survives a restart, and the chosen number goes through the existing confirmation setting. The change passed 41 core tests and 12 simulator tests. The physical recipient-choice check is pending.
+
 The 174 steps for literal timer durations remain. The iPhone accepted a literal 83-second control. Three runtime duration bindings failed to start that countdown without intervention. [Audit and device results](shortcuts/specs/audit.md)
 
 ## V1.5 on iPhone

@@ -53,10 +53,16 @@ struct NativeExecutor: ModuleExecutor {
             return prepared
         }
         guard module.id == "send_message", let who = arguments["recipient"]?.stringValue else { return arguments }
-        let c = try Contacts.resolve(who)
+        let recipients = try Contacts.textRecipients(who)
+        guard let recipient = recipients.first else {
+            throw ExecutionError.clarify("I couldn't find a phone number for \(who). What name should I look for?")
+        }
+        if recipients.count > 1 {
+            throw ExecutionError.chooseTextRecipient(RecipientChoice(recipients: recipients))
+        }
         var out = arguments
-        out["recipient"] = .string(c.number)
-        out["name"] = .string(c.name)
+        out["recipient"] = .string(recipient.number)
+        out["name"] = .string(recipient.name)
         return out
     }
 
@@ -153,14 +159,9 @@ enum Contacts {
     }
 
     static func resolve(_ spoken: String) throws -> Match {
-        guard authorized else { throw ExecutionError.unavailable("Open Controllr and allow Contacts access.") }
-        let query = Settings.nicknames[spoken.lowercased()] ?? spoken
-        let store = CNContactStore()
         let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactPhoneNumbersKey] as [CNKeyDescriptor]
-        var found: [CNContact]
-        do { found = try store.unifiedContacts(matching: CNContact.predicateForContacts(matchingName: query), keysToFetch: keys) }
-        catch { throw ExecutionError.failed("contacts lookup failed") }
-        found = found.filter { !$0.phoneNumbers.isEmpty }
+        let (query, contacts) = try lookup(spoken, keys: keys)
+        var found = contacts.filter { !$0.phoneNumbers.isEmpty }
         func full(_ c: CNContact) -> String { "\(c.givenName) \(c.familyName)".trimmingCharacters(in: .whitespaces) }
         if found.count > 1, let exact = found.first(where: { full($0).lowercased() == query.lowercased() }), found.filter({ full($0).lowercased() == query.lowercased() }).count == 1 {
             found = [exact]
@@ -175,6 +176,34 @@ enum Contacts {
         default:
             throw ExecutionError.clarify("Which \(spoken)? I found \(found.prefix(3).map(full).joined(separator: ", ")).")
         }
+    }
+
+    static func textRecipients(_ spoken: String) throws -> [TextRecipient] {
+        let keys = [CNContactFormatter.descriptorForRequiredKeys(for: .fullName), CNContactPhoneNumbersKey as CNKeyDescriptor]
+        let (query, contacts) = try lookup(spoken, keys: keys)
+        return textRecipients(from: contacts, matching: query)
+    }
+
+    static func textRecipients(from contacts: [CNContact], matching query: String) -> [TextRecipient] {
+        let candidates = contacts.filter { !$0.phoneNumbers.isEmpty }.map { contact in
+            (name: CNContactFormatter.string(from: contact, style: .fullName) ?? query, phones: contact.phoneNumbers)
+        }
+        let exact = candidates.filter { $0.name.localizedCaseInsensitiveCompare(query) == .orderedSame }
+        return TextRecipient.unique((exact.isEmpty ? candidates : exact).flatMap { candidate in
+            candidate.phones.map { phone in
+                TextRecipient(name: candidate.name, label: phone.label.map(CNLabeledValue<CNPhoneNumber>.localizedString(forLabel:)),
+                              number: phone.value.stringValue)
+            }
+        })
+    }
+
+    private static func lookup(_ spoken: String, keys: [CNKeyDescriptor]) throws -> (String, [CNContact]) {
+        guard authorized else { throw ExecutionError.unavailable("Open Controllr and allow Contacts access.") }
+        let name = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = Settings.nicknames[name.lowercased()] ?? name
+        let predicate = CNContact.predicateForContacts(matchingName: query)
+        do { return (query, try CNContactStore().unifiedContacts(matching: predicate, keysToFetch: keys)) }
+        catch { throw ExecutionError.failed("contacts lookup failed") }
     }
 
     static func request() async -> Bool { (try? await CNContactStore().requestAccess(for: .contacts)) ?? false }

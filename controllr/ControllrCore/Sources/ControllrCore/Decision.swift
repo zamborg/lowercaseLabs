@@ -24,6 +24,14 @@ public struct Decision: Sendable, Equatable {
         Decision(action: action, shortcut: speakID, input: ["speak": .string(text)], confirm: false, summary: text)
     }
 
+    public static func runShortcut(_ module: Module, arguments: [String: JSONValue], prepared: [String: JSONValue],
+                                   confirm: Bool) -> Decision {
+        var summaryArguments = arguments
+        if let name = prepared["name"] { summaryArguments["recipient"] = name }
+        return Decision(action: .run, shortcut: module.id, input: prepared, confirm: confirm,
+                        summary: module.renderSummary(summaryArguments))
+    }
+
     public var listensAfterSpeaking: Bool { action == .clarify }
 
     public var json: String {

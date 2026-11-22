@@ -1,3 +1,4 @@
+import Contacts
 import ControllrCore
 import SwiftData
 import XCTest
@@ -93,6 +94,92 @@ final class ConversationsTests: XCTestCase {
             XCTAssertFalse(ended.listensAfterSpeaking)
             XCTAssertEqual(ended.summary, "Okay.")
         }
+    }
+
+    func testTextRecipientChoiceResumesDraftAfterReopeningStore() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("test.store")
+        let call = ToolCall(name: "send_message", arguments: .object([
+            "recipient": .string("Sam Lee"), "body": .string("Running late.")
+        ]))
+        let choice = Self.textRecipientChoice
+        let id: String = try await withStore(url: url) { context in
+            let conversations = Conversations(context: context, hasContactsAccess: { true }) { _, _ in
+                Self.result(.speak(.clarify, choice.question), toolCall: call, recipientChoice: choice)
+            }
+            let first = await conversations.turn("Text Sam Lee that I'm running late", threadID: nil, routerVersion: 3)
+            XCTAssertTrue(first.listensAfterSpeaking)
+            XCTAssertNil(first.actionID)
+            return try XCTUnwrap(first.threadID)
+        }
+        try await withStore(url: url) { context in
+            let conversations = Conversations(context: context, policy: { .init() }, hasContactsAccess: { true }) { _, _ in
+                XCTFail("A reply to the recipient prompt should use the saved draft")
+                return Self.result(.speak(.error, "unexpected"))
+            }
+            let proposed = await conversations.turn("Use the second one", threadID: id, routerVersion: 3)
+            XCTAssertEqual(proposed.threadID, id)
+            XCTAssertEqual(proposed.shortcut, "send_message")
+            XCTAssertEqual(proposed.input["recipient"], .string("+12025550131"))
+            XCTAssertEqual(proposed.input["body"], .string("Running late."))
+            XCTAssertTrue(proposed.summary.contains("0131"))
+            XCTAssertTrue(proposed.confirm)
+            let action = try XCTUnwrap(proposed.actionID)
+            XCTAssertEqual(conversations.authorizeAction(threadID: id, actionID: action, approved: false),
+                           "That action needs your confirmation.")
+            try conversations.recordAction(threadID: id, actionID: action, completed: false)
+            let thread = try XCTUnwrap(context.fetch(FetchDescriptor<ChatThread>()).first)
+            XCTAssertNil(thread.orderedEntries[1].actionPayload)
+            XCTAssertEqual(thread.orderedEntries.last?.actionStatus, "Cancelled")
+        }
+    }
+
+    func testAmbiguousTextRecipientStopsAfterOneRetryAndCanBeCancelled() async throws {
+        try await withStore { context in
+            let call = ToolCall(name: "send_message", arguments: .object([
+                "recipient": .string("Sam Lee"), "body": .string("Running late.")
+            ]))
+            let choice = Self.textRecipientChoice
+            var requests = 0
+            let conversations = Conversations(context: context, hasContactsAccess: { true }) { _, _ in
+                requests += 1
+                return Self.result(.speak(.clarify, choice.question), toolCall: call, recipientChoice: choice)
+            }
+            let first = await conversations.turn("Text Sam Lee that I'm running late", threadID: nil, routerVersion: 3)
+            let retry = await conversations.turn("Sam Lee", threadID: first.threadID, routerVersion: 3)
+            XCTAssertTrue(retry.listensAfterSpeaking)
+            XCTAssertNil(retry.actionID)
+            let stop = await conversations.turn("Sam Lee", threadID: first.threadID, routerVersion: 3)
+            XCTAssertFalse(stop.listensAfterSpeaking)
+            XCTAssertNil(stop.actionID)
+
+            let next = await conversations.turn("Text Sam Lee that I'm running late", threadID: nil, routerVersion: 3)
+            let cancelled = await conversations.turn("Cancel", threadID: next.threadID, routerVersion: 3)
+            XCTAssertEqual(cancelled.summary, "Okay.")
+            XCTAssertFalse(cancelled.listensAfterSpeaking)
+            XCTAssertNil(cancelled.actionID)
+            XCTAssertEqual(requests, 2)
+        }
+    }
+
+    func testContactsKeepsDistinctNumbersOnAndAcrossDuplicateCards() {
+        func contact(_ name: String, _ phones: [(String, String)]) -> CNMutableContact {
+            let card = CNMutableContact()
+            card.givenName = name
+            card.familyName = "Lee"
+            card.phoneNumbers = phones.map { label, number in
+                CNLabeledValue(label: label, value: CNPhoneNumber(stringValue: number))
+            }
+            return card
+        }
+        let sam = contact("Sam", [(CNLabelPhoneNumberMobile, "+1 (202) 555-0100"), (CNLabelWork, "+12025550131")])
+        let duplicate = contact("Sam", [(CNLabelPhoneNumberMobile, "+12025550100"), (CNLabelHome, "+12025550132")])
+        let fuzzy = contact("Samuel", [(CNLabelPhoneNumberMobile, "+12025550133")])
+        let recipients = Controllr.Contacts.textRecipients(from: [sam, duplicate, fuzzy], matching: "Sam Lee")
+        XCTAssertEqual(recipients.map(\.number), ["+1 (202) 555-0100", "+12025550131", "+12025550132"])
+        XCTAssertEqual(recipients[1].label, CNLabeledValue<CNPhoneNumber>.localizedString(forLabel: CNLabelWork))
     }
 
     func testSavedMemorySkillAndNotePersistAndRemainQueryable() async throws {
@@ -206,10 +293,15 @@ final class ConversationsTests: XCTestCase {
         return try await body(container.mainContext)
     }
 
+    private static let textRecipientChoice = RecipientChoice(recipients: [
+        TextRecipient(name: "Sam Lee", label: "mobile", number: "+12025550100"),
+        TextRecipient(name: "Sam Lee", label: "work", number: "+12025550131"),
+    ])
+
     private static func result(_ decision: Decision, toolCall: ToolCall? = nil,
-                               assistantMessage: ConversationMessage? = nil) -> RouteResult {
+                               assistantMessage: ConversationMessage? = nil, recipientChoice: RecipientChoice? = nil) -> RouteResult {
         RouteResult(decision: decision, toolCall: toolCall, latencyMs: 0, provider: "test", model: "test", error: nil,
-                    assistantMessage: assistantMessage)
+                    assistantMessage: assistantMessage, recipientChoice: recipientChoice)
     }
 }
 

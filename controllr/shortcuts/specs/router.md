@@ -15,6 +15,8 @@ The selected provider receives the conversation and the available tools. Anthrop
 
 The `clarify` tool asks a spoken question. The app saves the assistant text and tool call in the thread and sends the next utterance back as the result of that call. A direct question emitted as plain assistant text also keeps the shortcut listening. Lookup results return to the model during the same turn. Users set per-action enablement and confirmation under **Modules**.
 
+When Contacts returns several distinct numbers for a text, Controllr saves the draft in the thread and asks the user to choose a number. The app resolves the reply locally, offers one retry for an unclear choice, and returns the usual Send Message action with the original body and selected number.
+
 ## Build and install
 
 Generate the Xcode project with `xcodegen generate` from `controllr/` and build the Controllr scheme with your Apple Development team. Generate and sign the shortcut with Python 3.12 and Shortcuts Playground. Set `SHORTCUTS_PLAYGROUND_DIR` to the directory containing `scripts/validate_shortcut.py` and `scripts/sign_shortcut.sh`.

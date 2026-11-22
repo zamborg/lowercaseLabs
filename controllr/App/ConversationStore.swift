@@ -47,6 +47,11 @@ private struct PreparedAction: Codable {
     let routerVersion: Int?
 }
 
+private struct PendingTextRecipient: Codable {
+    let call: ToolCall
+    let choice: RecipientChoice
+}
+
 @MainActor
 final class Conversations {
     static let shared: Conversations = {
@@ -63,13 +68,16 @@ final class Conversations {
     private let route: @MainActor (String, [ConversationMessage]) async -> RouteResult
     private let policy: () -> ModulePolicy
     private let executor: any ModuleExecutor
+    private let hasContactsAccess: () -> Bool
 
     init(context: ModelContext, policy: @escaping () -> ModulePolicy = { ModuleSettings.policy },
          executor: any ModuleExecutor = NativeExecutor(),
+         hasContactsAccess: @escaping () -> Bool = { Contacts.authorized },
          route: @escaping @MainActor (String, [ConversationMessage]) async -> RouteResult) {
         self.context = context
         self.policy = policy
         self.executor = executor
+        self.hasContactsAccess = hasContactsAccess
         self.route = route
     }
 
@@ -93,13 +101,23 @@ final class Conversations {
             }
             defer { activeThreads.remove(thread.id) }
 
+            // Only the latest prompt can hold a pending selection. Consume it with the reply.
+            let latest = thread.orderedEntries.last
+            let pending = latest.flatMap { entry -> PendingTextRecipient? in
+                guard entry.actionID == nil, let data = entry.actionPayload else { return nil }
+                return try? JSONDecoder().decode(PendingTextRecipient.self, from: data)
+            }
+            if pending != nil { latest?.actionPayload = nil }
             try append(.user(transcript), to: thread)
-            try save()
             let normalized = transcript.lowercased().replacingOccurrences(of: "’", with: "'")
                 .trimmingCharacters(in: .punctuationCharacters)
             if ["cancel", "stop", "never mind", "nevermind", "stop listening", "that's all", "end conversation"].contains(normalized) {
                 return try speak(.respond, "Okay.", in: thread)
             }
+            if let pending {
+                return try chooseTextRecipient(transcript, pending: pending, in: thread, routerVersion: routerVersion)
+            }
+            try save()
             return try await decide(transcript, in: thread, routerVersion: routerVersion)
         } catch {
             return .speak(.error, "I couldn't save this conversation.")
@@ -113,10 +131,45 @@ final class Conversations {
         }
         let result = await route(source, Array(history))
         for message in result.toolMessages { try append(message, to: thread) }
+        if let choice = result.recipientChoice, let call = result.toolCall {
+            return try askForTextRecipient(PendingTextRecipient(call: call, choice: choice), in: thread)
+        }
+        return try recordDecision(result.decision, call: result.toolCall, assistantMessage: result.assistantMessage,
+                                  in: thread, routerVersion: routerVersion)
+    }
 
-        var decision = result.decision
+    private func chooseTextRecipient(_ reply: String, pending: PendingTextRecipient, in thread: ChatThread,
+                                     routerVersion: Int) throws -> Decision {
+        guard let module = Registry.v1.module(id: pending.call.name), policy().isEnabled(module) else {
+            return try speak(.error, "That action is turned off in Modules.", in: thread)
+        }
+        guard hasContactsAccess() else {
+            return try speak(.error, "Open Controllr and allow Contacts access.", in: thread)
+        }
+        guard let recipient = pending.choice.recipient(for: reply) else {
+            if let retry = pending.choice.retry() {
+                return try askForTextRecipient(PendingTextRecipient(call: pending.call, choice: retry), in: thread)
+            }
+            return try speak(.respond, "I couldn't match a number. Start a new text request to try again.", in: thread)
+        }
+        let arguments = pending.call.arguments.objectValue ?? [:]
+        var prepared = arguments
+        prepared["recipient"] = .string(recipient.number)
+        prepared["name"] = .string(recipient.confirmationName)
+        let decision = Decision.runShortcut(module, arguments: arguments, prepared: prepared,
+                                            confirm: policy().requiresConfirmation(module))
+        return try recordDecision(decision, call: pending.call, in: thread, routerVersion: routerVersion)
+    }
+
+    private func askForTextRecipient(_ pending: PendingTextRecipient, in thread: ChatThread) throws -> Decision {
+        try speak(.clarify, pending.choice.question, in: thread, actionPayload: JSONEncoder().encode(pending))
+    }
+
+    private func recordDecision(_ proposed: Decision, call: ToolCall?, assistantMessage: ConversationMessage? = nil,
+                                in thread: ChatThread, routerVersion: Int) throws -> Decision {
+        var decision = proposed
         if decision.action == .run {
-            if let call = result.toolCall, let module = Registry.v1.module(id: call.name) {
+            if let call, let module = Registry.v1.module(id: call.name) {
                 guard policy().isEnabled(module) else {
                     return try speak(.error, "That action is turned off in Modules.", in: thread)
                 }
@@ -130,8 +183,8 @@ final class Conversations {
             decision.actionID = UUID().uuidString
         }
         decision.threadID = thread.id.uuidString
-        let entry = try append(result.assistantMessage ?? .assistant(decision.summary), to: thread, actionID: decision.actionID)
-        if routerVersion >= 2, decision.action == .run, let call = result.toolCall {
+        let entry = try append(assistantMessage ?? .assistant(decision.summary), to: thread, actionID: decision.actionID)
+        if routerVersion >= 2, decision.action == .run, let call {
             entry.actionPayload = try JSONEncoder().encode(
                 PreparedAction(call: call, shortcut: decision.shortcut, routerVersion: routerVersion)
             )
@@ -230,10 +283,11 @@ final class Conversations {
         }
     }
 
-    private func speak(_ action: DecisionAction, _ text: String, in thread: ChatThread) throws -> Decision {
+    private func speak(_ action: DecisionAction, _ text: String, in thread: ChatThread, actionPayload: Data? = nil) throws -> Decision {
         var decision = Decision.speak(action, text)
         decision.threadID = thread.id.uuidString
-        try append(.assistant(text), to: thread)
+        let entry = try append(.assistant(text), to: thread)
+        entry.actionPayload = actionPayload
         try save()
         return decision
     }

@@ -203,6 +203,28 @@ final class ControllrCoreTests: XCTestCase {
         XCTAssertEqual(r.decision.shortcut, "speak")
     }
 
+    func testRecipientChoiceKeepsTheOriginalSendMessageCall() async {
+        let first = TextRecipient(name: "Sam Lee", label: "mobile", number: "+1 (202) 555-0100")
+        let second = TextRecipient(name: "Sam Lee", label: "work", number: "+1 (202) 555-0131")
+        let duplicate = TextRecipient(name: "Sam", label: nil, number: "+12025550100")
+        let choice = RecipientChoice(recipients: [first, second, duplicate])
+        let args: [String: JSONValue] = ["recipient": .string("Sam"), "body": .string("Running late.")]
+        let ex = MockExecutor(prepareError: .chooseTextRecipient(choice))
+        let result = await router(call("send_message", args), executor: ex).route("Text Sam I'm running late")
+
+        XCTAssertTrue(result.decision.listensAfterSpeaking)
+        XCTAssertFalse(result.decision.summary.contains(first.number))
+        XCTAssertTrue(result.decision.summary.contains("Option 2, Sam Lee, work, ending in 0 1 3 1"))
+        XCTAssertEqual(result.toolCall?.arguments, .object(args))
+        XCTAssertEqual(result.recipientChoice?.recipients, [first, second])
+        XCTAssertEqual(choice.recipient(for: "Option one."), first)
+        XCTAssertEqual(choice.recipient(for: "The second one"), second)
+        XCTAssertEqual(choice.recipient(for: "the work number"), second)
+        XCTAssertEqual(choice.recipient(for: "ending in oh one three one"), second)
+        XCTAssertNil(choice.recipient(for: "Sam Lee"))
+        XCTAssertNil(choice.recipient(for: "option three"))
+    }
+
     // decision JSON is flat and stable
     func testDecisionJSONShape() throws {
         let d = Decision(action: .run, shortcut: "flashlight", input: ["on": .bool(true)], confirm: false, summary: "Flashlight true")
