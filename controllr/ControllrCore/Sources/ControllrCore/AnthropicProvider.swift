@@ -75,10 +75,34 @@ public struct AnthropicProvider: LLMProvider {
                                    toolCall: ToolCall(name: name, arguments: input, id: block["id"]?.stringValue))
     }
 
-    public func listModels() async throws -> [String] {
-        let req = jsonRequest(url: "https://api.anthropic.com/v1/models?limit=100", method: "GET", headers: headers, body: nil, timeout: timeout)
-        let json = try checked(try await transport.send(req))
-        guard case .array(let data)? = json["data"] else { throw ProviderError.badResponse("no data") }
-        return data.compactMap { $0["id"]?.stringValue }
+    public func listModels() async throws -> [ProviderModel] {
+        var models: [ProviderModel] = []
+        var nextPage: String?
+        var seenCursors: Set<String> = []
+        repeat {
+            var url = URLComponents()
+            url.scheme = "https"
+            url.host = "api.anthropic.com"
+            url.path = "/v1/models"
+            url.queryItems = [URLQueryItem(name: "limit", value: "100")]
+            if let nextPage { url.queryItems?.append(URLQueryItem(name: "after_id", value: nextPage)) }
+
+            let req = jsonRequest(url: url.string!, method: "GET", headers: headers, body: nil, timeout: timeout)
+            let json = try checked(try await transport.send(req))
+            guard case .array(let data)? = json["data"] else { throw ProviderError.badResponse("no models") }
+            models.append(contentsOf: data.compactMap { item in
+                guard let id = item["id"]?.stringValue else { return nil }
+                return ProviderModel(id: id, name: item["display_name"]?.stringValue)
+            })
+            if json["has_more"] == .bool(true) {
+                guard let lastID = json["last_id"]?.stringValue, !lastID.isEmpty, seenCursors.insert(lastID).inserted else {
+                    throw ProviderError.badResponse("invalid model list cursor")
+                }
+                nextPage = lastID
+            } else {
+                nextPage = nil
+            }
+        } while nextPage != nil
+        return models
     }
 }

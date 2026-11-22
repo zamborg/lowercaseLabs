@@ -15,29 +15,25 @@ var args = Array(CommandLine.arguments.dropFirst())
 }
 
 let env = ProcessInfo.processInfo.environment
-let providerName = take("--provider") ?? (env["OPENAI_API_KEY"] != nil ? "openai" : "anthropic")
+let providerName = take("--provider") ?? CompletionProvider.allCases.first {
+    env[$0.apiKeyEnvironmentVariable]?.isEmpty == false
+}?.rawValue ?? CompletionProvider.openai.rawValue
 let file = take("--file")
 let recordNote = take("--record")
 let reportPath = take("--report") ?? "../evals/RESULTS.md"
 let model = take("--model")
 let listModels = args.contains("--list-models")
 
-let provider: LLMProvider
-switch providerName {
-case "openai":
-    guard let key = env["OPENAI_API_KEY"], !key.isEmpty else { fail("Set OPENAI_API_KEY") }
-    guard model != nil || listModels else { fail("Pass --model (use --list-models to see which are available)") }
-    provider = OpenAIProvider(apiKey: key, model: model ?? "unset")
-case "anthropic":
-    guard let key = env["ANTHROPIC_API_KEY"], !key.isEmpty else { fail("Set ANTHROPIC_API_KEY") }
-    provider = AnthropicProvider(apiKey: key, model: model ?? "claude-haiku-5-5")
-default:
-    fail("Unknown provider \(providerName)")
-}
+guard let kind = CompletionProvider(rawValue: providerName) else { fail("Unknown provider \(providerName)") }
+let keyName = kind.apiKeyEnvironmentVariable
+guard let key = env[keyName], !key.isEmpty else { fail("Set \(keyName)") }
+let selectedModel = model ?? kind.defaultModel
+guard selectedModel != nil || listModels else { fail("Pass --model (use --list-models to see which are available)") }
+let provider = kind.makeProvider(apiKey: key, model: selectedModel ?? "")
 
 if listModels {
     do {
-        for model in try await provider.listModels() { print(model) }
+        for model in try await provider.listModels() { print(model.id) }
     } catch {
         fail("Could not list models for \(providerName)")
     }

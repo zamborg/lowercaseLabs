@@ -5,7 +5,7 @@ struct MockProvider: LLMProvider {
     let name = "mock"; let model = "mock-1"
     let result: Result<AssistantCompletion, ProviderError>
     func complete(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> AssistantCompletion { try result.get() }
-    func listModels() async throws -> [String] { [] }
+    func listModels() async throws -> [ProviderModel] { [] }
 }
 
 struct MockExecutor: ModuleExecutor {
@@ -202,7 +202,7 @@ final class ControllrCoreTests: XCTestCase {
 
     func testOpenAIParsesTextAlongsideToolCall() throws {
         let json = try JSONValue.parse(Data(#"{"choices":[{"message":{"content":"Good idea.","tool_calls":[{"id":"call_1","function":{"name":"clarify","arguments":"{\"question\":\"Indoors?\"}"}}]}}]}"#.utf8))
-        let completion = try OpenAIProvider.parseCompletion(json)
+        let completion = try ChatCompletions.parseCompletion(json)
         XCTAssertEqual(completion.text, "Good idea.")
         XCTAssertEqual(completion.toolCall, ToolCall(name: "clarify", arguments: .object(["question": .string("Indoors?")]), id: "call_1"))
     }
@@ -217,7 +217,7 @@ final class ControllrCoreTests: XCTestCase {
     func testProvidersAcceptPlainAssistantText() throws {
         let openAI = try JSONValue.parse(Data(#"{"choices":[{"message":{"content":"Hello."}}]}"#.utf8))
         let anthropic = try JSONValue.parse(Data(#"{"content":[{"type":"text","text":"Hello."}]}"#.utf8))
-        XCTAssertEqual(try OpenAIProvider.parseCompletion(openAI), AssistantCompletion(text: "Hello."))
+        XCTAssertEqual(try ChatCompletions.parseCompletion(openAI), AssistantCompletion(text: "Hello."))
         XCTAssertEqual(try AnthropicProvider.parseCompletion(anthropic), AssistantCompletion(text: "Hello."))
     }
 
@@ -244,7 +244,7 @@ actor ScriptedProvider: LLMProvider {
         return completions.removeFirst()
     }
 
-    func listModels() async throws -> [String] { [] }
+    func listModels() async throws -> [ProviderModel] { [] }
 }
 
 final class ConversationRoutingTests: XCTestCase {

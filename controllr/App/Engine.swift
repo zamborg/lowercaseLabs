@@ -5,11 +5,11 @@ import ControllrCore
 /// Shared by the Decide intent and the in-app "Try it" screen.
 enum Engine {
     static func makeProvider() -> LLMProvider? {
-        let name = Settings.provider
-        guard let key = Keychain.get(name), !key.isEmpty else { return nil }
-        let model = Settings.model(for: name)
+        let kind = Settings.provider
+        guard let key = Keychain.get(kind.rawValue), !key.isEmpty else { return nil }
+        let model = Settings.model(for: kind).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else { return nil }
-        return name == "anthropic" ? AnthropicProvider(apiKey: key, model: model) : OpenAIProvider(apiKey: key, model: model)
+        return kind.makeProvider(apiKey: key, model: model)
     }
 
     static func run(_ transcript: String, messages: [ConversationMessage]? = nil, source: String, execute: Bool) async -> RouteResult {
@@ -19,7 +19,7 @@ enum Engine {
             result = await router.route(messages: messages ?? [.user(transcript)], execute: execute)
         } else {
             result = RouteResult(decision: .speak(.error, "Add your API key and model in controllr."), toolCall: nil, latencyMs: 0,
-                                 provider: Settings.provider, model: Settings.model(for: Settings.provider), error: "no key or model configured")
+                                 provider: Settings.provider.rawValue, model: Settings.model(for: Settings.provider), error: "no key or model configured")
         }
         await MainActor.run { record(result, transcript: transcript, source: source) }
         return result

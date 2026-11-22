@@ -187,6 +187,7 @@ public struct Router: Sendable {
     static func spokenError(_ e: ProviderError) -> String {
         switch e {
         case .http(let status, _) where status == 401 || status == 403: return "Your API key was rejected."
+        case .http(402, _): return "Your provider requires credits for this request."
         case .http(let status, _) where status == 429: return "The provider is rate limiting. Try again."
         case .transport: return "I couldn't reach the network."
         default: return "I couldn't work out what to do."

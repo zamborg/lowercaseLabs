@@ -9,7 +9,7 @@ Run Controllr Voice directly in Shortcuts. The optional shortcut input is a thre
 
 ## Model turn
 
-OpenAI and Anthropic receive the conversation and the available tools. Each completion can contain assistant text, one tool call, or both. Ordinary final text ends the voice session.
+The selected provider receives the conversation and the available tools. Anthropic uses the Claude Messages API. OpenAI and OpenRouter have their own request adapters and share the Chat Completions message format. Each completion can contain assistant text, one tool call, or both. Ordinary final text ends the voice session.
 
 The `clarify` tool asks a spoken question. The app saves the assistant text and tool call in the thread and sends the next utterance back as the result of that call. A direct question emitted as plain assistant text also keeps the shortcut listening. Lookup results return to the model during the same turn. The app keeps phone actions behind their existing confirmation rules.
 
@@ -35,3 +35,5 @@ Import the signed shortcut in macOS Shortcuts and let it sync to the phone. Star
 1. Add a manifest in [Actions](../../ControllrCore/Sources/ControllrCore/Actions), named after the action ID. Give it parameters, a summary, the confirmation rule, and one or more eval cases. Eval cases can specify earlier turns and selected expected arguments.
 2. Implement an app-side action in `App/NativeExecutor.swift` or assign a `shortcutHandler` implemented in `shortcuts/gen.py`. Native actions that need to open another app return a URL for the shortcut to handle. Rebuild the app after changing the manifests and regenerate the shortcut after changing dispatch.
 3. Run `swift test --package-path ControllrCore` and `swift run --package-path ControllrCore controllr-eval --provider openai --model YOUR_MODEL`. The default eval input is the action manifests. Add `--file PATH` to run an external JSONL suite.
+
+Pass `--provider anthropic` with `ANTHROPIC_API_KEY` or `--provider openrouter` with `OPENROUTER_API_KEY` to run the same suite through either adapter. Use `--list-models` to check the catalog available to that key.

@@ -8,6 +8,12 @@ The user confirmed the physical microphone test. Controllr Voice captured “Tex
 
 In the first two-follow-up microphone test, the second question went out as a terminal answer. The revised app accepts native assistant text and optional tool calls. A `clarify` tool call keeps the session open, and Controllr returns the next dictation as its tool result. A direct question in plain text also keeps listening. The shortcut continues to use the same protocol. macOS imported the shortcut with the explicit speech wait as **Controllr Voice 1**. The user confirmed the new build on iPhone: Controllr Voice 1 asked and listened twice, then delivered the final recommendation.
 
+## V1 provider setup
+
+The signed three-provider build is installed. In **Setup**, select OpenAI, Anthropic, or OpenRouter, save that provider's API key, and choose from the search-enabled model picker. Keys and selected models are stored separately. OpenRouter shows text models whose catalog entries support tools and requests routing through compatible providers.
+
+The OpenAI catalog and all 61 live routing cases passed. Anthropic and OpenRouter passed tests for discovery, assistant text, and matched follow-up tool replies using recorded response shapes. The V1 stamp still needs an authenticated voice round trip through Claude and through OpenRouter with the user's keys.
+
 ## Included in this build
 
 - Controllr owns the append-only turns within a thread. The shortcut starts a thread or passes its ID back for clarification. Threads remain available in the app and can resume by voice.
@@ -17,10 +23,10 @@ In the first two-follow-up microphone test, the second question went out as a te
 
 ## Verification
 
-- All 30 core tests passed, including native text and mixed responses, follow-up replies as tool results, the plain-question fallback, and decoding older tool history.
-- All three iOS simulator tests passed. They cover persisting successive follow-up calls in a single thread, reopening a stored conversation, cancellation receipts, and saved-item lookup after reopening the database.
+- All 35 core tests passed, including Claude catalog pagination, OpenRouter filtering and errors, and native and Chat Completions tool replies.
+- All four iOS simulator tests passed. They cover independent provider settings, persisting successive follow-up calls, cancellation receipts, and saved-item lookup after reopening the database. The three provider setup screens were also checked in the simulator.
 - A live-model smoke test returned an ordinary final answer, used two successive `clarify` calls, and read a seeded memory and a seeded note through the lookup tool on separate turns.
 - The latest live OpenAI routing run passed 61 of 61 cases. See [evals/RESULTS.md](evals/RESULTS.md).
 - Shortcuts signing and plist lint passed. Playground's static check flags the Send Message body binding because it expects a named list variable. The generator uses the working text-token wiring from the repository's earlier device checks. The device test exercised the two-turn text flow. Live message delivery and call placement are unverified in this build.
 
-Calendar and Lyft are follow-on actions. Additional completion providers or multi-stage completions can use Controllr's provider-neutral message history and turn protocol. The old shortcuts and stray Clock timers on the devices and API-key rotation are still listed for cleanup.
+After V1, add phone actuators such as Lyft and Calendar and refine the agent loop and service. Additional completion stages can use the same provider-neutral message history and turn protocol. The old shortcuts and stray Clock timers on the devices and API-key rotation are still listed for cleanup.

@@ -5,18 +5,20 @@ import Security
 enum Keychain {
     private static let service = "com.lowercaselabs.controllr"
 
-    static func set(_ value: String, for account: String) {
+    static func set(_ value: String, for account: String) -> Bool {
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        SecItemDelete(base as CFDictionary)
+        let valueData = Data(value.utf8)
+        let update = SecItemUpdate(base as CFDictionary, [kSecValueData as String: valueData] as CFDictionary)
+        guard update == errSecItemNotFound else { return update == errSecSuccess }
         var add = base
-        add[kSecValueData as String] = Data(value.utf8)
+        add[kSecValueData as String] = valueData
         // Readable while locked-after-first-unlock so intents work from the Lock Screen.
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(add as CFDictionary, nil)
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
     static func get(_ account: String) -> String? {

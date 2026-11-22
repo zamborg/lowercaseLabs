@@ -3,60 +3,25 @@ import ControllrCore
 
 struct SetupView: View {
     @State private var provider = Settings.provider
-    @State private var openaiModel = Settings.openaiModel
-    @State private var anthropicModel = Settings.anthropicModel
     @State private var home = Settings.homeAddress
     @State private var nicknames = Settings.nicknamesText
-    @State private var keyDraft = ""
-    @State private var keySaved: [String: Bool] = ["openai": Keychain.get("openai") != nil, "anthropic": Keychain.get("anthropic") != nil]
-    @State private var models: [String] = []
-    @State private var status = ""
     @State private var contacts = Contacts.authorized
     @State private var reminders = Reminders.authorized
-
-    private var model: Binding<String> {
-        provider == "anthropic" ? $anthropicModel : $openaiModel
-    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Provider") {
                     Picker("Provider", selection: $provider) {
-                        Text("OpenAI").tag("openai"); Text("Anthropic").tag("anthropic")
+                        ForEach(CompletionProvider.allCases, id: \.self) { provider in
+                            Text(provider.title).tag(provider)
+                        }
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: provider) { _, v in Settings.provider = v; models = []; status = "" }
+                    .onChange(of: provider) { _, provider in Settings.provider = provider }
                 }
 
-                Section("API key") {
-                    SecureField(keySaved[provider] == true ? "Key stored — paste to replace" : "Paste API key", text: $keyDraft)
-                    HStack {
-                        PasteButton(payloadType: String.self) { strings in
-                            if let s = strings.first { keyDraft = s.trimmingCharacters(in: .whitespacesAndNewlines) }
-                        }
-                        Spacer()
-                        Button("Save to Keychain") {
-                            Keychain.set(keyDraft, for: provider); keyDraft = ""; keySaved[provider] = true; status = "Key saved"
-                        }.disabled(keyDraft.isEmpty)
-                    }
-                    Button("Test key & load models") { Task { await testKey() } }
-                        .disabled(keySaved[provider] != true)
-                    if !status.isEmpty { Text(status).font(.footnote).foregroundStyle(.secondary) }
-                }
-
-                Section("Model") {
-                    if models.isEmpty {
-                        TextField("Model id (or test the key to pick)", text: model)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    } else {
-                        Picker("Model", selection: model) {
-                            ForEach(models, id: \.self) { Text($0).tag($0) }
-                        }
-                    }
-                }
-                .onChange(of: openaiModel) { _, v in Settings.openaiModel = v }
-                .onChange(of: anthropicModel) { _, v in Settings.anthropicModel = v }
+                ProviderConfiguration(provider: provider).id(provider)
 
                 Section("About you") {
                     TextField("Home address", text: $home, axis: .vertical).onChange(of: home) { _, v in Settings.homeAddress = v }
@@ -85,22 +50,146 @@ struct SetupView: View {
             .navigationTitle("Setup")
         }
     }
+}
 
-    private func testKey() async {
-        guard let key = Keychain.get(provider) else { return }
-        let p: LLMProvider = provider == "anthropic" ? AnthropicProvider(apiKey: key, model: "x") : OpenAIProvider(apiKey: key, model: "x")
-        status = "Testing…"
+private struct ProviderConfiguration: View {
+    let provider: CompletionProvider
+    @State private var model: String
+    @State private var keySaved: Bool
+    @State private var keyDraft = ""
+    @State private var keyError = false
+    @State private var models: [ProviderModel] = []
+    @State private var catalogStatus = ""
+    @State private var loading = false
+    @State private var refresh = 0
+
+    init(provider: CompletionProvider) {
+        self.provider = provider
+        _model = State(initialValue: Settings.model(for: provider))
+        _keySaved = State(initialValue: Keychain.get(provider.rawValue)?.isEmpty == false)
+    }
+
+    private var modelSelection: Binding<String> {
+        Binding(get: { model }, set: { value in
+            model = value
+            Settings.setModel(value, for: provider)
+        })
+    }
+
+    var body: some View {
+        Section("API key") {
+            SecureField(keySaved ? "Key stored — paste to replace" : "\(provider.title) API key", text: $keyDraft)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            HStack {
+                PasteButton(payloadType: String.self) { strings in
+                    if let value = strings.first { keyDraft = value.trimmingCharacters(in: .whitespacesAndNewlines) }
+                }
+                Spacer()
+                Button("Save key", action: saveKey)
+                    .disabled(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if keyError {
+                Text("Couldn't save the key.").font(.footnote).foregroundStyle(.red)
+            }
+        }
+        Section("Model") {
+            if models.isEmpty {
+                TextField("Model ID", text: modelSelection)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            } else {
+                NavigationLink {
+                    ModelPicker(models: models, selection: modelSelection)
+                } label: {
+                    LabeledContent("Choose model", value: models.first { $0.id == model }?.name ?? (model.isEmpty ? "Select" : model))
+                }
+            }
+            if loading {
+                ProgressView("Loading models…")
+            } else if keySaved {
+                Button("Refresh models") { refresh += 1 }
+            }
+            if !catalogStatus.isEmpty {
+                Text(catalogStatus).font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .task(id: refresh) { await loadModels() }
+    }
+
+    private func saveKey() {
+        let trimmed = keyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard Keychain.set(trimmed, for: provider.rawValue) else { keyError = true; return }
+        keyError = false
+        keySaved = true
+        keyDraft = ""
+        models = []
+        refresh += 1
+    }
+
+    private func loadModels() async {
+        guard let key = Keychain.get(provider.rawValue), !key.isEmpty else { return }
+        let request = refresh
+        loading = true
+        catalogStatus = ""
+        defer { if request == refresh && !Task.isCancelled { loading = false } }
         do {
-            let all = try await p.listModels()
-            // Chat-capable ids only; the user picks, we never guess a default.
-            models = all.filter { id in
-                provider == "anthropic" ? true
-                : (id.hasPrefix("gpt") || id.hasPrefix("o")) && !["audio", "realtime", "tts", "transcribe", "image", "search", "embedding", "instruct", "codex", "moderation"].contains { id.contains($0) }
-            }.sorted()
-            if !models.contains(model.wrappedValue) { model.wrappedValue = models.first ?? "" }
-            status = "Key works — \(models.count) models"
-        } catch let e as ProviderError {
-            if case .http(let s, _) = e { status = s == 401 ? "Key rejected (401)" : "Provider error (\(s))" } else { status = "Network problem" }
-        } catch { status = "Failed" }
+            let listed = try await provider.makeProvider(apiKey: key, model: model).listModels()
+            guard request == refresh, !Task.isCancelled else { return }
+            var seen: Set<String> = []
+            models = listed.filter { seen.insert($0.id).inserted }.sorted {
+                let comparison = $0.name.localizedStandardCompare($1.name)
+                return comparison == .orderedSame ? $0.id < $1.id : comparison == .orderedAscending
+            }
+            if models.isEmpty { catalogStatus = "No compatible models found for this key." }
+        } catch {
+            guard request == refresh, !Task.isCancelled else { return }
+            switch error {
+            case ProviderError.http(let status, _) where status == 401 || status == 403:
+                models = []
+                catalogStatus = "Key rejected by \(provider.title)."
+            default:
+                catalogStatus = "Couldn't load models. Try refreshing."
+            }
+        }
+    }
+}
+
+private struct ModelPicker: View {
+    let models: [ProviderModel]
+    @Binding var selection: String
+    @State private var query = ""
+    @Environment(\.dismiss) private var dismiss
+
+    private var matches: [ProviderModel] {
+        let terms = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !terms.isEmpty else { return models }
+        return models.filter { $0.name.localizedStandardContains(terms) || $0.id.localizedStandardContains(terms) }
+    }
+
+    var body: some View {
+        List(matches) { model in
+            Button {
+                selection = model.id
+                dismiss()
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(model.name)
+                        if model.name != model.id {
+                            Text(model.id).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    if model.id == selection { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                }
+                .foregroundStyle(.primary)
+            }
+            .buttonStyle(.plain)
+        }
+        .overlay { if matches.isEmpty { ContentUnavailableView.search(text: query) } }
+        .navigationTitle("Models")
+        .searchable(text: $query, prompt: "Search models")
     }
 }

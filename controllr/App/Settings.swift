@@ -5,17 +5,9 @@ import ControllrCore
 enum Settings {
     private static var d: UserDefaults { .standard }
 
-    static var provider: String {
-        get { d.string(forKey: "provider") ?? "openai" }
-        set { d.set(newValue, forKey: "provider") }
-    }
-    static var openaiModel: String {
-        get { d.string(forKey: "openaiModel") ?? "" }
-        set { d.set(newValue, forKey: "openaiModel") }
-    }
-    static var anthropicModel: String {
-        get { d.string(forKey: "anthropicModel") ?? "claude-haiku-5-5" }
-        set { d.set(newValue, forKey: "anthropicModel") }
+    static var provider: CompletionProvider {
+        get { d.string(forKey: "provider").flatMap(CompletionProvider.init(rawValue:)) ?? .openai }
+        set { d.set(newValue.rawValue, forKey: "provider") }
     }
     static var homeAddress: String {
         get { d.string(forKey: "homeAddress") ?? "" }
@@ -40,5 +32,11 @@ enum Settings {
         RouterSettings(homeAddress: homeAddress, nicknames: nicknames)
     }
 
-    static func model(for provider: String) -> String { provider == "anthropic" ? anthropicModel : openaiModel }
+    static func model(for provider: CompletionProvider, defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: "\(provider.rawValue)Model") ?? provider.defaultModel ?? ""
+    }
+
+    static func setModel(_ model: String, for provider: CompletionProvider, defaults: UserDefaults = .standard) {
+        defaults.set(model, forKey: "\(provider.rawValue)Model")
+    }
 }

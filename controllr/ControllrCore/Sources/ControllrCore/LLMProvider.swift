@@ -37,11 +37,44 @@ public enum ProviderError: Error, Sendable, Equatable {
     case transport(String)
 }
 
+public struct ProviderModel: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let name: String
+
+    public init(id: String, name: String? = nil) {
+        self.id = id
+        self.name = name ?? id
+    }
+}
+
+public enum CompletionProvider: String, CaseIterable, Sendable {
+    case openai, anthropic, openrouter
+
+    public var title: String {
+        switch self {
+        case .openai: "OpenAI"
+        case .anthropic: "Anthropic"
+        case .openrouter: "OpenRouter"
+        }
+    }
+
+    public var apiKeyEnvironmentVariable: String { "\(rawValue.uppercased())_API_KEY" }
+    public var defaultModel: String? { self == .anthropic ? "claude-haiku-5-5" : nil }
+
+    public func makeProvider(apiKey: String, model: String) -> any LLMProvider {
+        switch self {
+        case .openai: OpenAIProvider(apiKey: apiKey, model: model)
+        case .anthropic: AnthropicProvider(apiKey: apiKey, model: model)
+        case .openrouter: OpenRouterProvider(apiKey: apiKey, model: model)
+        }
+    }
+}
+
 public protocol LLMProvider: Sendable {
     var name: String { get }
     var model: String { get }
     func complete(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> AssistantCompletion
-    func listModels() async throws -> [String]
+    func listModels() async throws -> [ProviderModel]
 }
 
 public protocol HTTPTransport: Sendable {
@@ -54,6 +87,8 @@ public struct URLSessionTransport: HTTPTransport {
         do {
             let (data, resp) = try await URLSession.shared.data(for: request)
             return (data, (resp as? HTTPURLResponse)?.statusCode ?? -1)
+        } catch let error as URLError where error.code == .cancelled && Task.isCancelled {
+            throw CancellationError()
         } catch {
             throw ProviderError.transport(error.localizedDescription)
         }
