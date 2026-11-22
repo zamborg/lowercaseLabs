@@ -51,4 +51,19 @@ enum Settings {
     static func setModel(_ model: String, for provider: CompletionProvider, defaults: UserDefaults = .standard) {
         defaults.set(model, forKey: "\(provider.rawValue)Model")
     }
+
+    private static func reasoningKey(_ provider: CompletionProvider, model: String) -> String {
+        "\(provider.rawValue).reasoning.\(model.trimmingCharacters(in: .whitespacesAndNewlines))"
+    }
+
+    static func reasoningEffort(for provider: CompletionProvider, model: String, defaults: UserDefaults = .standard) -> ReasoningEffort {
+        defaults.string(forKey: reasoningKey(provider, model: model)).flatMap(ReasoningEffort.init(rawValue:)) ?? .automatic
+    }
+
+    static func setReasoningEffort(_ effort: ReasoningEffort, for provider: CompletionProvider, model: String,
+                                   defaults: UserDefaults = .standard) {
+        let key = reasoningKey(provider, model: model)
+        if effort == .automatic { defaults.removeObject(forKey: key) }
+        else { defaults.set(effort.rawValue, forKey: key) }
+    }
 }

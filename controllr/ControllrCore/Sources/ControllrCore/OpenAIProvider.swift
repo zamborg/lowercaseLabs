@@ -1,6 +1,6 @@
 import Foundation
 
-/// OpenAI Chat Completions with optional function calls.
+/// OpenAI completions and Responses, with local conversation history.
 public struct OpenAIProvider: LLMProvider {
     public let name = "openai"
     public let model: String
@@ -8,11 +8,15 @@ public struct OpenAIProvider: LLMProvider {
     private let transport: HTTPTransport
     private let timeout: TimeInterval
     private let maxTokens: Int
+    private let responsesEffort: ReasoningEffort?
 
-    public init(apiKey: String, model: String, transport: HTTPTransport = URLSessionTransport(),
-                timeout: TimeInterval = 10, maxTokens: Int = 400) {
+    public init(apiKey: String, model: String, reasoningEffort: ReasoningEffort = .automatic,
+                transport: HTTPTransport = URLSessionTransport(), timeout: TimeInterval? = nil, maxTokens: Int? = nil) {
         self.apiKey = apiKey; self.model = model; self.transport = transport
-        self.timeout = timeout; self.maxTokens = maxTokens
+        let effort = reasoningEffort == .automatic ? ReasoningEffort.openAIOptions(for: model).first : reasoningEffort
+        self.responsesEffort = effort
+        self.timeout = timeout ?? (effort ?? .automatic).requestTimeout
+        self.maxTokens = maxTokens ?? (effort ?? .automatic).outputTokenLimit
     }
 
     private var headers: [String: String] { ["Authorization": "Bearer \(apiKey)"] }
@@ -30,6 +34,9 @@ public struct OpenAIProvider: LLMProvider {
     }
 
     public func complete(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> AssistantCompletion {
+        if let effort = responsesEffort {
+            return try await completeWithResponses(system: system, messages: messages, tools: tools, effort: effort)
+        }
         func attempt(_ none: Bool) async throws -> JSONValue {
             let req = jsonRequest(url: "https://api.openai.com/v1/chat/completions", headers: headers,
                                   body: requestBody(system: system, messages: messages, tools: tools, reasoningNone: none), timeout: timeout)
@@ -37,8 +44,20 @@ public struct OpenAIProvider: LLMProvider {
         }
         do { return try ChatCompletions.parseCompletion(try await attempt(true)) }
         catch ProviderError.http(let status, let body) where status == 400 && body.contains("reasoning_effort") {
-            // Model doesn't accept reasoning_effort "none" (older models): retry without it.
+            // Older chat models reject the parameter altogether.
             return try ChatCompletions.parseCompletion(try await attempt(false))
+        }
+    }
+
+    private func completeWithResponses(system: String, messages: [ConversationMessage], tools: [ToolSpec],
+                                       effort: ReasoningEffort) async throws -> AssistantCompletion {
+        let req = jsonRequest(url: "https://api.openai.com/v1/responses", headers: headers,
+                              body: OpenAIResponses.requestBody(model: model, system: system, messages: messages, tools: tools,
+                                                                 effort: effort, maxTokens: maxTokens), timeout: timeout)
+        let result = try await transport.send(req)
+        do { return try OpenAIResponses.parseCompletion(checked(result), model: model) }
+        catch ProviderError.http(let status, let body) where status == 400 && body.lowercased().contains("reasoning") {
+            throw ProviderError.unsupportedReasoning
         }
     }
 

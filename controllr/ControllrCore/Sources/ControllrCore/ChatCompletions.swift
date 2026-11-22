@@ -3,7 +3,7 @@ import Foundation
 /// The chat message and function-call wire format shared by OpenAI and OpenRouter.
 enum ChatCompletions {
     static func fields(model: String, system: String, messages: [ConversationMessage],
-                       tools: [ToolSpec]) -> [String: JSONValue] {
+                       tools: [ToolSpec], useOpenRouterHistory: Bool = false) -> [String: JSONValue] {
         let history: [JSONValue] = messages.flatMap { message -> [JSONValue] in
             switch message {
             case .user(let text):
@@ -18,6 +18,9 @@ enum ChatCompletions {
                 ])
                 var assistant: [String: JSONValue] = ["role": .string("assistant"), "tool_calls": .array([toolCall])]
                 if let assistantText { assistant["content"] = .string(assistantText) }
+                if useOpenRouterHistory, let fields = call.continuation(for: .openRouterChat, model: model)?.objectValue {
+                    assistant.merge(fields) { original, _ in original }
+                }
                 return [
                     .object(assistant),
                     .object(["role": .string("tool"), "tool_call_id": .string(id), "content": .string(output)]),
@@ -38,10 +41,11 @@ enum ChatCompletions {
         return fields
     }
 
-    static func parseCompletion(_ json: JSONValue) throws -> AssistantCompletion {
-        guard case .array(let choices)? = json["choices"], let message = choices.first?["message"] else {
+    static func parseCompletion(_ json: JSONValue, openRouterModel: String? = nil) throws -> AssistantCompletion {
+        guard case .array(let choices)? = json["choices"], let choice = choices.first, let message = choice["message"] else {
             throw ProviderError.badResponse("no choices")
         }
+        if choice["finish_reason"] == .string("length") { throw ProviderError.outputLimit }
         let text = message["content"]?.stringValue
         guard case .array(let calls)? = message["tool_calls"], !calls.isEmpty else {
             return AssistantCompletion(text: text)
@@ -51,6 +55,20 @@ enum ChatCompletions {
               let args = try? JSONValue.parse(Data(arguments.utf8)) else {
             throw ProviderError.badResponse("invalid function call")
         }
-        return AssistantCompletion(text: text, toolCall: ToolCall(name: name, arguments: args, id: first["id"]?.stringValue))
+        var call = ToolCall(name: name, arguments: args, id: first["id"]?.stringValue)
+        if let model = openRouterModel {
+            let fields: [String: JSONValue]
+            if case .array(let details)? = message["reasoning_details"], !details.isEmpty {
+                fields = ["reasoning_details": .array(details)]
+            } else if let reasoning = message["reasoning"]?.stringValue ?? message["reasoning_content"]?.stringValue, !reasoning.isEmpty {
+                fields = ["reasoning": .string(reasoning)]
+            } else {
+                fields = [:]
+            }
+            if !fields.isEmpty {
+                call.continuation = ToolContinuation(format: .openRouterChat, model: model, payload: .object(fields))
+            }
+        }
+        return AssistantCompletion(text: text, toolCall: call)
     }
 }

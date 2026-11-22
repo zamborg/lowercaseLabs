@@ -1,5 +1,9 @@
 # Eval results
 
+## 2026-11-22 — Reasoning controls
+
+GPT-6 Luna passed two live Responses routing cases at both Automatic and Low. The cases exercised a regular answer and a flashlight tool call without executing a device action. A separate Low run issued a clarification tool call and finished the reply after its saved tool result was restored. Claude and OpenRouter passed request and tool-result fixtures. Authenticated checks for those two providers are pending.
+
 ## 2026-11-21T21:34:43Z — baseline v1 prompt
 ```
 provider=openai model=gpt-5.4-mini cases=52

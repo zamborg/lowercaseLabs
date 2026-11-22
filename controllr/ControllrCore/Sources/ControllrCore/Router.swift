@@ -202,6 +202,8 @@ public struct Router: Sendable {
         case .http(let status, _) where status == 401 || status == 403: return "Your API key was rejected."
         case .http(402, _): return "Your provider requires credits for this request."
         case .http(let status, _) where status == 429: return "The provider is rate limiting. Try again."
+        case .outputLimit: return "The model ran out of output tokens. Try a lower reasoning level."
+        case .unsupportedReasoning: return "This model doesn't support that reasoning level. Choose another level in Setup."
         case .transport: return "I couldn't reach the network."
         default: return "I couldn't work out what to do."
         }

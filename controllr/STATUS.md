@@ -2,6 +2,7 @@
 
 ## Agent setup and maintenance
 
+- **Setup → Model → Reasoning** saves the selected level per provider and model. OpenAI reasoning models use Responses, with Automatic choosing the lowest supported effort. Supported Claude models use adaptive thinking, and OpenRouter uses the levels in its model catalog when provided. Controllr keeps the same voice and tool contract across providers. [OpenAI reasoning](https://developers.openai.com/api/docs/guides/reasoning), [Claude effort](https://platform.claude.com/docs/en/build-with-claude/effort), [OpenRouter reasoning](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)
 - **Setup → System Prompt** shows the composed prompt with runtime context. **Edit Instructions** saves a shared override for all providers. To restore the bundled instructions, choose **Use Default Instructions** and save.
 - **History → System Prompt for This Run** shows the prompt recorded for a new model request. The regular History export keeps its existing fields.
 - The project-local [controllr-shortcuts skill](.agents/skills/controllr-shortcuts/SKILL.md) documents how to maintain the voice loop and add actions.

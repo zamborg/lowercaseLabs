@@ -8,11 +8,14 @@ public struct AnthropicProvider: LLMProvider {
     private let transport: HTTPTransport
     private let timeout: TimeInterval
     private let maxTokens: Int
+    private let reasoningEffort: ReasoningEffort
 
-    public init(apiKey: String, model: String, transport: HTTPTransport = URLSessionTransport(),
-                timeout: TimeInterval = 10, maxTokens: Int = 400) {
+    public init(apiKey: String, model: String, reasoningEffort: ReasoningEffort = .automatic,
+                transport: HTTPTransport = URLSessionTransport(), timeout: TimeInterval? = nil, maxTokens: Int? = nil) {
         self.apiKey = apiKey; self.model = model; self.transport = transport
-        self.timeout = timeout; self.maxTokens = maxTokens
+        self.reasoningEffort = reasoningEffort
+        self.timeout = timeout ?? reasoningEffort.requestTimeout
+        self.maxTokens = maxTokens ?? reasoningEffort.outputTokenLimit
     }
 
     private var headers: [String: String] { ["x-api-key": apiKey, "anthropic-version": "2023-06-01"] }
@@ -34,34 +37,51 @@ public struct AnthropicProvider: LLMProvider {
                     "type": .string("tool_result"), "tool_use_id": .string(id), "content": .string(output),
                 ])
                 var blocks: [JSONValue] = []
-                if let assistantText { blocks.append(.object(["type": .string("text"), "text": .string(assistantText)])) }
-                blocks.append(use)
+                if case .array(let original)? = call.continuation(for: .anthropicMessages, model: model) {
+                    blocks = original
+                } else {
+                    if let assistantText { blocks.append(.object(["type": .string("text"), "text": .string(assistantText)])) }
+                    blocks.append(use)
+                }
                 return [
                     .object(["role": .string("assistant"), "content": .array(blocks)]),
                     .object(["role": .string("user"), "content": .array([result])]),
                 ]
             }
         }
-        return .object([
+        var body: [String: JSONValue] = [
             "model": .string(model),
             "max_tokens": .number(Double(maxTokens)),
             "system": .string(system),
             "messages": .array(history),
-            "tools": .array(tools.map { t in
+        ]
+        if !tools.isEmpty {
+            body["tools"] = .array(tools.map { t in
                 .object(["name": .string(t.name), "description": .string(t.description), "input_schema": t.parameters])
-            }),
-            "tool_choice": .object(["type": .string("auto"), "disable_parallel_tool_use": .bool(true)]),
-        ])
+            })
+            body["tool_choice"] = .object(["type": .string("auto"), "disable_parallel_tool_use": .bool(true)])
+        }
+        if reasoningEffort != .automatic {
+            body["thinking"] = .object(["type": .string("adaptive"), "display": .string("omitted")])
+            body["output_config"] = .object(["effort": .string(reasoningEffort.rawValue)])
+        }
+        return .object(body)
     }
 
     public func complete(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> AssistantCompletion {
+        guard reasoningEffort != .none, reasoningEffort != .minimal else { throw ProviderError.unsupportedReasoning }
         let req = jsonRequest(url: "https://api.anthropic.com/v1/messages", headers: headers,
                               body: requestBody(system: system, messages: messages, tools: tools), timeout: timeout)
-        let json = try checked(try await transport.send(req))
-        return try Self.parseCompletion(json)
+        let result = try await transport.send(req)
+        do { return try Self.parseCompletion(checked(result), model: model) }
+        catch ProviderError.http(let status, let body) where reasoningEffort != .automatic && status == 400
+            && (body.lowercased().contains("effort") || body.lowercased().contains("thinking")) {
+            throw ProviderError.unsupportedReasoning
+        }
     }
 
-    static func parseCompletion(_ json: JSONValue) throws -> AssistantCompletion {
+    static func parseCompletion(_ json: JSONValue, model: String? = nil) throws -> AssistantCompletion {
+        if json["stop_reason"] == .string("max_tokens") { throw ProviderError.outputLimit }
         guard case .array(let content)? = json["content"] else { throw ProviderError.badResponse("no content") }
         let text = content.compactMap { $0["type"]?.stringValue == "text" ? $0["text"]?.stringValue : nil }
             .joined(separator: "\n")
@@ -71,8 +91,11 @@ public struct AnthropicProvider: LLMProvider {
               let name = block["name"]?.stringValue, let input = block["input"] else {
             throw ProviderError.badResponse("invalid tool use")
         }
-        return AssistantCompletion(text: text.isEmpty ? nil : text,
-                                   toolCall: ToolCall(name: name, arguments: input, id: block["id"]?.stringValue))
+        var call = ToolCall(name: name, arguments: input, id: block["id"]?.stringValue)
+        if let model, content.contains(where: { $0["type"] == .string("thinking") || $0["type"] == .string("redacted_thinking") }) {
+            call.continuation = ToolContinuation(format: .anthropicMessages, model: model, payload: .array(content))
+        }
+        return AssistantCompletion(text: text.isEmpty ? nil : text, toolCall: call)
     }
 
     public func listModels() async throws -> [ProviderModel] {
@@ -92,7 +115,18 @@ public struct AnthropicProvider: LLMProvider {
             guard case .array(let data)? = json["data"] else { throw ProviderError.badResponse("no models") }
             models.append(contentsOf: data.compactMap { item in
                 guard let id = item["id"]?.stringValue else { return nil }
-                return ProviderModel(id: id, name: item["display_name"]?.stringValue)
+                let capabilities = item["capabilities"]
+                let adaptive = capabilities?["thinking"]?["types"]?["adaptive"]?["supported"]
+                let efforts = capabilities?["effort"]
+                let levels: [ReasoningEffort]?
+                if let adaptive, let efforts {
+                    levels = adaptive == .bool(true)
+                        ? [.low, .medium, .high, .xhigh, .max].filter { efforts[$0.rawValue]?["supported"] == .bool(true) }
+                        : []
+                } else {
+                    levels = nil
+                }
+                return ProviderModel(id: id, name: item["display_name"]?.stringValue, reasoningEfforts: levels)
             })
             if json["has_more"] == .bool(true) {
                 guard let lastID = json["last_id"]?.stringValue, !lastID.isEmpty, seenCursors.insert(lastID).inserted else {

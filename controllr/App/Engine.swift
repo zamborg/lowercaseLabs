@@ -9,7 +9,7 @@ enum Engine {
         guard let key = Keychain.get(kind.rawValue), !key.isEmpty else { return nil }
         let model = Settings.model(for: kind).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else { return nil }
-        return kind.makeProvider(apiKey: key, model: model)
+        return kind.makeProvider(apiKey: key, model: model, reasoningEffort: Settings.reasoningEffort(for: kind, model: model))
     }
 
     static func run(_ transcript: String, messages: [ConversationMessage]? = nil, source: String, execute: Bool) async -> RouteResult {

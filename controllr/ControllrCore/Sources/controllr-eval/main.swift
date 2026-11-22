@@ -22,14 +22,16 @@ let file = take("--file")
 let recordNote = take("--record")
 let reportPath = take("--report") ?? "../evals/RESULTS.md"
 let model = take("--model")
+let effortName = take("--reasoning") ?? ReasoningEffort.automatic.rawValue
 let listModels = args.contains("--list-models")
 
 guard let kind = CompletionProvider(rawValue: providerName) else { fail("Unknown provider \(providerName)") }
+guard let effort = ReasoningEffort(rawValue: effortName) else { fail("Unknown reasoning level \(effortName)") }
 let keyName = kind.apiKeyEnvironmentVariable
 guard let key = env[keyName], !key.isEmpty else { fail("Set \(keyName)") }
 let selectedModel = model ?? kind.defaultModel
 guard selectedModel != nil || listModels else { fail("Pass --model (use --list-models to see which are available)") }
-let provider = kind.makeProvider(apiKey: key, model: selectedModel ?? "")
+let provider = kind.makeProvider(apiKey: key, model: selectedModel ?? "", reasoningEffort: effort)
 
 if listModels {
     do {
@@ -108,7 +110,7 @@ func percentile(_ value: Double) -> Int {
     latencies[min(latencies.count - 1, Int(Double(latencies.count) * value))]
 }
 
-var report = "provider=\(provider.name) model=\(provider.model) cases=\(cases.count)\n"
+var report = "provider=\(provider.name) model=\(provider.model) reasoning=\(effort.rawValue) cases=\(cases.count)\n"
 report += "accuracy \(correct)/\(cases.count) = \(Int(Double(correct) * 100 / Double(cases.count)))%\n"
 for (module, results) in byModule.sorted(by: { $0.key < $1.key }) {
     report += "  \(module.padding(toLength: 19, withPad: " ", startingAt: 0)) \(results.filter(\.correct).count)/\(results.count)\n"

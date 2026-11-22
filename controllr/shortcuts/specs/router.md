@@ -11,7 +11,7 @@ A Shortcut step receipt confirms that the workflow reached the callback. A phone
 
 ## Model turn
 
-The selected provider receives the conversation and the available tools. Anthropic uses the Claude Messages API. OpenAI and OpenRouter have their own request adapters and share the Chat Completions message format. Each completion can contain assistant text, one tool call, or both. Ordinary final text ends the voice session.
+The selected provider receives the conversation and the available tools. Anthropic uses the Claude Messages API, OpenRouter uses Chat Completions, and OpenAI uses Responses for reasoning models and Chat Completions for older chat models. Each adapter returns assistant text, one tool call, or both. Ordinary final text ends the voice session. Reasoning levels are set per model under **Setup**.
 
 The `clarify` tool asks a spoken question. The app saves the assistant text and tool call in the thread and sends the next utterance back as the result of that call. A direct question emitted as plain assistant text also keeps the shortcut listening. Lookup results return to the model during the same turn. Users set per-action enablement and confirmation under **Modules**.
 
@@ -38,4 +38,4 @@ Import the signed shortcut in macOS Shortcuts and let it sync to the phone. Star
 2. Add an app-side case in `App/NativeExecutor.swift` or assign a `shortcutHandler` in `shortcuts/gen.py`. Native reads return `.toolResult`, native writes return `.spoken`, and app handoffs return `.openURL`. A Shortcut read handler returns a text reference. Rebuild the app after changing manifests. Regenerate and sign the shortcut when its dispatch changes.
 3. Run `swift test --package-path ControllrCore` and `swift run --package-path ControllrCore controllr-eval --provider openai --model YOUR_MODEL`. The default eval input is the action manifests. Add `--file PATH` to run an external JSONL suite.
 
-Pass `--provider anthropic` with `ANTHROPIC_API_KEY` or `--provider openrouter` with `OPENROUTER_API_KEY` to run the same suite through either adapter. Use `--list-models` to check the catalog available to that key.
+Pass `--provider anthropic` with `ANTHROPIC_API_KEY` or `--provider openrouter` with `OPENROUTER_API_KEY` to run the same suite through either adapter. Use `--list-models` to check the catalog available to that key and `--reasoning low` to test an explicit effort.

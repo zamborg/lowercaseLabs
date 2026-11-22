@@ -90,6 +90,7 @@ struct SetupView: View {
 private struct ProviderConfiguration: View {
     let provider: CompletionProvider
     @State private var model: String
+    @State private var reasoningEffort: ReasoningEffort
     @State private var keySaved: Bool
     @State private var keyDraft = ""
     @State private var keyError = false
@@ -100,7 +101,9 @@ private struct ProviderConfiguration: View {
 
     init(provider: CompletionProvider) {
         self.provider = provider
-        _model = State(initialValue: Settings.model(for: provider))
+        let model = Settings.model(for: provider)
+        _model = State(initialValue: model)
+        _reasoningEffort = State(initialValue: Settings.reasoningEffort(for: provider, model: model))
         _keySaved = State(initialValue: Keychain.get(provider.rawValue)?.isEmpty == false)
     }
 
@@ -108,6 +111,19 @@ private struct ProviderConfiguration: View {
         Binding(get: { model }, set: { value in
             model = value
             Settings.setModel(value, for: provider)
+            reasoningEffort = Settings.reasoningEffort(for: provider, model: value)
+        })
+    }
+
+    private var reasoningOptions: [ReasoningEffort] {
+        let id = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        return provider.reasoningOptions(for: id, catalog: models.first { $0.id == id })
+    }
+
+    private var reasoningSelection: Binding<ReasoningEffort> {
+        Binding(get: { reasoningEffort }, set: { effort in
+            reasoningEffort = effort
+            Settings.setReasoningEffort(effort, for: provider, model: model)
         })
     }
 
@@ -138,6 +154,17 @@ private struct ProviderConfiguration: View {
                     ModelPicker(models: models, selection: modelSelection)
                 } label: {
                     LabeledContent("Choose model", value: models.first { $0.id == model }?.name ?? (model.isEmpty ? "Select" : model))
+                }
+            }
+            if !reasoningOptions.isEmpty || reasoningEffort != .automatic {
+                Picker("Reasoning", selection: reasoningSelection) {
+                    Text(ReasoningEffort.automatic.title).tag(ReasoningEffort.automatic)
+                    ForEach(reasoningOptions, id: \.self) { effort in
+                        Text(effort.title).tag(effort)
+                    }
+                    if reasoningEffort != .automatic && !reasoningOptions.contains(reasoningEffort) {
+                        Text("\(reasoningEffort.title) (unavailable)").tag(reasoningEffort)
+                    }
                 }
             }
             if loading {
