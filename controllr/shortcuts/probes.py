@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """Generate isolated Controllr Voice audit shortcuts for testing in Apple Shortcuts."""
 import argparse
-import json
 from pathlib import Path
 import plistlib
-from unittest.mock import patch
 
-from gen import MANIFESTS, HANDLERS, Reference, Workflow, make_router, open_url
+from gen import Workflow, make_router
 
 OUTPUT_DIR = Path(__file__).resolve().parents[1] / "build" / "shortcut-audit"
 
@@ -35,84 +33,19 @@ def timer_probe(team_id):
     return workflow.actions
 
 
-def dispatch(workflow, decision, summary, thread_id):
-    module = workflow.key(decision, "shortcut")
-    action_id = workflow.key(decision, "action_id")
-    payload = workflow.key(decision, "input", as_text=False)
-    confirmation = workflow.key(decision, "confirmation")
-    callback = {"threadID": thread_id.text, "actionID": action_id.text}
-
-    def cancel():
-        workflow.app_intent("RecordActionIntent", **callback, completed=False)
-        workflow.system("exit")
-
-    def approve():
-        workflow.set_variable("Approval", workflow.text("approved", "Approved"))
-
-    workflow.set_variable("Approval", workflow.text("automatic", "Automatic"))
-    with workflow.when(confirmation, "ask"):
-        workflow.confirm(summary, approve, cancel)
-
-    authorization = workflow.app_intent("AuthorizeActionIntent", result_name="Authorization", **callback,
-                                        approval=Reference.variable("Approval").text)
-
-    def branch(identifier, handler=None, manifest=None):
-        with workflow.when(module, identifier):
-            output = handler(workflow, payload, manifest) if handler else None
-            if output:
-                workflow.set_variable("Action Output", output)
-            workflow.set_variable("Action Outcome", read if output else write)
-
-    with workflow.when(authorization, "ready") as denied:
-        workflow.set_variable("Action Output", workflow.text("No results.", "Empty Read Output"))
-        workflow.set_variable("Action Outcome", workflow.text("unavailable", "Unhandled"))
-        outcome = Reference.variable("Action Outcome")
-        read = workflow.text("read", "Read Completed")
-        write = workflow.text("write", "Action Completed")
-        branch("open_url", open_url)
-        branch("open_url_confirm", open_url)
-        branch("approved_native")
-        for path in sorted(MANIFESTS.glob("*.json")):
-            manifest = json.loads(path.read_text())
-            if manifest["kind"] == "shortcut":
-                branch(manifest["id"], HANDLERS[manifest["shortcutHandler"]], manifest)
-        with workflow.when(outcome, "unavailable"):
-            workflow.speak(workflow.text("This action isn't available in this shortcut.", "Unavailable Action"))
-            workflow.system("exit")
-        with workflow.when(outcome, "read") as regular_completion:
-            response = workflow.app_intent("CompleteActionIntent", result_name="Read Decision", **callback,
-                                           output=Reference.variable("Action Output").text)
-            workflow.set_variable("Decision JSON", response)
-            regular_completion()
-            response = workflow.app_intent("CompleteActionIntent", result_name="Action Decision", **callback)
-            workflow.set_variable("Decision JSON", response)
-        workflow.set_variable("Next Step", workflow.text("dispatch", "Handle Result"))
-        denied()
-        workflow.speak(authorization)
-        workflow.system("exit")
-
-
-def router_probe(team_id):
-    # Swap only the dispatcher during generation to compare its output with the installed builder.
-    with patch("gen.dispatch", dispatch):
-        return make_router(team_id)["WFWorkflowActions"]
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("target", choices=("timer", "router"))
     parser.add_argument("--team-id", required=True)
     opts = parser.parse_args()
-    name, actions = {
-        "timer": ("Controllr Timer Audit", timer_probe),
-        "router": ("Controllr Router Audit", router_probe),
-    }[opts.target]
     document = make_router(opts.team_id)
-    document["WFWorkflowName"] = name
-    document["WFWorkflowActions"] = actions(opts.team_id)
     if opts.target == "timer":
+        document["WFWorkflowName"] = "Controllr Timer Audit"
+        document["WFWorkflowActions"] = timer_probe(opts.team_id)
         document["WFWorkflowInputContentItemClasses"] = []
+    else:
+        document["WFWorkflowName"] = "Controllr Router Audit"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    path = OUTPUT_DIR / f"{name}.xml"
+    path = OUTPUT_DIR / (document["WFWorkflowName"] + ".xml")
     path.write_bytes(plistlib.dumps(document))
     print(f"{len(document['WFWorkflowActions'])} actions in {path}")

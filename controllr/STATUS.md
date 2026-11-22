@@ -8,7 +8,9 @@
 
 ## Controllr Voice audit
 
-The 486-step workflow includes 174 steps for the timer's literal durations. The paired iPhone accepted a literal 83-second control. Three runtime duration bindings failed to start that countdown without intervention. A 433-step router prototype shares action completion and passed clipboard and group-chat lookups on the phone. [Audit and verification plan](shortcuts/specs/audit.md)
+**Controllr Voice 1.6** brings the router from 486 actions to 433 by sharing completion across handlers. The iPhone checks covered clipboard and group-chat reads, cancelling a text proposal, and resuming its thread through two consecutive follow-ups. The signed 1.6 workflow matches the audit workflow action for action and passed a spoken-answer smoke test. Controllr opens 1.6 for new and resumed voice sessions.
+
+The 174 steps for literal timer durations remain. The iPhone accepted a literal 83-second control. Three runtime duration bindings failed to start that countdown without intervention. [Audit and device results](shortcuts/specs/audit.md)
 
 ## V1.5 on iPhone
 

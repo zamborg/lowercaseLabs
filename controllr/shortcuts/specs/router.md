@@ -1,10 +1,10 @@
-# Controllr Voice 1.5.1
+# Controllr Voice 1.6
 
-Run **Controllr Voice 1.5.1** directly in Shortcuts. The optional shortcut input is a thread UUID, used by **Continue by voice** in Controllr. The app retains the full thread and uses up to the 48 most recent entries for model context.
+Run **Controllr Voice 1.6** directly in Shortcuts. The optional shortcut input is a thread UUID, used by **Continue by voice** in Controllr. The app retains the full thread and uses up to the 48 most recent entries for model context.
 
 1. Call **Decide** with the dictation, current thread ID, and `routerVersion: 3`. Store the returned `thread_id`.
 2. On `run`, use the returned `confirmation` value. If it is `ask`, show Continue/Cancel and record cancellation if selected. Call **Authorize Controllr Action** with the thread and action IDs before dispatch. Controllr checks whether the action is enabled, verifies approval, and starts the action once.
-3. Dispatch the returned `shortcut` with its `input`. Then call **Complete Controllr Action** with the same IDs and any text output. For a staged native write, the callback performs the write. For a Shortcut read, it appends a tool result, resumes the model turn, and returns another decision.
+3. Dispatch the returned `shortcut` with its `input`. The dispatcher uses shared completion paths for actions with and without text output. Both call **Complete Controllr Action** with the same thread and action IDs. For a staged native write, the callback performs the write. For a Shortcut read, it appends a tool result, resumes the model turn, and returns another decision.
 4. On `voice_next: listen`, finish speaking before starting the next dictation. On `stop`, speak and exit. On `silent`, exit. Saying “cancel,” “stop,” or “that’s all” ends the session. The shortcut allows 32 iterations across dictation and action results. Controllr can resume the thread afterwards.
 
 A Shortcut step receipt confirms that the workflow reached the callback. A phone call, message delivery, or ride booking can have its own outcome after the handoff.
@@ -21,11 +21,11 @@ Generate the Xcode project with `xcodegen generate` from `controllr/` and build 
 
 ```sh
 uv run --python 3.12 --no-project shortcuts/gen.py --team-id 9G57J2JMF7
-plutil -lint 'shortcuts/src/Controllr Voice 1.5.1.xml'
+plutil -lint 'shortcuts/src/Controllr Voice 1.6.xml'
 uv run --python 3.12 --no-project "$SHORTCUTS_PLAYGROUND_DIR/scripts/validate_shortcut.py" \
-  --target-platform all --target-macos 27 'shortcuts/src/Controllr Voice 1.5.1.xml'
+  --target-platform all --target-macos 27 'shortcuts/src/Controllr Voice 1.6.xml'
 "$SHORTCUTS_PLAYGROUND_DIR/scripts/sign_shortcut.sh" \
-  'shortcuts/src/Controllr Voice 1.5.1.xml' --name 'Controllr Voice 1.5.1' --output-dir shortcuts/signed
+  'shortcuts/src/Controllr Voice 1.6.xml' --name 'Controllr Voice 1.6' --output-dir shortcuts/signed
 ```
 
 The combined platform catalog accounts for Clock actions that the plugin classifies as Mac-only despite the earlier iPhone checks. The validator can flag the Send Message body token shape described in [STATUS](../../STATUS.md). Check the actual editor and phone before changing the Messages binding.

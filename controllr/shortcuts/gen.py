@@ -10,7 +10,7 @@ import uuid
 
 HERE = Path(__file__).resolve().parent
 MANIFESTS = HERE.parent / "ControllrCore/Sources/ControllrCore/Actions"
-NAME = "Controllr Voice 1.5.1"
+NAME = "Controllr Voice 1.6"
 BUNDLE = "com.lowercaselabs.controllr"
 
 
@@ -292,25 +292,34 @@ def dispatch(workflow, decision, summary, thread_id):
     def branch(identifier, handler=None, manifest=None):
         with workflow.when(module, identifier):
             output = handler(workflow, payload, manifest) if handler else None
-            params = {"output": output.text} if output else {}
-            response = workflow.app_intent("CompleteActionIntent", result_name="Next Decision", **callback, **params)
-            workflow.set_variable("Decision JSON", response)
-            workflow.set_variable("Next Step", workflow.text("dispatch", "Handle Result"))
-            workflow.set_variable("Handled", workflow.text("yes", "Handled"))
+            if output:
+                workflow.set_variable("Action Output", output)
+            workflow.set_variable("Action Outcome", read if output else write)
 
     with workflow.when(authorization, "ready") as denied:
-        workflow.set_variable("Handled", workflow.text("no", "Unhandled"))
+        workflow.set_variable("Action Output", workflow.text("No results.", "Empty Read Output"))
+        workflow.set_variable("Action Outcome", workflow.text("unavailable", "Unhandled"))
+        outcome = Reference.variable("Action Outcome")
+        read = workflow.text("read", "Read Completed")
+        write = workflow.text("write", "Action Completed")
         branch("open_url", open_url)
         branch("open_url_confirm", open_url)
         branch("approved_native")
         for path in sorted(MANIFESTS.glob("*.json")):
             manifest = json.loads(path.read_text())
             if manifest["kind"] == "shortcut":
-                handler = HANDLERS[manifest["shortcutHandler"]]
-                branch(manifest["id"], handler, manifest)
-        with workflow.when(Reference.variable("Handled"), "no"):
+                branch(manifest["id"], HANDLERS[manifest["shortcutHandler"]], manifest)
+        with workflow.when(outcome, "unavailable"):
             workflow.speak(workflow.text("This action isn't available in this shortcut.", "Unavailable Action"))
             workflow.system("exit")
+        with workflow.when(outcome, "read") as regular_completion:
+            response = workflow.app_intent("CompleteActionIntent", result_name="Read Decision", **callback,
+                                           output=Reference.variable("Action Output").text)
+            workflow.set_variable("Decision JSON", response)
+            regular_completion()
+            response = workflow.app_intent("CompleteActionIntent", result_name="Action Decision", **callback)
+            workflow.set_variable("Decision JSON", response)
+        workflow.set_variable("Next Step", workflow.text("dispatch", "Handle Result"))
         denied()
         workflow.speak(authorization)
         workflow.system("exit")

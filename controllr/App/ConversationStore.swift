@@ -121,10 +121,10 @@ final class Conversations {
                     return try speak(.error, "That action is turned off in Modules.", in: thread)
                 }
                 if routerVersion < 3 && module.id == "find_recent_messages" {
-                    return try speak(.error, "Run Controllr Voice 1.5.1 for lookup by sender or conversation.", in: thread)
+                    return try speak(.error, "Run \(RouterShortcut.name) for lookup by sender or conversation.", in: thread)
                 }
                 if routerVersion == 1 && !supportsLegacyShortcut(decision, module: module) {
-                    return try speak(.error, "Run Controllr Voice 1.5 to use this action.", in: thread)
+                    return try speak(.error, "Run \(RouterShortcut.name) to use this action.", in: thread)
                 }
             }
             decision.actionID = UUID().uuidString

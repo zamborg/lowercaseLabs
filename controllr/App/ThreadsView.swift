@@ -36,7 +36,7 @@ struct ThreadsView: View {
             .alert("Shortcut unavailable", isPresented: $shortcutUnavailable) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text("Install Controllr Voice 1.5.1 in Shortcuts.")
+                Text("Install \(RouterShortcut.name) in Shortcuts.")
             }
         }
     }
@@ -97,7 +97,7 @@ private struct ThreadView: View {
         .alert("Shortcut unavailable", isPresented: $shortcutUnavailable) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Install Controllr Voice 1.5.1 in Shortcuts.")
+            Text("Install \(RouterShortcut.name) in Shortcuts.")
         }
         .alert("Couldn't delete this thread", isPresented: $deleteFailed) {
             Button("OK", role: .cancel) {}
@@ -138,12 +138,14 @@ private struct ThreadView: View {
     }
 }
 
-private enum RouterShortcut {
+enum RouterShortcut {
+    static let name = "Controllr Voice 1.6"
+
     static func url(threadID: UUID? = nil) -> URL {
         var url = URLComponents()
         url.scheme = "shortcuts"
         url.host = "run-shortcut"
-        url.queryItems = [URLQueryItem(name: "name", value: "Controllr Voice 1.5.1")]
+        url.queryItems = [URLQueryItem(name: "name", value: name)]
         if let threadID {
             url.queryItems?.append(contentsOf: [
                 URLQueryItem(name: "input", value: "text"),
