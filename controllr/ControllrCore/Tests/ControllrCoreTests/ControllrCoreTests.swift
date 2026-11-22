@@ -263,11 +263,13 @@ actor ScriptedProvider: LLMProvider {
     let model = "scripted-1"
     private var completions: [AssistantCompletion]
     private(set) var requests: [[ConversationMessage]] = []
+    private(set) var systemPrompts: [String] = []
 
     init(_ completions: [AssistantCompletion]) { self.completions = completions }
 
     func complete(system: String, messages: [ConversationMessage], tools: [ToolSpec]) async throws -> AssistantCompletion {
         requests.append(messages)
+        systemPrompts.append(system)
         guard !completions.isEmpty else { throw ProviderError.badResponse("unexpected request") }
         return completions.removeFirst()
     }
@@ -276,6 +278,21 @@ actor ScriptedProvider: LLMProvider {
 }
 
 final class ConversationRoutingTests: XCTestCase {
+    func testCustomInstructionsAreSentAndCapturedWithRuntimeContext() async {
+        let provider = ScriptedProvider([AssistantCompletion(text: "Done.")])
+        let settings = RouterSettings(homeAddress: "home", nicknames: ["mom": "Linda"],
+                                      systemInstructions: "Answer in a single paragraph.")
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let result = await Router(provider: provider, settings: settings).route("Hello", now: now)
+        let sent = await provider.systemPrompts
+
+        XCTAssertEqual(sent, [Prompt.system(now: now, settings: settings)])
+        XCTAssertEqual(result.systemPrompt, sent.first)
+        XCTAssertTrue(result.systemPrompt?.contains("Answer in a single paragraph.") == true)
+        XCTAssertTrue(result.systemPrompt?.contains("mom = Linda") == true)
+        XCTAssertFalse(result.systemPrompt?.contains("Prefer clarify") == true)
+    }
+
     func testFollowUpUsesUserAndAssistantRoles() async throws {
         let call = ToolCall(name: "send_message", arguments: .object([
             "recipient": .string("Sam"), "body": .string("Running late."),

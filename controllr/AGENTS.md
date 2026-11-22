@@ -1,5 +1,7 @@
 # Controllr
 
+For Controllr Voice or actuator work, use the project-local [controllr-shortcuts skill](.agents/skills/controllr-shortcuts/SKILL.md).
+
 ## Provider parity
 
 - Keep OpenAI, Anthropic, and OpenRouter in sync when changing conversations, tool calls, or the agent loop. Put shared behavior in ControllrCore, provider-specific API details in the adapters, and voice playback and dictation in the shortcut.

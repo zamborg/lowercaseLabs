@@ -36,13 +36,15 @@ public struct RouteResult: Sendable {
     public let error: String?
     public let toolMessages: [ConversationMessage]
     public let assistantMessage: ConversationMessage?
+    public let systemPrompt: String?
 
     public init(decision: Decision, toolCall: ToolCall?, latencyMs: Int, provider: String, model: String, error: String?,
-                toolMessages: [ConversationMessage] = [], assistantMessage: ConversationMessage? = nil) {
+                toolMessages: [ConversationMessage] = [], assistantMessage: ConversationMessage? = nil, systemPrompt: String? = nil) {
         self.decision = decision; self.toolCall = toolCall; self.latencyMs = latencyMs
         self.provider = provider; self.model = model; self.error = error
         self.toolMessages = toolMessages
         self.assistantMessage = assistantMessage
+        self.systemPrompt = systemPrompt
     }
 
     public var moduleName: String? {
@@ -112,7 +114,8 @@ public struct Router: Sendable {
             let elapsed = (ContinuousClock.now - start).components
             let ms = Int(elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000)
             return RouteResult(decision: decision, toolCall: call, latencyMs: ms, provider: provider.name,
-                               model: provider.model, error: error, toolMessages: toolMessages, assistantMessage: assistantMessage)
+                               model: provider.model, error: error, toolMessages: toolMessages, assistantMessage: assistantMessage,
+                               systemPrompt: system)
         }
 
         for _ in 0..<4 {

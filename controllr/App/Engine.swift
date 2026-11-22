@@ -31,7 +31,7 @@ enum Engine {
         let ctx = ModelContext(Store.container)
         ctx.insert(RunRecord(source: source, transcript: transcript, provider: r.provider, model: r.model,
                              module: r.moduleName ?? "-", argumentsJSON: r.toolCall?.arguments.jsonString() ?? "",
-                             decisionJSON: r.decision.json, latencyMs: r.latencyMs, error: r.error ?? ""))
+                             decisionJSON: r.decision.json, latencyMs: r.latencyMs, error: r.error ?? "", systemPrompt: r.systemPrompt))
         try? ctx.save()
     }
 }

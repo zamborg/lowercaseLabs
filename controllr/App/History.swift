@@ -13,12 +13,15 @@ final class RunRecord {
     var decisionJSON: String
     var latencyMs: Int
     var error: String
+    var systemPrompt: String?
 
     init(date: Date = .now, source: String, transcript: String, provider: String, model: String,
-         module: String, argumentsJSON: String, decisionJSON: String, latencyMs: Int, error: String) {
+         module: String, argumentsJSON: String, decisionJSON: String, latencyMs: Int, error: String,
+         systemPrompt: String? = nil) {
         self.date = date; self.source = source; self.transcript = transcript; self.provider = provider
         self.model = model; self.module = module; self.argumentsJSON = argumentsJSON
         self.decisionJSON = decisionJSON; self.latencyMs = latencyMs; self.error = error
+        self.systemPrompt = systemPrompt
     }
 
     var exportText: String {

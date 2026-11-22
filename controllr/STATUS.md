@@ -1,5 +1,11 @@
 # Controllr status
 
+## Agent setup and maintenance
+
+- **Setup → System Prompt** shows the composed prompt with runtime context. **Edit Instructions** saves a shared override for all providers. To restore the bundled instructions, choose **Use Default Instructions** and save.
+- **History → System Prompt for This Run** shows the prompt recorded for a new model request. The regular History export keeps its existing fields.
+- The project-local [controllr-shortcuts skill](.agents/skills/controllr-shortcuts/SKILL.md) documents how to maintain the voice loop and add actions.
+
 ## Controllr Voice audit
 
 The 486-step workflow includes 174 steps for the timer's literal durations. The paired iPhone accepted a literal 83-second control. Three runtime duration bindings failed to start that countdown without intervention. A 433-step router prototype shares action completion and passed clipboard and group-chat lookups on the phone. [Audit and verification plan](shortcuts/specs/audit.md)

@@ -29,7 +29,19 @@ enum Settings {
     }
 
     static var routerSettings: RouterSettings {
-        RouterSettings(homeAddress: homeAddress, nicknames: nicknames)
+        RouterSettings(homeAddress: homeAddress, nicknames: nicknames, systemInstructions: systemInstructions())
+    }
+
+    static func systemInstructions(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: "systemInstructions")
+    }
+
+    static func setSystemInstructions(_ text: String, defaults: UserDefaults = .standard) {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == Prompt.defaultInstructions {
+            defaults.removeObject(forKey: "systemInstructions")
+        } else {
+            defaults.set(text, forKey: "systemInstructions")
+        }
     }
 
     static func model(for provider: CompletionProvider, defaults: UserDefaults = .standard) -> String {

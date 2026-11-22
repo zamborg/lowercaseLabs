@@ -43,6 +43,10 @@ struct SetupView: View {
                     LabeledContent("Messages and other Shortcut actions", value: ModulePermission.shortcuts.accessLabel)
                 }
 
+                Section("Agent") {
+                    NavigationLink("System Prompt") { SystemPromptView() }
+                }
+
                 Section("Diagnostics") {
                     NavigationLink("Preview a request") { TryItView() }
                 }

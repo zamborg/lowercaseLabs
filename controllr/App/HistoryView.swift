@@ -9,7 +9,21 @@ struct HistoryView: View {
         NavigationStack {
             List(runs) { r in
                 NavigationLink {
-                    ScrollView { Text(r.exportText).font(.footnote.monospaced()).textSelection(.enabled).padding() }
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text(r.exportText).font(.footnote.monospaced()).textSelection(.enabled)
+                            if let prompt = r.systemPrompt {
+                                NavigationLink("System Prompt for This Run") {
+                                    ScrollView {
+                                        Text(prompt).font(.footnote.monospaced()).textSelection(.enabled).padding()
+                                    }
+                                    .navigationTitle("System Prompt")
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                    }
                         .toolbar { ToolbarItem { Button("Copy") { UIPasteboard.general.string = r.exportText } } }
                         .navigationTitle("Run")
                 } label: {
