@@ -2,7 +2,7 @@
 
 ## Controllr Voice audit
 
-The 486-step workflow includes 174 steps for the timer's literal durations. A signed router prototype shares action completion and cuts the workflow to 433 steps while keeping the current timer behavior. A separate signed timer probe tests two runtime duration bindings. Device verification is pending. [Audit and verification plan](shortcuts/specs/audit.md)
+The 486-step workflow includes 174 steps for the timer's literal durations. The paired iPhone accepted a literal 83-second control. Three runtime duration bindings failed to start that countdown without intervention. A 433-step router prototype shares action completion and passed clipboard and group-chat lookups on the phone. [Audit and verification plan](shortcuts/specs/audit.md)
 
 ## V1.5 on iPhone
 
