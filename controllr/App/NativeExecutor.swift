@@ -36,15 +36,9 @@ struct NativeExecutor: ModuleExecutor {
             return prepared
         }
         if module.id == "start_timer" {
-            let minutes = Int(exactly: arguments["minutes"]?.numberValue ?? 0) ?? 0
-            let seconds = Int(exactly: arguments["seconds"]?.numberValue ?? 0) ?? 0
-            guard !arguments.isEmpty else { throw ExecutionError.clarify("How long should I set it for?") }
-            guard (0...120).contains(minutes), (0...7200).contains(seconds),
-                  module.supportedSeconds?.contains(minutes * 60 + seconds) == true else {
-                throw ExecutionError.clarify("This shortcut can set common timer lengths, like 30 seconds or 5 minutes. What duration should I use?")
-            }
+            let seconds = try PhoneTimers.duration(from: arguments)
             var prepared = arguments
-            prepared["seconds_total"] = .string(String(minutes * 60 + seconds))
+            prepared["seconds_total"] = .string(String(seconds))
             return prepared
         }
         if module.id == "flashlight" {
@@ -69,6 +63,8 @@ struct NativeExecutor: ModuleExecutor {
     func execute(_ module: Module, arguments a: [String: JSONValue]) async throws -> ExecutionOutcome {
         try checkEnabled(module)
         switch module.id {
+        case "start_timer":
+            return .spoken(try await PhoneTimers.start(seconds: PhoneTimers.duration(from: a)))
         case "call_contact":
             let c = try Contacts.resolve(a["recipient"]?.stringValue ?? "")
             let digits = c.number.filter { $0.isNumber || $0 == "+" }

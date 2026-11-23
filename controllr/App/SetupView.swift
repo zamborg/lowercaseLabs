@@ -10,6 +10,8 @@ struct SetupView: View {
     @State private var contacts = ModulePermission.contacts.accessLabel
     @State private var reminders = ModulePermission.reminders.accessLabel
     @State private var calendar = ModulePermission.calendar.accessLabel
+    @State private var timers = ModulePermission.timers.accessLabel
+    @AppStorage(RouterShortcut.preferenceKey) private var routerShortcut: RouterShortcut = .legacy
 
     var body: some View {
         NavigationStack {
@@ -40,6 +42,9 @@ struct SetupView: View {
                     permissionButton(.calendar, status: calendar) { await PhoneCalendar.request() }
                     permissionButton(.contacts, status: contacts) { await Contacts.request() }
                     permissionButton(.reminders, status: reminders) { await Reminders.request() }
+                    if PhoneTimers.available {
+                        permissionButton(.timers, status: timers) { await PhoneTimers.request() }
+                    }
                     LabeledContent("Messages and other Shortcut actions", value: ModulePermission.shortcuts.accessLabel)
                 }
 
@@ -52,7 +57,12 @@ struct SetupView: View {
                 }
 
                 Section("Router shortcut") {
-                    Text("1. Install `\(RouterShortcut.name)` in Shortcuts.\n2. Run it once and tap Allow when asked.\n3. Bind it: Settings → Action Button → Shortcut, or Accessibility → Touch → Back Tap, or add it to Control Center.\nSay what you want after the router starts listening.")
+                    Picker("Voice shortcut", selection: $routerShortcut) {
+                        ForEach(RouterShortcut.allCases, id: \.self) { shortcut in
+                            Text(shortcut.rawValue).tag(shortcut)
+                        }
+                    }
+                    Text("Install \(routerShortcut.rawValue) and run it once to grant access. You can assign it to the Action Button, Back Tap, or Control Center.")
                         .font(.footnote)
                 }
             }
@@ -84,6 +94,7 @@ struct SetupView: View {
         calendar = ModulePermission.calendar.accessLabel
         contacts = ModulePermission.contacts.accessLabel
         reminders = ModulePermission.reminders.accessLabel
+        timers = ModulePermission.timers.accessLabel
     }
 }
 

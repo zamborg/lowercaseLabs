@@ -236,6 +236,36 @@ final class ConversationsTests: XCTestCase {
         }
     }
 
+    func testModularRouterStagesAnArbitraryTimerAndLegacyRouterKeepsClockPresets() async throws {
+        try await withStore { context in
+            let call = ToolCall(name: "start_timer", arguments: .object(["seconds": .number(83)]))
+            var timer = Decision.speak(.run, "Start timer")
+            timer.shortcut = call.name
+            timer.input = ["seconds_total": .string("83")]
+            let executor = CountingExecutor()
+            let conversations = Conversations(context: context, policy: { .init() }, executor: executor,
+                                              hasTimerAccess: { true }) { _, _ in
+                Self.result(timer, toolCall: call)
+            }
+
+            let legacy = await conversations.turn("Set a timer for 83 seconds", threadID: nil, routerVersion: 3)
+            XCTAssertEqual(legacy.action, .clarify)
+            XCTAssertNil(legacy.actionID)
+
+            let proposed = await conversations.turn("Set a timer for 83 seconds", threadID: nil, routerVersion: 4)
+            XCTAssertEqual(proposed.shortcut, Decision.nativeActionID)
+            let id = try XCTUnwrap(proposed.actionID)
+            let thread = try XCTUnwrap(proposed.threadID)
+            XCTAssertEqual(conversations.authorizeAction(threadID: thread, actionID: id, approved: false), "ready")
+            let completion = await conversations.completeAction(threadID: thread, actionID: id, output: nil)
+            XCTAssertEqual(completion.action, .done)
+            let repeated = await conversations.completeAction(threadID: thread, actionID: id, output: nil)
+            XCTAssertEqual(repeated.action, .error)
+            let executions = await executor.executions
+            XCTAssertEqual(executions, 1)
+        }
+    }
+
     func testShortcutReadResumesSameTurnAndKeepsListening() async throws {
         try await withStore { context in
             let call = ToolCall(name: "read_clipboard", arguments: .object([:]), id: "read_1")

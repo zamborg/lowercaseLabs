@@ -69,15 +69,18 @@ final class Conversations {
     private let policy: () -> ModulePolicy
     private let executor: any ModuleExecutor
     private let hasContactsAccess: () -> Bool
+    private let hasTimerAccess: () -> Bool
 
     init(context: ModelContext, policy: @escaping () -> ModulePolicy = { ModuleSettings.policy },
          executor: any ModuleExecutor = NativeExecutor(),
          hasContactsAccess: @escaping () -> Bool = { Contacts.authorized },
+         hasTimerAccess: @escaping () -> Bool = { PhoneTimers.authorized },
          route: @escaping @MainActor (String, [ConversationMessage]) async -> RouteResult) {
         self.context = context
         self.policy = policy
         self.executor = executor
         self.hasContactsAccess = hasContactsAccess
+        self.hasTimerAccess = hasTimerAccess
         self.route = route
     }
 
@@ -175,6 +178,19 @@ final class Conversations {
                 }
                 if routerVersion < 3 && module.id == "find_recent_messages" {
                     return try speak(.error, "Run \(RouterShortcut.name) for lookup by sender or conversation.", in: thread)
+                }
+                if module.id == "start_timer" {
+                    if routerVersion >= 4 && hasTimerAccess() {
+                        decision.shortcut = Decision.nativeActionID
+                        decision.input = [:]
+                    } else if let rawSeconds = decision.input["seconds_total"]?.stringValue,
+                              let seconds = Int(rawSeconds),
+                              module.supportedSeconds?.contains(seconds) != true {
+                        let question = routerVersion >= 4 && PhoneTimers.available
+                            ? "Allow Timers in Controllr Setup for that duration, or say a common duration like 30 seconds or 5 minutes."
+                            : "This shortcut can set common timer lengths, like 30 seconds or 5 minutes. What duration should I use?"
+                        return try speak(.clarify, question, in: thread)
+                    }
                 }
                 if routerVersion == 1 && !supportsLegacyShortcut(decision, module: module) {
                     return try speak(.error, "Run \(RouterShortcut.name) to use this action.", in: thread)

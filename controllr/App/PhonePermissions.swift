@@ -9,6 +9,7 @@ extension ModulePermission {
         case .contacts: "Contacts"
         case .reminders: "Reminders"
         case .shortcuts: "Shortcuts"
+        case .timers: "Timers"
         }
     }
 
@@ -26,6 +27,7 @@ extension ModulePermission {
             }
         case .reminders: return Self.label(for: EKEventStore.authorizationStatus(for: .reminder))
         case .shortcuts: return "Managed by Shortcuts"
+        case .timers: return PhoneTimers.accessLabel
         }
     }
 

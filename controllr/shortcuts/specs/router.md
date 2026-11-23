@@ -17,6 +17,14 @@ The `clarify` tool asks a spoken question. The app saves the assistant text and 
 
 When Contacts returns several distinct numbers for a text, Controllr saves the draft in the thread and asks the user to choose a number. The app resolves the reply locally, offers one retry for an unclear choice, and returns the usual Send Message action with the original body and selected number.
 
+## Controllr Voice 2 candidate
+
+The modular build uses the same thread and receipts with `routerVersion: 4`. The voice workflow has 86 steps, one Run Shortcut action, and one completion callback. The app returns an action ID, a registered action type, and its validated input. The router passes the input dictionary to the matching `Controllr Action <id>` workflow. An authorized native action executes inside the app's completion callback. Each separately installed handler can be run with a fixture dictionary.
+
+Build the workflows with `python3 shortcuts/modular.py --team-id YOUR_TEAM_ID`. Sign the XML files in `build/modular-shortcuts` and import each signed handler under its generated name before importing **Controllr Voice 2**. In Controllr, choose **Setup → Voice shortcut → Controllr Voice 2** to use it for new and resumed sessions. **Controllr Voice 1.6** remains the default through device verification.
+
+On iOS 26 or later, **Setup → Permissions → Timers** allows Voice 2 to schedule a Controllr countdown for any whole-second duration from one second to two hours. The countdown runs as a system Live Activity. With Timers access unavailable, the independent Clock handler uses the existing set of preset durations. Voice 1.6 continues to use its bundled Clock handler.
+
 ## Build and install
 
 Generate the Xcode project with `xcodegen generate` from `controllr/` and build the Controllr scheme with your Apple Development team. Generate and sign the shortcut with Python 3.12 and Shortcuts Playground. Set `SHORTCUTS_PLAYGROUND_DIR` to the directory containing `scripts/validate_shortcut.py` and `scripts/sign_shortcut.sh`.

@@ -10,7 +10,7 @@ Keep one installed voice entry point. The voice loop captures speech, submits a 
 ## Add or change an actuator
 
 1. Start with the action's manifest in `ControllrCore/Sources/ControllrCore/Actions/`. Define its inputs, operation, permissions, confirmation default, and a routing example.
-2. Add an executor case in `App/NativeExecutor.swift` for native APIs, or a handler in `shortcuts/gen.py` for Shortcuts actions. A handler consumes the validated payload and returns any read result. Use the shared authorization and completion path. Leave dictation and conversation state out of action handlers.
+2. Add an executor case in `App/NativeExecutor.swift` for native APIs, or register a handler in `shortcuts/gen.py` for Shortcuts actions. `shortcuts/modular.py` builds registered handlers into independent workflows for Voice 2. A handler consumes the validated payload and returns any read result. Use the shared authorization and completion path. Leave dictation and conversation state out of action handlers.
 3. Exercise the requested action with its actual inputs. Routing evals can pass even when Clock or another system action mishandles the inputs. Regenerate and sign a test shortcut for handler changes. Check its real effect or returned value on the target iPhone before making it the usual entry point.
 
 ## Change or audit the voice loop

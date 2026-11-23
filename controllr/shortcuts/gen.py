@@ -44,6 +44,7 @@ class Workflow:
         self.actions = []
         self.team_id = team_id
         self.next_id = 0
+        self.repeat_depth = 0
 
     def identifier(self):
         self.next_id += 1
@@ -103,7 +104,9 @@ class Workflow:
         self.comment("- Listen when the thread expects a reply.\n- Route action results before listening again.")
         group = self.identifier()
         self.system("repeat.count", GroupingIdentifier=group, WFControlFlowMode=0, WFRepeatCount=count)
+        self.repeat_depth += 1
         yield
+        self.repeat_depth -= 1
         self.system("repeat.count", GroupingIdentifier=group, WFControlFlowMode=2)
 
     @contextmanager
@@ -111,7 +114,10 @@ class Workflow:
         self.comment("- Read the next recent message.\n- Check its sender or conversation before returning its body.")
         group = self.identifier()
         self.system("repeat.each", GroupingIdentifier=group, WFControlFlowMode=0, WFInput=items.attachment)
-        yield Reference.variable("Repeat Item 2")
+        self.repeat_depth += 1
+        item = "Repeat Item" if self.repeat_depth == 1 else f"Repeat Item {self.repeat_depth}"
+        yield Reference.variable(item)
+        self.repeat_depth -= 1
         self.system("repeat.each", GroupingIdentifier=group, WFControlFlowMode=2, UUID=self.identifier())
 
     def speak(self, ref):
@@ -127,6 +133,19 @@ class Workflow:
         self.system("choosefrommenu", GroupingIdentifier=group, WFControlFlowMode=1, WFMenuItemTitle="Cancel")
         cancel()
         self.system("choosefrommenu", GroupingIdentifier=group, WFControlFlowMode=2)
+
+    def document(self, name, input_classes=("WFStringContentItem",)):
+        return {
+            "WFWorkflowName": name,
+            "WFWorkflowActions": self.actions,
+            "WFWorkflowClientVersion": "2900",
+            "WFWorkflowMinimumClientVersion": 900,
+            "WFWorkflowIcon": {"WFWorkflowIconStartColor": 463140863, "WFWorkflowIconGlyphNumber": 59511},
+            "WFWorkflowImportQuestions": [],
+            "WFWorkflowInputContentItemClasses": list(input_classes),
+            "WFWorkflowTypes": [],
+            "WFWorkflowHasOutputFallback": False,
+        }
 
 
 def send_message(workflow, payload, manifest):
@@ -268,13 +287,7 @@ def open_url(workflow, payload, manifest):
     workflow.system("openurl", WFInput=url.attachment)
 
 
-def dispatch(workflow, decision, summary, thread_id):
-    module = workflow.key(decision, "shortcut")
-    action_id = workflow.key(decision, "action_id")
-    payload = workflow.key(decision, "input", as_text=False)
-    confirmation = workflow.key(decision, "confirmation")
-    callback = {"threadID": thread_id.text, "actionID": action_id.text}
-
+def authorize(workflow, confirmation, summary, callback):
     def cancel():
         workflow.app_intent("RecordActionIntent", **callback, completed=False)
         workflow.system("exit")
@@ -286,8 +299,18 @@ def dispatch(workflow, decision, summary, thread_id):
     with workflow.when(confirmation, "ask"):
         workflow.confirm(summary, approve, cancel)
 
-    authorization = workflow.app_intent("AuthorizeActionIntent", result_name="Authorization", **callback,
-                                        approval=Reference.variable("Approval").text)
+    return workflow.app_intent("AuthorizeActionIntent", result_name="Authorization", **callback,
+                               approval=Reference.variable("Approval").text)
+
+
+def dispatch(workflow, decision, summary, thread_id):
+    module = workflow.key(decision, "shortcut")
+    action_id = workflow.key(decision, "action_id")
+    payload = workflow.key(decision, "input", as_text=False)
+    confirmation = workflow.key(decision, "confirmation")
+    callback = {"threadID": thread_id.text, "actionID": action_id.text}
+
+    authorization = authorize(workflow, confirmation, summary, callback)
 
     def branch(identifier, handler=None, manifest=None):
         with workflow.when(module, identifier):
@@ -325,12 +348,12 @@ def dispatch(workflow, decision, summary, thread_id):
         workflow.system("exit")
 
 
-def voice_turn(workflow, current_thread):
+def voice_turn(workflow, current_thread, dispatch_action=dispatch, router_version=3):
     with workflow.when(Reference.variable("Next Step"), "dictate"):
         utterance = workflow.output("is.workflow.actions.dictatetext", "Dictated Text",
                                     WFDictateTextStopListening="After Pause")
         response = workflow.app_intent("DecideIntent", result_name="User Turn",
-                                       transcript=utterance.text, threadID=current_thread.text, routerVersion=3)
+                                       transcript=utterance.text, threadID=current_thread.text, routerVersion=router_version)
         workflow.set_variable("Decision JSON", response)
     decision = workflow.output("is.workflow.actions.detect.dictionary", "Decision",
                                WFInput=Reference.variable("Decision JSON").attachment)
@@ -341,7 +364,7 @@ def voice_turn(workflow, current_thread):
     voice_next = workflow.key(decision, "voice_next")
 
     with workflow.when(response_type, "run") as spoken:
-        dispatch(workflow, decision, summary, thread_id)
+        dispatch_action(workflow, decision, summary, thread_id)
         spoken()
         with workflow.when(voice_next, "listen") as finish:
             workflow.speak(summary)
@@ -354,7 +377,7 @@ def voice_turn(workflow, current_thread):
                 workflow.system("exit")
 
 
-def make_router(team_id):
+def make_router(team_id, *, name=NAME, dispatch_action=dispatch, router_version=3):
     workflow = Workflow(team_id)
     workflow.comment("Dictate a request, continue the same Controllr thread, and run the proposed phone action.")
     workflow.comment("Shortcuts generated by Shortcuts Playground. Talk to Controllr by voice.")
@@ -365,20 +388,10 @@ def make_router(team_id):
     workflow.set_variable("Next Step", workflow.text("dictate", "Listen"))
 
     with workflow.repeat(32):
-        voice_turn(workflow, current_thread)
+        voice_turn(workflow, current_thread, dispatch_action, router_version)
 
     workflow.speak(workflow.text("Open Controllr to continue this thread.", "Continue in Controllr"))
-    return {
-        "WFWorkflowName": NAME,
-        "WFWorkflowActions": workflow.actions,
-        "WFWorkflowClientVersion": "2900",
-        "WFWorkflowMinimumClientVersion": 900,
-        "WFWorkflowIcon": {"WFWorkflowIconStartColor": 463140863, "WFWorkflowIconGlyphNumber": 59511},
-        "WFWorkflowImportQuestions": [],
-        "WFWorkflowInputContentItemClasses": ["WFStringContentItem"],
-        "WFWorkflowTypes": [],
-        "WFWorkflowHasOutputFallback": False,
-    }
+    return workflow.document(name)
 
 
 def main():

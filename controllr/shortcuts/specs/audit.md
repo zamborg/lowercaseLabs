@@ -38,3 +38,42 @@ On the paired iPhone 14 Pro, the literal 83-second control started the expected 
 The router prototype read a known clipboard value and answered from it. The first group lookup returned the same no-match response through the installed workflow and the prototype. A second group lookup used an identical fixed transcript on both paths. Both read the expected message. Cancelling a proposed text through the prototype showed **Cancelled** in the iPhone thread. **Continue by voice** resumed that same thread, listened after both follow-up questions, and appended the final answer. The generated **Controllr Voice 1.6** release uses exactly the tested 433 actions with its new name.
 
 The 37 core and seven app simulator tests passed. The timer probe passed static validation. The router prototype has the same Send Message token warning as the installed shortcut. Both probes passed plist lint and were signed.
+
+## Desktop audit for a modular router
+
+The generator reproduced the checked-in Voice 1.6 plist exactly. The counts below include comments and control-flow boundaries, which appear as rows in the Shortcut editor. The workflow contains 84 Comment actions and zero Wait actions. Speech uses Speak Text's wait-until-finished setting. [Generator](../gen.py)
+
+| Voice 1.6 section | Generated steps |
+| --- | ---: |
+| Voice loop, including setup and exit | 45 |
+| Dispatch, confirmation, authorization, and callbacks | 109 |
+| Clock timer handler | 174 |
+| Recent Messages by sender or group | 35 |
+| All other handler bodies | 70 |
+| Total | 433 |
+
+The voice loop is already separate in the source. The generator expands each handler inside its dispatch branch in the released workflow. The timer handler reads `seconds_total`, then emits an If block and a literal Start Timer action for each of 43 durations. The app enforces the same list before dispatch. An ordinary 90-second request can pass the routing eval and still get a follow-up on the phone. The clock problem is the duration binding. Moving the handler into its own workflow would remove those 174 rows from the router while preserving the current limitation inside the handler. [Generator](../gen.py) · [Timer manifest](../../ControllrCore/Sources/ControllrCore/Actions/start_timer.json) · [App preparation](../../App/NativeExecutor.swift)
+
+### Proposed responsibilities
+
+- **Controllr** owns clarification, input validation, action ordering, and receipts. Resolve handler names from the registry and offer one pending action at a time for authorization. Lookups that the model needs can resume the same turn with their tool call IDs. The router can run that same cycle for each successive action.
+- **Controllr Voice** dictates and speaks, shows the Controllr confirmation when required, calls a registered handler with its inputs, and returns the result. Use one common authorization and completion path. Resolve the handler before marking the action Started, so a missing handler is visible in the thread.
+- **Each handler** accepts a documented payload, uses native actions, and returns its result to the caller. The standalone timer handler takes seconds. The Messages handlers own the phone-side query. Controllr keeps recipient selection and verifies lookup results before passing them to the model.
+
+The current wire format returns a single action. The provider adapters normalize one tool call, and the app only authorizes the action on the latest thread entry. Native writes configured to run directly can also execute inside Decide. Keep the current one-action contract while proving the runner. Then stage writes in Controllr and advance any ordered list through the same authorization and receipt flow. Test confirmation, cancellation, failure, and duplicate callbacks before permitting a second write in one request. Preserve tool call IDs across the three adapters if the model contract changes. [Router](../../ControllrCore/Sources/ControllrCore/Router.swift) · [Thread and receipt handling](../../App/ConversationStore.swift)
+
+### First phone checks
+
+1. **Prove nested Shortcut dispatch with a manually authored pair.** Have an echo handler receive a dictionary and return its value with Stop and Output. Use the editor's Run Shortcut action with a fixed target first. Repeat twice after Always Allow, then test a variable selected from registered names and compare the editor export with the generated plist. Check missing handlers and run the same caller again from the normal voice entry point before migrating actions. The old generated fixed and variable callers both prompted on every run. Apple's guide recommends Run Shortcut for calls between shortcuts. [Prior device result](../../DECISIONS.md) · [Apple Shortcuts guide](https://support.apple.com/en-ng/guide/shortcuts/apd624386f42/ios)
+2. **Test Clock duration in the isolated timer workflow.** Use the editor to attach a runtime value in the Start Timer field if the editor supports it, export that working or testable action, and compare it with the generated bindings. Try 37, 83, and 90 seconds and check the actual Clock countdown and whether a picker appears. The 83-second literal is the control. Keep the existing Clock path as the fallback while validating arbitrary durations. [Prior Clock probes](#probe-files)
+3. **Evaluate AlarmKit if Clock's binding still fails.** Apple's iOS 26 timer API accepts numerical seconds and can schedule a Controllr-owned system timer. The call type-checked against the iOS 26.5 SDK with the project's iOS 17 deployment target and an availability guard. A shipping countdown needs alarm authorization and a Live Activity in a widget extension. Check the lock-screen countdown, alert and stop controls, and whether the app-owned timer experience meets the user's expectations for Clock. [AlarmKit timer API](https://developer.apple.com/documentation/alarmkit/alarmmanager/alarmconfiguration/timer%28duration%3Aattributes%3Astopintent%3Asecondaryintent%3Asound%3A%29) · [Apple's countdown implementation](https://developer.apple.com/videos/play/wwdc2025/230/)
+
+After the first two checks, move one read and one write behind the same runner. A clipboard fixture verifies the result returns to the original thread. Timer verifies an actual single side effect. Then check two voice follow-ups, thread resume, and a cancelled text before promoting the new entry point. Keep static dispatch as the fallback if nested permission prompts persist.
+
+Desktop verification passed plist lint, exact workflow regeneration, 41 core tests, and 12 iOS simulator tests. The checks above still require physical-device verification.
+
+### Modular candidate results
+
+Voice 2 generates 86 actions and 13 independent handlers. There is one dynamic Run Shortcut call and one app completion callback in the router. The echo probe passed a dictionary and returned its value twice on macOS 26.5.2. The first run requested permission and the second returned the value directly. The iPhone permission check is pending.
+
+The build stages arbitrary durations through AlarmKit when permission is granted. The existing literal Clock handler is isolated as a fallback and Voice 1.6 still regenerates byte for byte. The app passed 41 core tests and 13 iOS 26.5 simulator tests, launched on iOS 18.6, and installed on the paired iPhone. The 86-step router passed static validation. All 14 workflow files passed plist lint and were signed. Physical validation still needs the clipboard round trip, native timer countdown and stop control, and a cancelled text. [Build and install](router.md#controllr-voice-2-candidate)

@@ -49,7 +49,7 @@ public enum ModuleOperation: String, Decodable, Sendable {
 }
 
 public enum ModulePermission: String, Decodable, Sendable {
-    case calendar, contacts, reminders, shortcuts
+    case calendar, contacts, reminders, shortcuts, timers
 }
 
 public struct ActionEval: Decodable, Sendable {

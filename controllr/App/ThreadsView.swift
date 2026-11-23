@@ -138,8 +138,15 @@ private struct ThreadView: View {
     }
 }
 
-enum RouterShortcut {
-    static let name = "Controllr Voice 1.6"
+enum RouterShortcut: String, CaseIterable {
+    case legacy = "Controllr Voice 1.6"
+    case modular = "Controllr Voice 2"
+
+    static let preferenceKey = "voiceShortcut"
+    static var name: String {
+        let saved = UserDefaults.standard.string(forKey: preferenceKey)
+        return (saved.flatMap(Self.init(rawValue:)) ?? .legacy).rawValue
+    }
 
     static func url(threadID: UUID? = nil) -> URL {
         var url = URLComponents()
