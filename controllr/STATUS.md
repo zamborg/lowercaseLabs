@@ -1,5 +1,9 @@
 # Controllr status
 
+## Voice 2.1 beta
+
+The paired iPhone passed a live tappable follow-up. It displayed Stretch and Walk and used the selected answer in the same thread. The 99-step Voice 2.1 router uses the 13 modular action shortcuts. The signed workflows and [install guide](README.md) are packaged for friends. App build 1.0 (2) is archived. TestFlight export requires a signed-in Apple Developer account with distribution access.
+
 ## Agent setup and maintenance
 
 - **Setup → Model → Reasoning** saves the selected level per provider and model. OpenAI reasoning models use Responses, with Automatic choosing the lowest supported effort. Supported Claude models use adaptive thinking, and OpenRouter uses the levels in its model catalog when provided. Controllr keeps the same voice and tool contract across providers. [OpenAI reasoning](https://developers.openai.com/api/docs/guides/reasoning), [Claude effort](https://platform.claude.com/docs/en/build-with-claude/effort), [OpenRouter reasoning](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)
