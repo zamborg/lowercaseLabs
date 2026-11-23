@@ -85,13 +85,13 @@ class Workflow:
         self.add(action, **params)
 
     @contextmanager
-    def when(self, ref, value):
+    def when(self, ref, value, *, equal=True):
         label = "the requested value" if isinstance(value, Reference) else value
-        self.comment(f"- Run this branch when the input is {label}.")
+        self.comment(f"- Run this branch when the input is {'not ' if not equal else ''}{label}.")
         group = self.identifier()
         self.system("conditional", GroupingIdentifier=group, WFControlFlowMode=0,
                     WFInput={"Type": "Variable", "Variable": ref.attachment},
-                    WFCondition=4, WFConditionalActionString=value.text if isinstance(value, Reference) else value)
+                    WFCondition=4 if equal else 5, WFConditionalActionString=value.text if isinstance(value, Reference) else value)
 
         def otherwise():
             self.system("conditional", GroupingIdentifier=group, WFControlFlowMode=1)
@@ -122,6 +122,11 @@ class Workflow:
 
     def speak(self, ref):
         self.system("speaktext", WFText=ref.text, WFSpeakTextWait=True)
+
+    def choose(self, options, prompt):
+        return self.output("is.workflow.actions.choosefromlist", "Selected Reply",
+                           WFInput=options.attachment, WFChooseFromListActionPrompt=prompt.text,
+                           WFChooseFromListActionSelectMultiple=False)
 
     def confirm(self, summary, execute, cancel):
         self.comment("- Show the proposed action.\n- Run it only when the user selects Continue.")
@@ -349,12 +354,28 @@ def dispatch(workflow, decision, summary, thread_id):
 
 
 def voice_turn(workflow, current_thread, dispatch_action=dispatch, router_version=3):
-    with workflow.when(Reference.variable("Next Step"), "dictate"):
-        utterance = workflow.output("is.workflow.actions.dictatetext", "Dictated Text",
-                                    WFDictateTextStopListening="After Pause")
+    next_step = Reference.variable("Next Step")
+
+    def dictate():
+        return workflow.output("is.workflow.actions.dictatetext", "Dictated Text",
+                               WFDictateTextStopListening="After Pause")
+
+    def submit(utterance):
+        parameters = {"replyMode": next_step.text} if router_version >= 5 else {}
         response = workflow.app_intent("DecideIntent", result_name="User Turn",
-                                       transcript=utterance.text, threadID=current_thread.text, routerVersion=router_version)
+                                       transcript=utterance.text, threadID=current_thread.text, routerVersion=router_version,
+                                       **parameters)
         workflow.set_variable("Decision JSON", response)
+
+    if router_version >= 5:
+        with workflow.when(next_step, "dispatch", equal=False):
+            with workflow.when(next_step, "dictate"):
+                workflow.set_variable("Reply", dictate())
+            submit(Reference.variable("Reply"))
+    else:
+        with workflow.when(next_step, "dictate"):
+            submit(dictate())
+
     decision = workflow.output("is.workflow.actions.detect.dictionary", "Decision",
                                WFInput=Reference.variable("Decision JSON").attachment)
     thread_id = workflow.key(decision, "thread_id")
@@ -363,9 +384,7 @@ def voice_turn(workflow, current_thread, dispatch_action=dispatch, router_versio
     response_type = workflow.key(decision, "action")
     voice_next = workflow.key(decision, "voice_next")
 
-    with workflow.when(response_type, "run") as spoken:
-        dispatch_action(workflow, decision, summary, thread_id)
-        spoken()
+    def speak_or_listen():
         with workflow.when(voice_next, "listen") as finish:
             workflow.speak(summary)
             workflow.set_variable("Next Step", workflow.text("dictate", "Listen for Reply"))
@@ -375,6 +394,19 @@ def voice_turn(workflow, current_thread, dispatch_action=dispatch, router_versio
                 speak()
                 workflow.speak(summary)
                 workflow.system("exit")
+
+    with workflow.when(response_type, "run") as spoken:
+        dispatch_action(workflow, decision, summary, thread_id)
+        spoken()
+        if router_version >= 5:
+            with workflow.when(voice_next, "choose") as speech:
+                options = workflow.key(decision, "options", as_text=False)
+                workflow.set_variable("Reply", workflow.choose(options, summary))
+                workflow.set_variable("Next Step", workflow.text("selected", "Submit Selection"))
+                speech()
+                speak_or_listen()
+        else:
+            speak_or_listen()
 
 
 def make_router(team_id, *, name=NAME, dispatch_action=dispatch, router_version=3):

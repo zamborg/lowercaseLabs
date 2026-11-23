@@ -1,13 +1,19 @@
 {
   "id": "clarify",
   "kind": "builtin",
-  "description": "Ask one spoken follow-up and wait for the user's verbal reply. Use this for missing details or to keep a conversation going. You can include a separate spoken introduction in the assistant message.",
+  "description": "Ask one follow-up and wait for the user's answer. Ask an open question by voice. Include options when a tappable list will help the user choose among known alternatives.",
   "params": [
     {
       "name": "question",
       "type": "string",
       "description": "The question the user should answer, without any introductory text",
       "required": true
+    },
+    {
+      "name": "options",
+      "type": "strings",
+      "description": "Two to five distinct, short choices to display in a tappable list. Omit for a spoken question answered by dictation.",
+      "required": false
     }
   ],
   "requiresConfirmation": false,
@@ -30,6 +36,9 @@
     },
     {
       "utterance": "remind me"
+    },
+    {
+      "utterance": "Let me pick a five-minute break from a menu with Stretch and Walk"
     }
   ]
 }

@@ -7,8 +7,9 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     CODE_SIGN_STYLE: Automatic
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "2"
     MARKETING_VERSION: "1.0"
+    TARGETED_DEVICE_FAMILY: "1"
     # DEVELOPMENT_TEAM: pass on the command line / set locally for device builds
 packages:
   ControllrCore:
@@ -24,6 +25,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lowercaselabs.controllr
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: controllr
         INFOPLIST_KEY_UILaunchScreen_Generation: YES

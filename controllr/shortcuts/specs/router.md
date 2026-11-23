@@ -25,6 +25,12 @@ Build the workflows with `python3 shortcuts/modular.py --team-id YOUR_TEAM_ID`. 
 
 On iOS 26 or later, **Setup → Permissions → Timers** allows Voice 2 to schedule a Controllr countdown for any whole-second duration from one second to two hours. The countdown runs as a system Live Activity. With Timers access unavailable, the independent Clock handler uses the existing set of preset durations. Voice 1.6 continues to use its bundled Clock handler.
 
+## Controllr Voice 2.1
+
+Version 5 of the router adds a native Choose from List action. The agent can supply options in its `clarify` tool call, or request a menu for ambiguous text recipients through `send_message.recipient_prompt`. Controllr supplies the actual contact labels and last four digits. The selected reply goes through Decide on the same thread, and texts still follow the module's confirmation setting. Earlier shortcuts speak clarification options and accept dictation.
+
+Voice 2.1 has 99 steps and reuses the Voice 2 action shortcuts. Generate it and the handlers with `shortcuts/modular.py`. The friends' install kit contains the signed voice shortcut, the 13 signed handlers, and the top-level [README](../../README.md). Share it alongside a TestFlight invitation. Use the Release archive for uploading to the app's App Store Connect record and submit its first external beta for TestFlight review. [Upload builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds) · [Invite external testers](https://developer.apple.com/help/app-store-connect/test-a-beta-version/invite-external-testers)
+
 ## Build and install
 
 Generate the Xcode project with `xcodegen generate` from `controllr/` and build the Controllr scheme with your Apple Development team. Generate and sign the shortcut with Python 3.12 and Shortcuts Playground. Set `SHORTCUTS_PLAYGROUND_DIR` to the directory containing `scripts/validate_shortcut.py` and `scripts/sign_shortcut.sh`.

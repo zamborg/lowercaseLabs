@@ -21,7 +21,7 @@ final class ProviderAdapterTests: XCTestCase {
         {"status":"completed","output":[
           {"type":"reasoning","id":"rs_123","summary":[],"encrypted_content":"opaque"},
           {"type":"message","role":"assistant","content":[{"type":"output_text","text":"I can help."}]},
-          {"type":"function_call","id":"fc_123","call_id":"call_123","name":"clarify","arguments":"{\"question\":\"Indoors?\"}"}
+          {"type":"function_call","id":"fc_123","call_id":"call_123","name":"clarify","arguments":"{\"question\":\"Indoors?\",\"options\":[\"Yes\",\"No\"]}"}
         ]}
         """#
         let transport = StubTransport([
@@ -33,6 +33,8 @@ final class ProviderAdapterTests: XCTestCase {
         let user = ConversationMessage.user("Help me choose a break")
         let question = await router.route(messages: [user])
         XCTAssertEqual(question.decision.summary, "I can help. Indoors?")
+        XCTAssertEqual(question.decision.options, ["Yes", "No"])
+        XCTAssertEqual(try JSONValue.parse(Data(question.decision.json.utf8))["voice_next"], .string("choose"))
         let saved = try JSONEncoder().encode(XCTUnwrap(question.assistantMessage))
         let followUp = try JSONDecoder().decode(ConversationMessage.self, from: saved)
         let reply = await router.route(messages: [user, followUp, .user("Yes")])
@@ -93,14 +95,15 @@ final class ProviderAdapterTests: XCTestCase {
 
     func testOpenRouterFollowUpUsesSharedChatWireAndMatchingToolID() async throws {
         let transport = StubTransport([
-            #"{"choices":[{"message":{"content":"I can help.","reasoning_details":[{"type":"reasoning.encrypted","data":"opaque"}],"tool_calls":[{"id":"call_123","type":"function","function":{"name":"clarify","arguments":"{\"question\":\"Indoors?\"}"}}]}}]}"#,
+            #"{"choices":[{"message":{"content":"I can help.","reasoning_details":[{"type":"reasoning.encrypted","data":"opaque"}],"tool_calls":[{"id":"call_123","type":"function","function":{"name":"clarify","arguments":"{\"question\":\"Indoors?\",\"options\":[\"Yes\",\"No\"]}"}}]}}]}"#,
             #"{"choices":[{"message":{"content":"Try stretching indoors."}}]}"#,
         ])
         let provider = OpenRouterProvider(apiKey: "router-test-key", model: "anthropic/claude-sonnet", reasoningEffort: .high, transport: transport)
         let router = Router(provider: provider)
         let user = ConversationMessage.user("Help me choose a break")
         let question = await router.route(messages: [user])
-        XCTAssertTrue(question.decision.listensAfterSpeaking)
+        XCTAssertFalse(question.decision.listensAfterSpeaking)
+        XCTAssertEqual(question.decision.options, ["Yes", "No"])
         XCTAssertEqual(question.decision.summary, "I can help. Indoors?")
         let followUp = try XCTUnwrap(question.assistantMessage)
         let reply = await router.route(messages: [user, followUp, .user("Yes")])
@@ -160,7 +163,7 @@ final class ProviderAdapterTests: XCTestCase {
 
     func testAnthropicRepliesToFollowUpUsingNativeToolResult() async throws {
         let transport = StubTransport([
-            #"{"content":[{"type":"thinking","thinking":"","signature":"opaque"},{"type":"text","text":"I can help."},{"type":"tool_use","id":"toolu_123","name":"clarify","input":{"question":"Indoors?"}}]}"#,
+            #"{"content":[{"type":"thinking","thinking":"","signature":"opaque"},{"type":"text","text":"I can help."},{"type":"tool_use","id":"toolu_123","name":"clarify","input":{"question":"Indoors?","options":["Yes","No"]}}]}"#,
             #"{"content":[{"type":"text","text":"Try stretching indoors."}]}"#,
         ])
         let router = Router(provider: AnthropicProvider(apiKey: "claude-test-key", model: "claude-haiku-5-5",
@@ -172,6 +175,7 @@ final class ProviderAdapterTests: XCTestCase {
         let reply = await router.route(messages: [user, followUp, .user("Yes")])
         XCTAssertEqual(reply.decision.summary, "Try stretching indoors.")
         XCTAssertEqual(reply.provider, "anthropic")
+        XCTAssertEqual(question.decision.options, ["Yes", "No"])
         XCTAssertNil(reply.toolCall)
 
         let requests = await transport.requests

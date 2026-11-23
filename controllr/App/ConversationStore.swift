@@ -84,7 +84,7 @@ final class Conversations {
         self.route = route
     }
 
-    func turn(_ spoken: String, threadID: String?, routerVersion: Int = 1) async -> Decision {
+    func turn(_ spoken: String, threadID: String?, routerVersion: Int = 1, selectedOption: Bool = false) async -> Decision {
         let transcript = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !transcript.isEmpty else { return .speak(.error, "I didn't hear anything.") }
 
@@ -114,7 +114,8 @@ final class Conversations {
             try append(.user(transcript), to: thread)
             let normalized = transcript.lowercased().replacingOccurrences(of: "’", with: "'")
                 .trimmingCharacters(in: .punctuationCharacters)
-            if ["cancel", "stop", "never mind", "nevermind", "stop listening", "that's all", "end conversation"].contains(normalized) {
+            if !selectedOption,
+               ["cancel", "stop", "never mind", "nevermind", "stop listening", "that's all", "end conversation"].contains(normalized) {
                 return try speak(.respond, "Okay.", in: thread)
             }
             if let pending {
@@ -135,7 +136,7 @@ final class Conversations {
         let result = await route(source, Array(history))
         for message in result.toolMessages { try append(message, to: thread) }
         if let choice = result.recipientChoice, let call = result.toolCall {
-            return try askForTextRecipient(PendingTextRecipient(call: call, choice: choice), in: thread)
+            return try askForTextRecipient(PendingTextRecipient(call: call, choice: choice), in: thread, routerVersion: routerVersion)
         }
         return try recordDecision(result.decision, call: result.toolCall, assistantMessage: result.assistantMessage,
                                   in: thread, routerVersion: routerVersion)
@@ -151,7 +152,8 @@ final class Conversations {
         }
         guard let recipient = pending.choice.recipient(for: reply) else {
             if let retry = pending.choice.retry() {
-                return try askForTextRecipient(PendingTextRecipient(call: pending.call, choice: retry), in: thread)
+                return try askForTextRecipient(PendingTextRecipient(call: pending.call, choice: retry), in: thread,
+                                               routerVersion: routerVersion)
             }
             return try speak(.respond, "I couldn't match a number. Start a new text request to try again.", in: thread)
         }
@@ -164,13 +166,18 @@ final class Conversations {
         return try recordDecision(decision, call: pending.call, in: thread, routerVersion: routerVersion)
     }
 
-    private func askForTextRecipient(_ pending: PendingTextRecipient, in thread: ChatThread) throws -> Decision {
-        try speak(.clarify, pending.choice.question, in: thread, actionPayload: JSONEncoder().encode(pending))
+    private func askForTextRecipient(_ pending: PendingTextRecipient, in thread: ChatThread, routerVersion: Int) throws -> Decision {
+        let menu = routerVersion >= 5 && pending.call.arguments["recipient_prompt"]?.stringValue == "menu"
+        return try speak(.clarify, menu ? pending.choice.questionTitle : pending.choice.question, in: thread,
+                         actionPayload: JSONEncoder().encode(pending), options: menu ? pending.choice.menuOptions : [])
     }
 
     private func recordDecision(_ proposed: Decision, call: ToolCall?, assistantMessage: ConversationMessage? = nil,
                                 in thread: ChatThread, routerVersion: Int) throws -> Decision {
         var decision = proposed
+        if routerVersion < 5 && !decision.options.isEmpty {
+            decision = .speak(.clarify, decision.spokenQuestion)
+        }
         if decision.action == .run {
             if let call, let module = Registry.v1.module(id: call.name) {
                 guard policy().isEnabled(module) else {
@@ -299,10 +306,12 @@ final class Conversations {
         }
     }
 
-    private func speak(_ action: DecisionAction, _ text: String, in thread: ChatThread, actionPayload: Data? = nil) throws -> Decision {
+    private func speak(_ action: DecisionAction, _ text: String, in thread: ChatThread, actionPayload: Data? = nil,
+                       options: [String] = []) throws -> Decision {
         var decision = Decision.speak(action, text)
         decision.threadID = thread.id.uuidString
-        let entry = try append(.assistant(text), to: thread)
+        decision.options = options
+        let entry = try append(.assistant(decision.spokenQuestion), to: thread)
         entry.actionPayload = actionPayload
         try save()
         return decision

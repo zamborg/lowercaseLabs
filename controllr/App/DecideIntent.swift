@@ -9,9 +9,12 @@ struct DecideIntent: AppIntent {
     @Parameter(title: "Thread ID") var threadID: String?
 
     @Parameter(title: "Router Version") var routerVersion: Int?
+    @Parameter(title: "Reply Mode") var replyMode: String?
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        let decision = await Conversations.shared.turn(transcript ?? "", threadID: threadID, routerVersion: routerVersion ?? 1)
+        let version = routerVersion ?? 1
+        let decision = await Conversations.shared.turn(transcript ?? "", threadID: threadID, routerVersion: version,
+                                                       selectedOption: version >= 5 && replyMode == "selected")
         return .result(value: decision.json)
     }
 }

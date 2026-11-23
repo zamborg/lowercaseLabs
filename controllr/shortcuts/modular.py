@@ -7,7 +7,7 @@ import plistlib
 
 from gen import HANDLERS, HERE, MANIFESTS, Reference, Workflow, authorize, make_router, open_url
 
-VOICE_NAME = "Controllr Voice 2"
+VOICE_NAME = "Controllr Voice 2.1"
 ACTION_PREFIX = "Controllr Action "
 HANDOFFS = ("open_url", "open_url_confirm")
 
@@ -62,7 +62,7 @@ def make_workflows(team_id):
             yield make_handler(team_id, manifest["id"], HANDLERS[manifest["shortcutHandler"]], manifest)
     for identifier in HANDOFFS:
         yield make_handler(team_id, identifier, open_url)
-    yield make_router(team_id, name=VOICE_NAME, dispatch_action=dispatch, router_version=4)
+    yield make_router(team_id, name=VOICE_NAME, dispatch_action=dispatch, router_version=5)
 
 
 def main():

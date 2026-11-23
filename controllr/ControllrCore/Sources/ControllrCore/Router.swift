@@ -72,6 +72,10 @@ public enum ArgumentValidator {
             case .string:
                 guard let text = v.stringValue else { return "\(p.name) must be a string" }
                 if p.required && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "missing \(p.name)" }
+            case .strings:
+                guard case .array(let values) = v, values.allSatisfy({ $0.stringValue != nil }) else {
+                    return "\(p.name) must be a list of strings"
+                }
             case .number: if v.numberValue == nil { return "\(p.name) must be a number" }
             case .integer: if v.numberValue.flatMap(Int.init(exactly:)) == nil { return "\(p.name) must be an integer" }
             case .bool: if v.boolValue == nil { return "\(p.name) must be a boolean" }
@@ -160,8 +164,16 @@ public struct Router: Sendable {
                 case .builtin:
                     let question = args["question"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Can you say that again?"
                     let spoken = text.isEmpty ? question : (text.hasSuffix(question) ? text : "\(text) \(question)")
-                    let message = ConversationMessage.followUp(call: call, assistantText: text.isEmpty ? nil : text, spoken: spoken)
-                    return result(.speak(.clarify, spoken), call, assistantMessage: message)
+                    var decision = Decision.speak(.clarify, spoken)
+                    if case .array(let options)? = args["options"] {
+                        var seen = Set<String>()
+                        let labels = options.compactMap(\.stringValue).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+                        if labels.count > 1 { decision.options = Array(labels.prefix(5)) }
+                    }
+                    let message = ConversationMessage.followUp(call: call, assistantText: text.isEmpty ? nil : text,
+                                                               spoken: decision.spokenQuestion)
+                    return result(decision, call, assistantMessage: message)
                 case .response:
                     return result(.speak(.error, "I couldn't work out what to do."), call, "not an executable tool")
                 case .shortcut:

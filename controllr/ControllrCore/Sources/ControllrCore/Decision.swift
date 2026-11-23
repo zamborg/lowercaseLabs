@@ -14,6 +14,7 @@ public struct Decision: Sendable, Equatable {
     public var summary: String
     public var threadID: String? = nil
     public var actionID: String? = nil
+    public var options: [String] = []
 
     public static let speakID = "speak"
     public static let openURLID = "open_url"
@@ -32,10 +33,15 @@ public struct Decision: Sendable, Equatable {
                         summary: module.renderSummary(summaryArguments))
     }
 
-    public var listensAfterSpeaking: Bool { action == .clarify }
+    public var listensAfterSpeaking: Bool { action == .clarify && options.isEmpty }
+
+    public var spokenQuestion: String {
+        options.isEmpty ? summary : "\(summary) Your options are \(options.joined(separator: ", "))."
+    }
 
     public var json: String {
-        let voiceNext = listensAfterSpeaking ? "listen" : (summary.isEmpty && action != .run ? "silent" : "stop")
+        let voiceNext = action == .clarify ? (options.isEmpty ? "listen" : "choose")
+            : (summary.isEmpty && action != .run ? "silent" : "stop")
         let fields: [String: JSONValue] = [
             "action": .string(action.rawValue),
             "shortcut": .string(shortcut),
@@ -46,6 +52,7 @@ public struct Decision: Sendable, Equatable {
             "voice_next": .string(voiceNext),
             "thread_id": .string(threadID ?? ""),
             "action_id": .string(actionID ?? ""),
+            "options": .array(options.map(JSONValue.string)),
         ]
         return JSONValue.object(fields).jsonString()
     }

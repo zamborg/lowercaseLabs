@@ -102,15 +102,16 @@ final class ConversationsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("test.store")
         let call = ToolCall(name: "send_message", arguments: .object([
-            "recipient": .string("Sam Lee"), "body": .string("Running late.")
+            "recipient": .string("Sam Lee"), "body": .string("Running late."), "recipient_prompt": .string("menu")
         ]))
         let choice = Self.textRecipientChoice
         let id: String = try await withStore(url: url) { context in
             let conversations = Conversations(context: context, hasContactsAccess: { true }) { _, _ in
                 Self.result(.speak(.clarify, choice.question), toolCall: call, recipientChoice: choice)
             }
-            let first = await conversations.turn("Text Sam Lee that I'm running late", threadID: nil, routerVersion: 3)
-            XCTAssertTrue(first.listensAfterSpeaking)
+            let first = await conversations.turn("Text Sam Lee that I'm running late", threadID: nil, routerVersion: 5)
+            XCTAssertEqual(first.options, choice.menuOptions)
+            XCTAssertFalse(first.listensAfterSpeaking)
             XCTAssertNil(first.actionID)
             return try XCTUnwrap(first.threadID)
         }
@@ -119,7 +120,7 @@ final class ConversationsTests: XCTestCase {
                 XCTFail("A reply to the recipient prompt should use the saved draft")
                 return Self.result(.speak(.error, "unexpected"))
             }
-            let proposed = await conversations.turn("Use the second one", threadID: id, routerVersion: 3)
+            let proposed = await conversations.turn(choice.menuOptions[1], threadID: id, routerVersion: 5, selectedOption: true)
             XCTAssertEqual(proposed.threadID, id)
             XCTAssertEqual(proposed.shortcut, "send_message")
             XCTAssertEqual(proposed.input["recipient"], .string("+12025550131"))
@@ -133,6 +134,32 @@ final class ConversationsTests: XCTestCase {
             let thread = try XCTUnwrap(context.fetch(FetchDescriptor<ChatThread>()).first)
             XCTAssertNil(thread.orderedEntries[1].actionPayload)
             XCTAssertEqual(thread.orderedEntries.last?.actionStatus, "Cancelled")
+        }
+    }
+
+    func testSelectedAnswerResumesTheOriginalFollowUpAndOlderRoutersSpeakOptions() async throws {
+        try await withStore { context in
+            let args: JSONValue = .object(["question": .string("What should happen?"), "options": .array([.string("Pause"), .string("Stop")])])
+            let call = ToolCall(name: "clarify", arguments: args, id: "follow_up")
+            var question = Decision.speak(.clarify, "What should happen?")
+            question.options = ["Pause", "Stop"]
+            let followUp = ConversationMessage.followUp(call: call, assistantText: nil, spoken: question.spokenQuestion)
+            let conversations = Conversations(context: context) { _, history in
+                if history.last == .user("Stop") {
+                    XCTAssertEqual(history.dropLast().last, followUp)
+                    return Self.result(.speak(.respond, "You chose Stop."))
+                }
+                return Self.result(question, toolCall: call, assistantMessage: followUp)
+            }
+            let old = await conversations.turn("Give me a choice", threadID: nil, routerVersion: 4)
+            XCTAssertTrue(old.listensAfterSpeaking)
+            XCTAssertTrue(old.summary.contains("Pause, Stop"))
+
+            let offered = await conversations.turn("Give me a choice", threadID: nil, routerVersion: 5)
+            XCTAssertEqual(offered.options, ["Pause", "Stop"])
+            let selected = await conversations.turn("Stop", threadID: offered.threadID, routerVersion: 5, selectedOption: true)
+            XCTAssertEqual(selected.threadID, offered.threadID)
+            XCTAssertEqual(selected.summary, "You chose Stop.")
         }
     }
 

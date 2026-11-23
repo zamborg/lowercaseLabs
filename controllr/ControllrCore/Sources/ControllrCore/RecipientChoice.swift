@@ -56,6 +56,16 @@ public struct RecipientChoice: Codable, Equatable, Sendable {
         self.attempts = attempts
     }
 
+    public var questionTitle: String {
+        attempts == 0 ? "Which number should I text?" : "I couldn't match that choice. Which number should I text?"
+    }
+
+    public var menuOptions: [String] {
+        recipients.prefix(Self.optionWords.count).enumerated().map { offset, recipient in
+            "Option \(offset + 1), \(recipient.confirmationName)"
+        }
+    }
+
     public var question: String {
         let options = recipients.prefix(Self.optionWords.count).enumerated().map { offset, recipient in
             "Option \(offset + 1), \(recipient.description)."
@@ -70,6 +80,7 @@ public struct RecipientChoice: Codable, Equatable, Sendable {
     }
 
     public func recipient(for reply: String) -> TextRecipient? {
+        if let index = menuOptions.firstIndex(of: reply) { return recipients[index] }
         var words = Self.words(reply)
         if words.first == "use" { words.removeFirst() }
         if words.first == "the" { words.removeFirst() }

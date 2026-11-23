@@ -141,6 +141,7 @@ private struct ThreadView: View {
 enum RouterShortcut: String, CaseIterable {
     case legacy = "Controllr Voice 1.6"
     case modular = "Controllr Voice 2"
+    case selector = "Controllr Voice 2.1"
 
     static let preferenceKey = "voiceShortcut"
     static var name: String {

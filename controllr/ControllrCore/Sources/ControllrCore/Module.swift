@@ -2,6 +2,7 @@ import Foundation
 
 public enum ParamType: Sendable, Equatable {
     case string
+    case strings
     case number
     case integer
     case bool
@@ -24,6 +25,7 @@ public struct Param: Decodable, Sendable {
         missingQuestion = try fields.decodeIfPresent(String.self, forKey: .missingQuestion)
         switch try fields.decode(String.self, forKey: .type) {
         case "string": type = .string
+        case "strings": type = .strings
         case "number": type = .number
         case "integer": type = .integer
         case "bool": type = .bool
@@ -98,6 +100,9 @@ public struct Module: Decodable, Sendable {
             var s: [String: JSONValue] = ["description": .string(p.description)]
             switch p.type {
             case .string: s["type"] = .string("string")
+            case .strings:
+                s["type"] = .string("array")
+                s["items"] = .object(["type": .string("string")])
             case .number: s["type"] = .string("number")
             case .integer: s["type"] = .string("integer")
             case .bool: s["type"] = .string("boolean")

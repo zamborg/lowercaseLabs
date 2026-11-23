@@ -16,6 +16,13 @@
       "description": "Message text to send, written in the user's voice",
       "required": true,
       "missingQuestion": "What should I say?"
+    },
+    {
+      "name": "recipient_prompt",
+      "type": "oneOf",
+      "values": ["voice", "menu"],
+      "description": "How to ask if Contacts finds multiple numbers. Choose menu when a tappable list would help compare numbers. Choose voice for hands-free use. Controllr supplies the actual contact choices.",
+      "required": false
     }
   ],
   "requiresConfirmation": true,
