@@ -23,6 +23,7 @@ from starlette.routing import Route
 
 from zos.audit import record_event
 from zos.auth.oauth import verify_owner_passphrase
+from zos.auth.rate_limit import GlobalPassphraseRateLimiter, record_auth_failure
 from zos.config import Settings
 from zos.db.queries import get_principal_and_space
 from zos.router import SessionTracker
@@ -63,12 +64,14 @@ class GoogleServiceHub:
         settings: Settings,
         sessions: SessionTracker,
         *,
+        passphrase_limiter: GlobalPassphraseRateLimiter | None = None,
         backoff_base_s: float = 0.5,
         max_retries: int = 3,
     ) -> None:
         self.pool = pool
         self.settings = settings
         self.sessions = sessions
+        self.passphrase_limiter = passphrase_limiter or GlobalPassphraseRateLimiter()
         self.backoff_base_s = backoff_base_s
         self.max_retries = max_retries
 
@@ -389,8 +392,11 @@ class GoogleServiceHub:
 
         html_headers = {
             "Cache-Control": "no-store",
+            "Pragma": "no-cache",
             "X-Frame-Options": "DENY",
             "Content-Security-Policy": "frame-ancestors 'none'",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
         }
 
         async def connect_google(request: Request) -> Response:
@@ -403,6 +409,16 @@ class GoogleServiceHub:
                 return HTMLResponse(
                     render_google_connect_page(status_message=status),
                     headers=html_headers,
+                )
+
+            retry_after = self.passphrase_limiter.retry_after_seconds()
+            if retry_after is not None:
+                return HTMLResponse(
+                    render_google_connect_page(
+                        error=f"Too many failed attempts. Try again in {retry_after}s."
+                    ),
+                    status_code=429,
+                    headers={**html_headers, "Retry-After": str(retry_after)},
                 )
 
             if not self.settings.zos_owner_password_hash:
@@ -427,11 +443,19 @@ class GoogleServiceHub:
             form = await request.form()
             passphrase = str(form.get("passphrase", ""))
             if not verify_owner_passphrase(passphrase, self.settings.zos_owner_password_hash):
+                self.passphrase_limiter.record_failure()
+                await record_auth_failure(
+                    self.pool,
+                    route="/connect/google",
+                    reason="invalid_passphrase",
+                )
                 return HTMLResponse(
                     render_google_connect_page(error="Invalid owner passphrase."),
                     status_code=401,
                     headers=html_headers,
                 )
+
+            self.passphrase_limiter.record_success()
 
             now = time.monotonic()
             # Prune expired pending states

@@ -27,6 +27,7 @@ from starlette.routing import BaseRoute, Route
 from zos.audit import DatabaseAuditRecorder
 from zos.auth import BearerAuthASGIMiddleware, CallContext, current_call_context
 from zos.auth.oauth import create_oauth_routes
+from zos.auth.rate_limit import GlobalPassphraseRateLimiter, GlobalSlidingWindowLimiter
 from zos.config import Settings
 from zos.db import create_pool, run_migrations
 from zos.policy import DatabasePolicyEvaluator, request_tool_confirmation
@@ -152,8 +153,10 @@ def create_app(
         session_idle_timeout=1800,
     )
 
+    passphrase_limiter = GlobalPassphraseRateLimiter()
+    dcr_limiter = GlobalSlidingWindowLimiter()
     actuator_manager = ActuatorManager(pool, registry, sessions)
-    google_hub = GoogleServiceHub(pool, cfg, sessions)
+    google_hub = GoogleServiceHub(pool, cfg, sessions, passphrase_limiter=passphrase_limiter)
 
     runtime = ZosRuntime(
         settings=cfg,
@@ -267,10 +270,21 @@ def create_app(
     routes: list[BaseRoute] = [
         Route("/healthz", healthz, methods=["GET"]),
         Route("/mcp", endpoint=mcp_asgi, methods=["GET", "POST", "DELETE"]),
-        *create_oauth_routes(pool, cfg),
+        *create_oauth_routes(
+            pool,
+            cfg,
+            passphrase_limiter=passphrase_limiter,
+            dcr_limiter=dcr_limiter,
+        ),
         *actuator_manager.routes(),
         *google_hub.routes(),
-        *create_admin_routes(pool, cfg, registry, sessions),
+        *create_admin_routes(
+            pool,
+            cfg,
+            registry,
+            sessions,
+            passphrase_limiter=passphrase_limiter,
+        ),
     ]
     if extra_routes_factory is not None:
         routes.extend(extra_routes_factory(runtime))

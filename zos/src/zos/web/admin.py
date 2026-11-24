@@ -13,13 +13,13 @@ from starlette.routing import Route
 
 from zos.admin_service import AdminService
 from zos.auth.oauth import verify_owner_passphrase
+from zos.auth.rate_limit import GlobalPassphraseRateLimiter, record_auth_failure
 from zos.config import Settings
 from zos.router import ProviderRegistry, SessionTracker
 from zos.web.admin_auth import (
     ADMIN_SECURITY_HEADERS,
     AdminSession,
     AdminSessionManager,
-    LoginRateLimiter,
     derive_session_signing_key,
 )
 from zos.web.admin_views import (
@@ -42,12 +42,6 @@ def _redirect(location: str) -> RedirectResponse:
     return RedirectResponse(location, status_code=303, headers=dict(ADMIN_SECURITY_HEADERS))
 
 
-def _client_ip(request: Request) -> str:
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
-
-
 def _parse_uuid_or_none(value: str | None) -> UUID | None:
     if not value or not value.strip():
         return None
@@ -64,7 +58,7 @@ def create_admin_routes(
     sessions: SessionTracker,
     *,
     session_manager: AdminSessionManager | None = None,
-    rate_limiter: LoginRateLimiter | None = None,
+    passphrase_limiter: GlobalPassphraseRateLimiter | None = None,
 ) -> list[Route]:
     """Create passphrase-gated, CSRF-protected /admin dashboard routes."""
     service = AdminService(pool)
@@ -75,7 +69,7 @@ def create_admin_routes(
         ),
         secure_cookie=settings.zos_base_url.lower().startswith("https://"),
     )
-    limiter = rate_limiter or LoginRateLimiter()
+    limiter = passphrase_limiter or GlobalPassphraseRateLimiter()
 
     def _require_session(request: Request) -> AdminSession | None:
         return auth.read_session(request)
@@ -93,8 +87,7 @@ def create_admin_routes(
                 return _redirect("/admin")
             return _html(render_admin_login_page())
 
-        ip = _client_ip(request)
-        retry_after = limiter.retry_after_seconds(ip)
+        retry_after = limiter.retry_after_seconds()
         if retry_after is not None:
             return _html(
                 render_admin_login_page(
@@ -113,13 +106,14 @@ def create_admin_routes(
         form = await request.form()
         passphrase = str(form.get("passphrase", ""))
         if not verify_owner_passphrase(passphrase, settings.zos_owner_password_hash):
-            limiter.record_failure(ip)
+            limiter.record_failure()
+            await record_auth_failure(pool, route="/admin/login", reason="invalid_passphrase")
             return _html(
                 render_admin_login_page(error="Invalid owner passphrase."),
                 status_code=401,
             )
 
-        limiter.reset(ip)
+        limiter.record_success()
         _sess, cookie_token = auth.create_session()
         resp = _redirect("/admin")
         auth.set_cookie(resp, cookie_token)

@@ -22,6 +22,11 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 from starlette.routing import Route
 
 from zos.audit import record_event
+from zos.auth.rate_limit import (
+    GlobalPassphraseRateLimiter,
+    GlobalSlidingWindowLimiter,
+    record_auth_failure,
+)
 from zos.config import Settings
 from zos.db.queries import generate_token, get_principal_and_space, hash_secret
 from zos.web.pages import render_authorize_page
@@ -80,9 +85,14 @@ def verify_owner_passphrase(passphrase: str, expected_hash: str) -> bool:
 def create_oauth_routes(
     pool: AsyncConnectionPool[AsyncConnection[DictRow]],
     settings: Settings,
+    *,
+    passphrase_limiter: GlobalPassphraseRateLimiter | None = None,
+    dcr_limiter: GlobalSlidingWindowLimiter | None = None,
 ) -> list[Route]:
     """Create discovery, DCR, authorize, and token routes for MCP OAuth 2.1."""
     base_url = _normalize_url(settings.zos_base_url)
+    pw_limiter = passphrase_limiter or GlobalPassphraseRateLimiter()
+    _dcr_limiter = dcr_limiter  # wired in M7.3
 
     def _cors_json(data: dict[str, Any], *, status_code: int = 200) -> JSONResponse:
         return JSONResponse(
@@ -283,8 +293,11 @@ def create_oauth_routes(
 
         html_headers = {
             "Cache-Control": "no-store",
+            "Pragma": "no-cache",
             "X-Frame-Options": "DENY",
             "Content-Security-Policy": "frame-ancestors 'none'",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
         }
 
         if request.method == "GET":
@@ -301,6 +314,21 @@ def create_oauth_routes(
         if decision == "deny":
             return _redirect_error("access_denied", "Owner denied authorization")
 
+        retry_after = pw_limiter.retry_after_seconds()
+        if retry_after is not None:
+            html_body = render_authorize_page(
+                client_name=client["name"],
+                redirect_uri=redirect_uri,
+                scopes=scopes,
+                hidden_fields=hidden,
+                error=f"Too many failed attempts. Try again in {retry_after}s.",
+            )
+            return HTMLResponse(
+                html_body,
+                status_code=429,
+                headers={**html_headers, "Retry-After": str(retry_after)},
+            )
+
         if not settings.zos_owner_password_hash:
             return HTMLResponse(
                 "<h1>Owner passphrase not configured (ZOS_OWNER_PASSWORD_HASH)</h1>",
@@ -310,6 +338,13 @@ def create_oauth_routes(
 
         passphrase = params.get("passphrase", "")
         if not verify_owner_passphrase(passphrase, settings.zos_owner_password_hash):
+            pw_limiter.record_failure()
+            await record_auth_failure(
+                pool,
+                route="/oauth/authorize",
+                reason="invalid_passphrase",
+                client_id=client["id"],
+            )
             html_body = render_authorize_page(
                 client_name=client["name"],
                 redirect_uri=redirect_uri,
@@ -318,6 +353,8 @@ def create_oauth_routes(
                 error="Invalid owner passphrase.",
             )
             return HTMLResponse(html_body, status_code=401, headers=html_headers)
+
+        pw_limiter.record_success()
 
         raw_code = secrets.token_urlsafe(32)
         code_hash = hash_secret(raw_code)
