@@ -24,3 +24,10 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Per Zubin's overnight direction: wake up to V0 live on OrbStack without cloud spend or blocking on browser-only Google Console / OAuth consent steps. Local hosting spike (`spikes/hosting/server.py` + `client.py`) passed connect, `ping`, `toggle`, `notifications/tools/list_changed`, and post-idle calls.
 - **Impact:** Self-host Docker Compose stack is first-class; Fly deployment and live Google consent remain ready whenever promoted to cloud.
 
+## 2026-11-23 — Schema implementation details in `0001_init.sql` (Task 1.1)
+
+- **Decision:** Added nullable `resource TEXT` columns to `oauth_codes` and `tokens` (for RFC 8707 audience binding in M2.3), `created_at TIMESTAMPTZ NOT NULL DEFAULT now()` to `tokens`, and a surrogate `id UUID PRIMARY KEY DEFAULT gen_random_uuid()` to `client_policies` (preserving `UNIQUE NULLS NOT DISTINCT (principal_id, client_id, tool_pattern)`).
+- **Why:** Supports RFC 8707 resource-indicator verification cleanly without a separate migration and makes token/policy rows straightforward to inspect and revoke.
+- **Impact:** Strictly additive over `SCHEMA.md`; all constraints and semantics match `SCHEMA.md` verbatim.
+
+
