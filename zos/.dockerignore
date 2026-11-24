@@ -1,0 +1,14 @@
+.venv/
+actuator/.venv/
+.git/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+*.db
+*.sqlite*
+later/
+tests/
+spikes/google/

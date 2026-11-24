@@ -2,7 +2,7 @@ app = "zos-hosting-spike"
 primary_region = "sjc"
 
 [build]
-  dockerfile = "spikes/hosting/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [http_service]
   internal_port = 8080
