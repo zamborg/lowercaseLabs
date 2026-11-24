@@ -2,15 +2,50 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 import mcp_types as types
+from mcp.server.session import ServerSession
 
 from zos.auth.context import CallContext
 
 ProviderKind = Literal["hosted", "upstream", "actuator"]
+
+
+@dataclass(frozen=True, slots=True)
+class DownstreamMCPContext:
+    """Active downstream MCP request metadata available to providers during call_tool."""
+
+    server_session: ServerSession | None
+    request_id: Any
+    call_ctx: CallContext
+    exposed_tool: str
+
+
+current_downstream_mcp: ContextVar[DownstreamMCPContext | None] = ContextVar(
+    "zos_current_downstream_mcp", default=None
+)
+
+
+@runtime_checkable
+class UpstreamTokenSource(Protocol):
+    """Generic credential/token source for upstream providers (vault-backed, not issuer-specific)."""
+
+    def has_credential(self) -> bool:
+        """Whether a usable credential is currently attached."""
+        ...
+
+    async def get_access_token(self, *, force_refresh: bool = False) -> str:
+        """Return a valid bearer access token, optionally forcing a refresh."""
+        ...
+
+    @property
+    def reconnect_hint(self) -> str:
+        """User-facing instruction when upstream authentication fails."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

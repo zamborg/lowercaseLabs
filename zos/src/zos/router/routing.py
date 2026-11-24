@@ -12,7 +12,12 @@ import mcp_types as types
 from mcp.server.session import ServerSession
 
 from zos.auth.context import CallContext
-from zos.providers.base import ProviderTool, ToolProvider
+from zos.providers.base import (
+    DownstreamMCPContext,
+    ProviderTool,
+    ToolProvider,
+    current_downstream_mcp,
+)
 from zos.router.naming import format_tool_name, split_prefix
 from zos.router.registry import ProviderRegistry
 from zos.router.sessions import SessionTracker
@@ -285,7 +290,15 @@ class ToolRouter:
                     is_error=True,
                 )
 
-        # Execute tool on provider
+        # Execute tool on provider (exposing downstream MCP session via ContextVar for elicitation passthrough)
+        downstream_token = current_downstream_mcp.set(
+            DownstreamMCPContext(
+                server_session=server_session,
+                request_id=request_id,
+                call_ctx=ctx,
+                exposed_tool=exposed_name,
+            )
+        )
         try:
             result = await provider.call_tool(ptool.name, call_args, ctx)
         except Exception as exc:
@@ -303,6 +316,8 @@ class ToolRouter:
                 content=[types.TextContent(type="text", text=f"Tool execution failed: {exc}")],
                 is_error=True,
             )
+        finally:
+            current_downstream_mcp.reset(downstream_token)
 
         outcome = "error" if result.is_error else "ok"
         await self._audit(
