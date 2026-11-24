@@ -389,7 +389,7 @@ class AdminService:
             exposed_name: str,
             provider_slug: str,
             online: bool,
-            destructive_hint: bool = False,
+            destructive_hint: bool | None = None,
             idempotent_hint: bool | None = None,
         ) -> None:
             if exposed_name in seen_names:

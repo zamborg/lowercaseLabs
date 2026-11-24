@@ -34,7 +34,7 @@ class PolicyEvaluation:
 
 
 PolicyEvaluator = Callable[
-    [CallContext, str, bool, bool | None],
+    [CallContext, str, bool | None, bool | None],
     Awaitable[PolicyEvaluation],
 ]
 PolicySnapshotLoader = Callable[[CallContext], Awaitable[Any]]
@@ -73,7 +73,7 @@ class ToolRouter:
         ctx: CallContext,
         exposed_name: str,
         *,
-        destructive_hint: bool = False,
+        destructive_hint: bool | None = None,
         idempotent_hint: bool | None = None,
         snapshot: Any = None,
     ) -> PolicyEvaluation:
@@ -94,14 +94,16 @@ class ToolRouter:
             )
         if self._evaluate_policy is not None:
             return await self._evaluate_policy(ctx, exposed_name, destructive_hint, idempotent_hint)
+        is_read = exposed_name == ZOS_STATUS_TOOL_NAME
+        resolved_destructive = False if is_read else (True if destructive_hint is None else bool(destructive_hint))
         return PolicyEvaluation(
-            tier="read" if exposed_name == ZOS_STATUS_TOOL_NAME else "external",
+            tier="read" if is_read else "external",
             decision="allow",
             annotations=types.ToolAnnotations(
-                read_only_hint=(exposed_name == ZOS_STATUS_TOOL_NAME),
-                destructive_hint=destructive_hint,
+                read_only_hint=is_read,
+                destructive_hint=resolved_destructive,
                 idempotent_hint=idempotent_hint,
-                open_world_hint=(exposed_name != ZOS_STATUS_TOOL_NAME),
+                open_world_hint=not is_read,
             ),
         )
 

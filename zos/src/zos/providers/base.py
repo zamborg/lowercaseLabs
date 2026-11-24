@@ -55,7 +55,7 @@ class ProviderTool:
     name: str
     description: str
     input_schema: dict[str, Any] = field(default_factory=lambda: {"type": "object", "properties": {}})
-    destructive_hint: bool = False
+    destructive_hint: bool | None = None
     idempotent_hint: bool | None = None
 
 

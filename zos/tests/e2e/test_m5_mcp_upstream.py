@@ -98,6 +98,7 @@ def _build_fake_upstream_app(ctrl: FakeUpstreamControl) -> Starlette:
                 name="create_event",
                 description="Create event",
                 input_schema={"type": "object", "properties": {"summary": {"type": "string"}}},
+                annotations=types.ToolAnnotations(destructive_hint=False),
             ),
             types.Tool(
                 name="update_event",
@@ -367,6 +368,7 @@ async def test_m5_e2e_mcp_upstream_proxy_full_behavior(db_pool) -> None:
                 ):
                     assert read_tool in tools
                     assert tools[read_tool].annotations.read_only_hint is True
+                    assert tools[read_tool].annotations.destructive_hint is False
                     assert tools[read_tool].annotations.open_world_hint is False
 
                 for ext_tool in (
@@ -378,12 +380,17 @@ async def test_m5_e2e_mcp_upstream_proxy_full_behavior(db_pool) -> None:
                     assert ext_tool in tools
                     assert tools[ext_tool].annotations.open_world_hint is True
                     assert tools[ext_tool].annotations.read_only_hint is False
+                # MCP spec default for destructiveHint is True on write/external unless upstream explicitly says False
+                assert tools["gcal_create_event"].annotations.destructive_hint is False
+                assert tools["gcal_update_event"].annotations.destructive_hint is True
                 assert tools["gcal_delete_event"].annotations.destructive_hint is True
+                assert tools["gcal_respond_to_event"].annotations.destructive_hint is True
 
-                # Unknown upstream tool defaults to EXTERNAL even though upstream claimed readOnlyHint=True!
+                # Unknown upstream tool defaults to EXTERNAL + destructiveHint=True even though upstream claimed readOnlyHint=True!
                 assert "gcal_mystery_preview_tool" in tools
                 assert tools["gcal_mystery_preview_tool"].annotations.open_world_hint is True
                 assert tools["gcal_mystery_preview_tool"].annotations.read_only_hint is False
+                assert tools["gcal_mystery_preview_tool"].annotations.destructive_hint is True
                 # Client B (no elicitation) is denied on unknown tool (proving unknown -> external -> require_approval)
                 unk_b = await sess_b.call_tool("gcal_mystery_preview_tool", {"x": "1"})
                 assert unk_b.is_error

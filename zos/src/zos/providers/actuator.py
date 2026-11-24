@@ -161,7 +161,7 @@ class ActuatorProvider:
 def _convert_mcp_tools(mcp_tools: list[types.Tool]) -> list[ProviderTool]:
     converted: list[ProviderTool] = []
     for tool in mcp_tools:
-        destructive = False
+        destructive: bool | None = None
         idempotent: bool | None = None
         if tool.annotations is not None:
             if tool.annotations.destructive_hint is not None:

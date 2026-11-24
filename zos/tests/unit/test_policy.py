@@ -104,15 +104,19 @@ def test_decision_matrix(
     ("tier", "destructive", "expected_ro", "expected_dest", "expected_ow"),
     [
         ("read", False, True, False, False),
+        ("read", None, True, False, False),
+        ("read", True, True, False, False),
         ("write", False, False, False, False),
         ("write", True, False, True, False),
+        ("write", None, False, True, False),
         ("external", False, False, False, True),
         ("external", True, False, True, True),
+        ("external", None, False, True, True),
     ],
 )
 def test_annotations_mapping(
     tier: Tier,
-    destructive: bool,
+    destructive: bool | None,
     expected_ro: bool,
     expected_dest: bool,
     expected_ow: bool,

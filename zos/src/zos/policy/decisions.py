@@ -64,7 +64,7 @@ class PolicySnapshot:
         exposed_name: str,
         *,
         trust_ceiling: TrustCeiling,
-        destructive_hint: bool = False,
+        destructive_hint: bool | None = None,
         idempotent_hint: bool | None = None,
     ) -> PolicyEvaluation:
         tier = resolve_tier(exposed_name, self.tiers)
@@ -119,7 +119,7 @@ class DatabasePolicyEvaluator:
         self,
         ctx: CallContext,
         exposed_name: str,
-        destructive_hint: bool = False,
+        destructive_hint: bool | None = None,
         idempotent_hint: bool | None = None,
     ) -> PolicyEvaluation:
         snapshot = await self.load_snapshot(ctx)

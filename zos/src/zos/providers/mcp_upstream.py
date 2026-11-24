@@ -95,11 +95,13 @@ def _convert_upstream_tools(mcp_tools: list[types.Tool]) -> list[ProviderTool]:
     """Convert upstream MCP Tool definitions to ProviderTool.
 
     Note: Upstream annotations are hints, not policy facts. Tier & readOnlyHint/openWorldHint
-    always come from ZOS `tool_tiers` + `client_policies`.
+    always come from ZOS `tool_tiers` + `client_policies`. Omitting `destructive_hint` preserves
+    `None` so `build_tool_annotations` applies the MCP spec default (`True` for write/external,
+    `False` for read) unless upstream explicitly asserts `False`.
     """
     converted: list[ProviderTool] = []
     for tool in mcp_tools:
-        destructive = False
+        destructive: bool | None = None
         idempotent: bool | None = None
         if tool.annotations is not None:
             if tool.annotations.destructive_hint is not None:
