@@ -81,6 +81,8 @@ class TmuxShellRunner:
             "200",
             "-y",
             "50",
+            "/bin/zsh",
+            "-f",
         )
         if rc != 0:
             raise RuntimeError(f"Failed to start tmux session '{self.session_name}': {stderr}")

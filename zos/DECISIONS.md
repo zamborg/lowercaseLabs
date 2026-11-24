@@ -36,5 +36,12 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Verified against installed `mcp==2.3.0`: `mcp.server.auth.routes.build_metadata` hardcodes `token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"]` (omitting `"none"` required for public PKCE clients) and uses `/authorize`/`/token`/`/register` rather than `/oauth/*`. Implementing directly keeps our single-user AS minimal, supports `token_endpoint_auth_method="none"`, enforces RFC 9207 `iss` and RFC 8707 `resource` binding, and integrates cleanly with our `family_id`/`rotated_at` refresh-token reuse revocation.
 - **Impact:** Verified end-to-end against `mcp.client.auth.OAuthClientProvider` in `tests/e2e/test_m2_oauth.py`.
 
+## 2026-11-23 — Dedicated `tmux -L zos` spawns `/bin/zsh -f` with explicit launchd PATH/HOME (Task 3.4/3.5)
+
+- **Decision:** Launch the persistent `tmux -L zos` pane with `-f /dev/null` and `/bin/zsh -f` (no interactive `.zshrc`), setting `HOME`, `PATH` (`/opt/homebrew/bin:...`), `TERM`, `LANG`, `WorkingDirectory`, and `AbandonProcessGroup = true` in `com.zos.tmux.plist`.
+- **Why:** Observed during live macOS launchd smoke testing: interactive login `-zsh` hangs indefinitely in a detached tmux pane with no attached client (interactive prompt/plugin init stalls), whereas `/bin/zsh -f` is ready in <50ms, deterministic, and still preserves cwd and exported env vars across `mac_shell_run` calls.
+- **Impact:** `mac_shell_run` executes reliably under launchd without inheriting user `.zshrc` or `.tmux.conf` side effects.
+
+
 
 

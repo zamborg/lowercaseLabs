@@ -4,17 +4,39 @@
 <dict>
   <key>Label</key>
   <string>com.zos.tmux</string>
+  <key>WorkingDirectory</key>
+  <string>{{HOME}}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>TERM</key>
+    <string>xterm-256color</string>
+    <key>LANG</key>
+    <string>en_US.UTF-8</string>
+  </dict>
   <key>ProgramArguments</key>
   <array>
     <string>{{TMUX_BIN}}</string>
     <string>-L</string>
     <string>zos</string>
+    <string>-f</string>
+    <string>/dev/null</string>
     <string>new-session</string>
-    <string>-A</string>
-    <string>-D</string>
+    <string>-d</string>
     <string>-s</string>
     <string>zos</string>
+    <string>-x</string>
+    <string>200</string>
+    <string>-y</string>
+    <string>50</string>
+    <string>/bin/zsh</string>
+    <string>-f</string>
   </array>
+  <key>AbandonProcessGroup</key>
+  <true/>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
