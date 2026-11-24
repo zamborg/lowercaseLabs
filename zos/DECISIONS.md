@@ -48,6 +48,13 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Keeps `ToolProvider` untouched while preventing cross-client elicitation misrouting across `ClientSession`'s shared receive loop, keeps policy/tiers strictly under ZOS `tool_tiers` (unknown preview tools default to `external`), and makes the active backend visible on `/healthz` without breaking its existing shape.
 - **Impact:** `gcal` exercises remote MCP proxying while `gmail` stays on our REST adapter, both sharing one Google credential and unioned scopes (`calendar.*` + `gmail.*`).
 
+## 2026-11-24 — Shared `AdminService` layer and stateless HMAC `/admin` cookies (M6)
+
+- **Decision:** Extract all administrative mutations and audit recording into `src/zos/admin_service.py` (`AdminService`) shared by both `src/zos/cli.py` and `/admin`; authenticate `/admin` via stateless HMAC-SHA256 signed cookies (`zos_admin_session`, `HttpOnly`, `SameSite=Strict`, `Path=/admin`, 12h TTL, `Secure` when `ZOS_BASE_URL` is `https://`) carrying a per-session CSRF token, with in-memory per-IP login failure rate limiting (5 failures / 60s → 429) and strict CSP/clickjacking headers.
+- **Why:** Guarantees CLI and `/admin` never drift in SQL or audit events, avoids adding a separate `admin_sessions` DB table (no schema migration required), keeps `/admin` zero-build/zero-JS-framework HTML, and enforces CSRF + brute-force protection out of the box.
+- **Impact:** Every `/admin` mutation emits the identical `events` records as `zos` CLI commands; `zos policy clear` was also exposed on the CLI to mirror `/admin/policy/clear`.
+
+
 
 
 
