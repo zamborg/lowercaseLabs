@@ -42,6 +42,13 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Observed during live macOS launchd smoke testing: interactive login `-zsh` hangs indefinitely in a detached tmux pane with no attached client (interactive prompt/plugin init stalls), whereas `/bin/zsh -f` is ready in <50ms, deterministic, and still preserves cwd and exported env vars across `mac_shell_run` calls.
 - **Impact:** `mac_shell_run` executes reliably under launchd without inheriting user `.zshrc` or `.tmux.conf` side effects.
 
+## 2026-11-24 — Generic `McpUpstreamProvider` and `gcal` Calendar MCP wiring (M5)
+
+- **Decision:** Implement `McpUpstreamProvider` generically over `UpstreamTokenSource` (vault-backed) using `mcp`'s Streamable HTTP client with an `httpx2.Auth` bearer handler (one automatic refresh+retry on 401), serialize `call_tool` per upstream provider via `asyncio.Lock` to correlate upstream `elicitation/create` 1:1 with the exact downstream client & `request_id` (audited as `elicitation.passthrough`), default `gcal` to `backend: mcp` (`https://calendarmcp.googleapis.com/mcp/v1`) with `backend: api` selectable via `providers.config` or `ZOS_GCAL_BACKEND`, and surface `"backend"` on upstream providers in `/healthz`.
+- **Why:** Keeps `ToolProvider` untouched while preventing cross-client elicitation misrouting across `ClientSession`'s shared receive loop, keeps policy/tiers strictly under ZOS `tool_tiers` (unknown preview tools default to `external`), and makes the active backend visible on `/healthz` without breaking its existing shape.
+- **Impact:** `gcal` exercises remote MCP proxying while `gmail` stays on our REST adapter, both sharing one Google credential and unioned scopes (`calendar.*` + `gmail.*`).
+
+
 
 
 

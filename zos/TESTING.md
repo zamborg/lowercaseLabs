@@ -85,22 +85,34 @@ Pass `Authorization: Bearer <token>` to `http://localhost:8787/mcp`.
    ```
 4. Test `mac_messages_search` from any connected MCP client. *(Re-grant Full Disk Access if you upgrade Python.)*
 
-### B. Connect Google Calendar + Gmail
+### B. Connect Google Calendar (MCP) + Gmail (REST)
 
-1. In [Google Cloud Console](https://console.cloud.google.com/), create (or pick) a project (e.g. `zos-personal`) and enable **Google Calendar API** and **Gmail API**.
+1. In [Google Cloud Console](https://console.cloud.google.com/), create (or pick) a project (e.g. `zos-personal`) and enable:
+   - **Gmail API** (`gmail.googleapis.com`)
+   - **Google Calendar MCP** (`calendarmcp.googleapis.com`) — and optionally **Google Calendar API** (`calendar-json.googleapis.com`) if you ever want to switch `gcal` to `backend: api` fallback.
 2. Under **Google Auth Platform → Audience**: set User Type **External**, then click **Publish App** (**In production**; do *not* submit for verification).
    - *Fallback if restricted Gmail scopes are blocked on an unverified personal account:* switch to **Testing** mode, add your personal Gmail as a Test User, and note the 7-day refresh token expiry.
-3. Under **Clients → Create Client → Web application**, add Authorized Redirect URI:
-   ```text
-   http://localhost:8787/connect/google/callback
-   ```
-   *(Optional: also add `http://127.0.0.1:8765/callback` if you want to run `uv run python spikes/google/oauth_spike.py`.)*
-4. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `zos/.env`, then recreate the container:
+3. Under **Google Auth Platform → Data Access**, add the unioned Calendar MCP + Gmail scopes:
+   - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
+   - `https://www.googleapis.com/auth/calendar.events.freebusy`
+   - `https://www.googleapis.com/auth/calendar.events.readonly`
+   - `https://www.googleapis.com/auth/calendar.events`
+   - `https://www.googleapis.com/auth/gmail.readonly`
+   - `https://www.googleapis.com/auth/gmail.send`
+4. Under **Clients → Create Client → Web application**:
+   - Tick **"Use this client for an AI-powered agent"** (required by Google's Calendar MCP server).
+   - Add Authorized Redirect URI:
+     ```text
+     http://localhost:8787/connect/google/callback
+     ```
+     *(Optional: also add `http://127.0.0.1:8765/callback` if you want to run `uv run python spikes/google/oauth_spike.py`.)*
+5. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `zos/.env`, then recreate the container:
    ```bash
    cd /Users/zubinaysola/Documents/personal/lowercaseLabs/zos
    docker compose --env-file .env -f deploy/docker-compose.yml up -d --force-recreate zos
    ```
-5. Open **`http://localhost:8787/connect/google`** in your browser, enter the passphrase from `zos/.owner-passphrase`, and complete Google consent. Both `gcal_*` and `gmail_*` tools appear immediately via `notifications/tools/list_changed`.
+6. Open **`http://localhost:8787/connect/google`** in your browser, enter the passphrase from `zos/.owner-passphrase`, and complete Google consent. Both `gcal_*` (proxied from `https://calendarmcp.googleapis.com/mcp/v1`) and `gmail_*` (REST adapter) appear immediately via `notifications/tools/list_changed`.
+   - *Fallback switch:* to fall back to ZOS's REST Calendar adapter, set `config = '{"backend": "api"}'` on the `gcal` row in `providers` (or `ZOS_GCAL_BACKEND=api` in `.env`) and restart `zos`.
 
 ### C. Later / optional
 
@@ -116,7 +128,8 @@ Pass `Authorization: Bearer <token>` to `http://localhost:8787/mcp`.
 | **M1 — Core, Policy, Memory, Deploy** | All unit/integration/e2e tests pass (including `untrusted` ceiling, naming truncate+hash, annotations, elicitation, audit); OrbStack live stack running on `127.0.0.1:8787`; Codex CLI (`gpt-6.1-terra`) bearer smoke passed. | Fly + Neon cloud deploy smoke (deferred); manual Claude Code + Codex shared-memory smoke. |
 | **M2 — OAuth 2.1 AS** | Full MCP SDK `OAuthClientProvider` e2e passes locally and live against OrbStack; PKCE, single-use/expired codes, DCR rules, refresh rotation & family reuse isolation all tested. | Manual browser OAuth sign-in from Claude Code and Codex. |
 | **M3 — Mac Actuator** | Fixture `chat.db`, `typedstream` (127/128/70k/UTF-8/`NSMutableString`/truncated), real `tmux`, and core+actuator e2e (`list_changed`, `ACTUATOR_OFFLINE`, `ACTUATOR_DISCONNECTED_MID_CALL`, replacement, auth rejection) all pass; live LaunchAgent stop/restart tool visibility + live `mac_shell_run` via Codex passed. | Grant Full Disk Access to the resolved Python binary and run real-device `mac_messages_search` count-only smoke. |
-| **M4 — Google Upstream** | Vault AES-GCM + concurrent refresh lock + `respx`-mocked `/connect/google`, Calendar CRUD (explicit TZ), Gmail bounded metadata search/read/MIME threading, 429 backoff, 401 refresh, `gmail_send` elicitation, and revocation all pass. | Google Cloud Web OAuth client setup, live `/connect/google` consent, and live Calendar/Gmail/`gmail_send` elicitation smoke. |
+| **M4 — Google Upstream** | Vault AES-GCM + concurrent refresh lock + `respx`-mocked `/connect/google`, Calendar REST fallback (`backend=api`), Gmail bounded metadata search/read/MIME threading, 429 backoff, 401 refresh, `gmail_send` elicitation, and revocation all pass. | Google Cloud Web OAuth client setup, live `/connect/google` consent, and live Calendar/Gmail/`gmail_send` elicitation smoke. |
+| **M5 — Upstream MCP Proxy (`gcal`)** | Generic `McpUpstreamProvider` verified against in-process Streamable HTTP fake upstream: prefixing, verbatim call + `structuredContent`/`isError` passthrough, upstream→downstream `list_changed`, upstream form elicitation passthrough + decline + audit, 401→refresh→retry & reconnect error, upstream down→offline, unknown preview tool→`external`. Live `/healthz` reports `gcal` with `backend: mcp`. | Live smoke against Google's `calendarmcp.googleapis.com/mcp/v1` (counts/shapes only) after Zubin connects Google. |
 | **Definition of Done (V0)** | Every call audited in `events`; `DECISIONS.md` current; zero `later/` scope built; all Docker ports bound strictly to `127.0.0.1`. | End-to-end human session with both Claude Code and Codex signed in via OAuth using shared memory + FDA Messages + live Google. |
 
 ---
