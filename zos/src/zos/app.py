@@ -32,6 +32,7 @@ from zos.db import create_pool, run_migrations
 from zos.policy import DatabasePolicyEvaluator, request_tool_confirmation
 from zos.providers.actuator import ActuatorManager
 from zos.providers.base import ToolProvider
+from zos.providers.google import GmailProvider, GoogleCalendarProvider, GoogleServiceHub
 from zos.providers.memory import MemoryProvider
 from zos.router import ProviderRegistry, SessionTracker, ToolRouter
 
@@ -64,6 +65,7 @@ class ZosRuntime:
     mcp_server: ZosMCPServer
     session_manager: StreamableHTTPSessionManager
     actuator_manager: ActuatorManager
+    google_hub: GoogleServiceHub
 
 
 def _extract_call_context(rctx: Any) -> CallContext:
@@ -141,6 +143,7 @@ def create_app(
     )
 
     actuator_manager = ActuatorManager(pool, registry, sessions)
+    google_hub = GoogleServiceHub(pool, cfg, sessions)
 
     runtime = ZosRuntime(
         settings=cfg,
@@ -151,6 +154,7 @@ def create_app(
         mcp_server=mcp_server,
         session_manager=session_manager,
         actuator_manager=actuator_manager,
+        google_hub=google_hub,
     )
 
     @contextlib.asynccontextmanager
@@ -172,6 +176,9 @@ def create_app(
 
             registry.register(MemoryProvider(pool, provider_id=mem_provider_id))
             await actuator_manager.load_registered_actuators()
+            await google_hub.load_existing_connection()
+            registry.register(GoogleCalendarProvider(google_hub))
+            registry.register(GmailProvider(google_hub))
             for provider in extra_providers or []:
                 registry.register(provider)
 
@@ -206,6 +213,7 @@ def create_app(
         Route("/mcp", endpoint=mcp_asgi, methods=["GET", "POST", "DELETE"]),
         *create_oauth_routes(pool, cfg),
         *actuator_manager.routes(),
+        *google_hub.routes(),
     ]
     if extra_routes_factory is not None:
         routes.extend(extra_routes_factory(runtime))
