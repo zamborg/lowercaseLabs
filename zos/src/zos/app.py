@@ -26,6 +26,7 @@ from starlette.routing import BaseRoute, Route
 
 from zos.audit import DatabaseAuditRecorder
 from zos.auth import BearerAuthASGIMiddleware, CallContext, current_call_context
+from zos.auth.oauth import create_oauth_routes
 from zos.config import Settings
 from zos.db import create_pool, run_migrations
 from zos.policy import DatabasePolicyEvaluator, request_tool_confirmation
@@ -197,6 +198,7 @@ def create_app(
     routes: list[BaseRoute] = [
         Route("/healthz", healthz, methods=["GET"]),
         Route("/mcp", endpoint=mcp_asgi, methods=["GET", "POST", "DELETE"]),
+        *create_oauth_routes(pool, cfg),
     ]
     if extra_routes_factory is not None:
         routes.extend(extra_routes_factory(runtime))

@@ -30,4 +30,11 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Supports RFC 8707 resource-indicator verification cleanly without a separate migration and makes token/policy rows straightforward to inspect and revoke.
 - **Impact:** Strictly additive over `SCHEMA.md`; all constraints and semantics match `SCHEMA.md` verbatim.
 
+## 2026-11-23 — Custom minimal OAuth 2.1 AS routes over `mcp.server.auth.routes` (Tasks 2.1–2.4)
+
+- **Decision:** Implement discovery (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-protected-resource/mcp`, `/.well-known/oauth-authorization-server`), DCR (`/oauth/register`), owner-passphrase approval (`/oauth/authorize`), and token exchange/refresh (`/oauth/token`) directly in `src/zos/auth/oauth.py` rather than mounting `mcp.server.auth.routes.create_auth_routes`.
+- **Why:** Verified against installed `mcp==2.3.0`: `mcp.server.auth.routes.build_metadata` hardcodes `token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"]` (omitting `"none"` required for public PKCE clients) and uses `/authorize`/`/token`/`/register` rather than `/oauth/*`. Implementing directly keeps our single-user AS minimal, supports `token_endpoint_auth_method="none"`, enforces RFC 9207 `iss` and RFC 8707 `resource` binding, and integrates cleanly with our `family_id`/`rotated_at` refresh-token reuse revocation.
+- **Impact:** Verified end-to-end against `mcp.client.auth.OAuthClientProvider` in `tests/e2e/test_m2_oauth.py`.
+
+
 
