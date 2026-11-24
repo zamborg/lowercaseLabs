@@ -32,7 +32,13 @@ from zos.db import create_pool, run_migrations
 from zos.policy import DatabasePolicyEvaluator, request_tool_confirmation
 from zos.providers.actuator import ActuatorManager
 from zos.providers.base import ToolProvider
-from zos.providers.google import GmailProvider, GoogleCalendarProvider, GoogleServiceHub
+from zos.providers.google import (
+    DEFAULT_GCAL_MCP_URL,
+    GmailProvider,
+    GoogleCalendarProvider,
+    GoogleServiceHub,
+)
+from zos.providers.mcp_upstream import HttpClientFactory, McpUpstreamProvider
 from zos.providers.memory import MemoryProvider
 from zos.router import ProviderRegistry, SessionTracker, ToolRouter
 
@@ -86,6 +92,9 @@ def create_app(
     extra_providers: list[ToolProvider] | None = None,
     extra_routes_factory: Callable[[ZosRuntime], list[BaseRoute]] | None = None,
     run_migrations_on_startup: bool = True,
+    gcal_backend: str | None = None,
+    gcal_mcp_url: str | None = None,
+    gcal_http_client_factory: HttpClientFactory | None = None,
 ) -> Starlette:
     """Create the ZOS Starlette ASGI application."""
     cfg = settings or Settings.from_env()
@@ -160,6 +169,7 @@ def create_app(
     @contextlib.asynccontextmanager
     async def lifespan(starlette_app: Starlette) -> AsyncIterator[None]:
         await pool.open()
+        closables: list[McpUpstreamProvider] = []
         try:
             if run_migrations_on_startup:
                 await run_migrations(pool, cfg.migrations_dir)
@@ -177,28 +187,73 @@ def create_app(
             registry.register(MemoryProvider(pool, provider_id=mem_provider_id))
             await actuator_manager.load_registered_actuators()
             await google_hub.load_existing_connection()
-            registry.register(GoogleCalendarProvider(google_hub))
+
+            gcal_cfg = google_hub.gcal_config
+            effective_backend = (
+                (gcal_backend or "").strip().lower()
+                or str(gcal_cfg.get("backend") or "").strip().lower()
+                or cfg.gcal_backend
+                or "mcp"
+            )
+            effective_mcp_url = (
+                (gcal_mcp_url or "").strip()
+                or str(gcal_cfg.get("url") or "").strip()
+                or cfg.gcal_mcp_url
+                or DEFAULT_GCAL_MCP_URL
+            )
+
+            if effective_backend == "api":
+                registry.register(GoogleCalendarProvider(google_hub))
+            else:
+                gcal_mcp = McpUpstreamProvider(
+                    namespace="gcal",
+                    url=effective_mcp_url,
+                    token_source=google_hub,
+                    sessions=sessions,
+                    provider_id_getter=lambda: google_hub.gcal_provider_id,
+                    audit_elicitation=audit_recorder.record_elicitation,
+                    http_client_factory=gcal_http_client_factory,
+                )
+                google_hub.add_on_connect(lambda: gcal_mcp.ensure_connected(broadcast_on_change=False))
+                google_hub.add_on_revoke(lambda: gcal_mcp.disconnect(broadcast_on_change=False))
+                registry.register(gcal_mcp)
+                closables.append(gcal_mcp)
+                if google_hub.is_connected:
+                    await gcal_mcp.ensure_connected(broadcast_on_change=False)
+
             registry.register(GmailProvider(google_hub))
             for provider in extra_providers or []:
                 registry.register(provider)
+                if isinstance(provider, McpUpstreamProvider):
+                    closables.append(provider)
 
             async with session_manager.run():
                 yield
         finally:
+            for upstream in closables:
+                with contextlib.suppress(Exception):
+                    await upstream.aclose()
             await pool.close()
 
     async def healthz(request: Request) -> JSONResponse:
         async with pool.connection() as conn:
             cur = await conn.execute("SELECT 1 AS ok")
             await cur.fetchone()
+        providers_health = []
+        for p in registry.all_providers():
+            entry: dict[str, Any] = {
+                "namespace": p.namespace,
+                "kind": p.kind,
+                "online": p.is_online(),
+            }
+            if hasattr(p, "backend"):
+                entry["backend"] = p.backend
+            providers_health.append(entry)
         return JSONResponse(
             {
                 "ok": True,
                 "active_sessions": sessions.count,
-                "providers": [
-                    {"namespace": p.namespace, "kind": p.kind, "online": p.is_online()}
-                    for p in registry.all_providers()
-                ],
+                "providers": providers_health,
             }
         )
 

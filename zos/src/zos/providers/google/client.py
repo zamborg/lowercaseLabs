@@ -7,6 +7,7 @@ import contextlib
 import logging
 import secrets
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
@@ -33,8 +34,12 @@ logger = logging.getLogger(__name__)
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
+DEFAULT_GCAL_MCP_URL = "https://calendarmcp.googleapis.com/mcp/v1"
 
 GOOGLE_SCOPES: tuple[str, ...] = (
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+    "https://www.googleapis.com/auth/calendar.events.freebusy",
+    "https://www.googleapis.com/auth/calendar.events.readonly",
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
@@ -77,11 +82,33 @@ class GoogleServiceHub:
         self._space_id: UUID | None = None
         self._gcal_provider_id: UUID | None = None
         self._gmail_provider_id: UUID | None = None
+        self._gcal_config: dict[str, Any] = {}
         self._pending_states: dict[str, float] = {}
+        self._on_connect_callbacks: list[Callable[[], Awaitable[Any]]] = []
+        self._on_revoke_callbacks: list[Callable[[], Awaitable[Any]]] = []
 
     @property
     def is_connected(self) -> bool:
         return self._store is not None and self._credential_id is not None
+
+    def has_credential(self) -> bool:
+        """UpstreamTokenSource: whether a valid Google credential is currently attached."""
+        return self.is_connected
+
+    @property
+    def reconnect_hint(self) -> str:
+        """UpstreamTokenSource: actionable reconnect guidance for upstream auth failures."""
+        return "Reconnect Google at /connect/google."
+
+    def add_on_connect(self, cb: Callable[[], Awaitable[Any]]) -> None:
+        self._on_connect_callbacks.append(cb)
+
+    def add_on_revoke(self, cb: Callable[[], Awaitable[Any]]) -> None:
+        self._on_revoke_callbacks.append(cb)
+
+    @property
+    def gcal_config(self) -> dict[str, Any]:
+        return dict(self._gcal_config)
 
     @property
     def gcal_provider_id(self) -> UUID | None:
@@ -91,11 +118,43 @@ class GoogleServiceHub:
     def gmail_provider_id(self) -> UUID | None:
         return self._gmail_provider_id
 
+    async def get_access_token(self, *, force_refresh: bool = False) -> str:
+        """UpstreamTokenSource: fetch a valid Google access token via the vault's refresh lock."""
+        if not self.is_connected or self._store is None or self._credential_id is None:
+            raise CredentialRevokedError("Google is not connected. Reconnect Google at /connect/google.")
+        space_id = self._space_id
+        if space_id is None:
+            _, sp = await get_principal_and_space(self.pool)
+            space_id = sp["id"]
+            self._space_id = space_id
+        return await self._store.get_valid_access_token(
+            self._credential_id,
+            space_id=space_id,
+            refresh_fn=self._refresh_google_token,
+            force_refresh=force_refresh,
+        )
+
     async def load_existing_connection(self) -> None:
-        """Load persisted Google credential and gcal/gmail provider IDs on startup."""
-        if self._store is None:
-            return
+        """Load persisted Google credential and gcal/gmail provider configs/IDs on startup."""
         async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                """
+                SELECT id, slug, config FROM providers
+                WHERE slug IN ('gcal', 'gmail') AND enabled = true
+                ORDER BY created_at ASC
+                """
+            )
+            for row in await cur.fetchall():
+                if row["slug"] == "gcal":
+                    self._gcal_provider_id = row["id"]
+                    if isinstance(row["config"], dict):
+                        self._gcal_config = dict(row["config"])
+                elif row["slug"] == "gmail":
+                    self._gmail_provider_id = row["id"]
+
+            if self._store is None:
+                return
+
             cur = await conn.execute(
                 """
                 SELECT id, principal_id
@@ -118,19 +177,6 @@ class GoogleServiceHub:
             sp = await cur.fetchone()
             if sp is not None:
                 self._space_id = sp["id"]
-
-            cur = await conn.execute(
-                """
-                SELECT id, slug FROM providers
-                WHERE principal_id = %s AND slug IN ('gcal', 'gmail') AND enabled = true
-                """,
-                (self._principal_id,),
-            )
-            for row in await cur.fetchall():
-                if row["slug"] == "gcal":
-                    self._gcal_provider_id = row["id"]
-                elif row["slug"] == "gmail":
-                    self._gmail_provider_id = row["id"]
 
     async def attach_google_tokens(
         self,
@@ -160,6 +206,10 @@ class GoogleServiceHub:
 
         async with self.pool.connection() as conn, conn.transaction():
             ids: dict[str, UUID] = {}
+            default_configs = {
+                "gcal": {"backend": "mcp", "transport": "mcp", "url": DEFAULT_GCAL_MCP_URL},
+                "gmail": {"backend": "api"},
+            }
             for slug in ("gcal", "gmail"):
                 cur = await conn.execute(
                     """
@@ -171,13 +221,15 @@ class GoogleServiceHub:
                     SET credential_id = EXCLUDED.credential_id,
                         enabled = true,
                         last_seen_at = now()
-                    RETURNING id
+                    RETURNING id, config
                     """,
-                    (p_id, s_id, slug, cred_id, Jsonb({})),
+                    (p_id, s_id, slug, cred_id, Jsonb(default_configs[slug])),
                 )
                 row = await cur.fetchone()
                 assert row is not None
                 ids[slug] = row["id"]
+                if slug == "gcal" and isinstance(row["config"], dict):
+                    self._gcal_config = dict(row["config"])
 
         self._credential_id = cred_id
         self._principal_id = p_id
@@ -201,6 +253,9 @@ class GoogleServiceHub:
                 event_type="provider.connected",
                 payload={"slug": slug, "issuer": "google"},
             )
+        for cb in self._on_connect_callbacks:
+            with contextlib.suppress(Exception):
+                await cb()
         await self.sessions.broadcast_tools_changed()
         return cred_id
 
@@ -211,6 +266,9 @@ class GoogleServiceHub:
         s_id = self._space_id
         self._credential_id = None
 
+        for cb in self._on_revoke_callbacks:
+            with contextlib.suppress(Exception):
+                await cb()
         if cred_id is not None and self._store is not None:
             await self._store.delete_credential(cred_id)
         if p_id is not None and s_id is not None:

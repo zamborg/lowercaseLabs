@@ -31,6 +31,8 @@ class Settings:
     zos_owner_password_hash: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
+    gcal_backend: str = ""
+    gcal_mcp_url: str = ""
     migrations_dir: Path = field(default_factory=_default_migrations_dir)
 
     @classmethod
@@ -49,5 +51,7 @@ class Settings:
             zos_owner_password_hash=os.environ.get("ZOS_OWNER_PASSWORD_HASH", "").strip(),
             google_client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
             google_client_secret=os.environ.get("GOOGLE_CLIENT_SECRET", "").strip(),
+            gcal_backend=os.environ.get("ZOS_GCAL_BACKEND", "").strip().lower(),
+            gcal_mcp_url=os.environ.get("ZOS_GCAL_MCP_URL", "").strip(),
             migrations_dir=Path(mig_override) if mig_override else _default_migrations_dir(),
         )

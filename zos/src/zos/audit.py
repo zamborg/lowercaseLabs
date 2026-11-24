@@ -106,3 +106,25 @@ class DatabaseAuditRecorder:
             args=args,
             payload=payload,
         )
+
+    async def record_elicitation(
+        self,
+        ctx: Any,
+        provider_id: UUID | None,
+        tool: str,
+        decision: str,
+        outcome: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        await record_event(
+            self.pool,
+            principal_id=ctx.principal_id,
+            space_id=ctx.space_id,
+            client_id=ctx.client_id,
+            provider_id=provider_id,
+            event_type="elicitation.passthrough",
+            tool=tool,
+            decision=decision,
+            outcome=outcome,  # type: ignore[arg-type]
+            payload=payload,
+        )

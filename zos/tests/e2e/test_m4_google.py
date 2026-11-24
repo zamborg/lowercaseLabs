@@ -51,6 +51,17 @@ async def test_m4_e2e_google_connect_calendar_gmail_backoff_refresh_and_revocati
         google_client_id="fake-google-cid",
         google_client_secret="fake-google-csecret",
     )
+    # Pre-seed gcal provider row with config {"backend": "api"} to exercise the REST fallback
+    async with db_pool.connection() as conn:
+        await conn.execute(
+            """
+            INSERT INTO providers (principal_id, space_id, slug, kind, config, enabled)
+            VALUES (%s, %s, 'gcal', 'upstream', '{"backend": "api"}'::jsonb, true)
+            """,
+            (p_id, s_id),
+        )
+        await conn.commit()
+
     app = create_app(cfg, run_migrations_on_startup=False)
     # Speed up 429 backoff for tests
     app.state.zos.google_hub.backoff_base_s = 0.01

@@ -48,7 +48,9 @@ def _format_event(ev: dict[str, Any]) -> dict[str, Any]:
 
 
 class GoogleCalendarProvider:
-    """Upstream Google Calendar provider sharing the principal's Google credential."""
+    """Upstream Google Calendar REST API provider (fallback when gcal backend='api')."""
+
+    backend = "api"
 
     def __init__(self, hub: GoogleServiceHub) -> None:
         self.hub = hub

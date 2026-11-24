@@ -94,7 +94,9 @@ def _extract_body_from_payload(payload: dict[str, Any]) -> str:
 
 
 class GmailProvider:
-    """Upstream Gmail provider sharing the principal's Google credential."""
+    """Upstream Gmail REST API provider sharing the principal's Google credential."""
+
+    backend = "api"
 
     def __init__(self, hub: GoogleServiceHub) -> None:
         self.hub = hub
