@@ -114,7 +114,7 @@ Pass `Authorization: Bearer <token>` to `http://localhost:8787/mcp`.
    docker compose --env-file .env -f deploy/docker-compose.yml up -d --force-recreate zos
    ```
 6. Open **`http://localhost:8787/connect/google`** in your browser, enter the passphrase from `zos/.owner-passphrase`, and complete Google consent. Both `gcal_*` (proxied from `https://calendarmcp.googleapis.com/mcp/v1`) and `gmail_*` (REST adapter) appear immediately via `notifications/tools/list_changed`.
-   - *Fallback switch:* to fall back to ZOS's REST Calendar adapter, set `config = '{"backend": "api"}'` on the `gcal` row in `providers` (or `ZOS_GCAL_BACKEND=api` in `.env`) and restart `zos`.
+   - *Backend switch:* toggle `gcal` between `api` and `mcp` live with zero restart from **`/admin`** (Overview → Providers), or via CLI `zos provider set-backend gcal api|mcp` (persisted in `providers.config` and audited as `provider.backend_changed`).
 
 ### C. Public exposure via Cloudflare Named Tunnel (for ChatGPT & remote MCP clients)
 

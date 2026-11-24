@@ -134,7 +134,19 @@ def render_admin_login_page(*, error: str | None = None) -> str:
 """
 
 
-def render_overview_page(*, overview: dict[str, Any], csrf_token: str) -> str:
+def render_overview_page(
+    *,
+    overview: dict[str, Any],
+    csrf_token: str,
+    notice: str | None = None,
+    error: str | None = None,
+) -> str:
+    banners = ""
+    if error:
+        banners += f'<div class="notice notice-err">{_e(error)}</div>'
+    if notice:
+        banners += f'<div class="notice notice-ok">{_e(notice)}</div>'
+
     providers = overview["providers"]
     online_count = sum(1 for p in providers if p["online"])
     prov_rows = []
@@ -144,12 +156,27 @@ def render_overview_page(*, overview: dict[str, Any], csrf_token: str) -> str:
             if p["online"]
             else '<span class="badge badge-muted">offline</span>'
         )
-        backend = _e(p["backend"]) if p.get("backend") else "—"
+        cur_backend = p.get("backend")
+        backend_cell = f"<code>{_e(cur_backend)}</code>" if cur_backend else "—"
+        switchable = p.get("switchable_backends") or []
+        if switchable:
+            toggles = []
+            for target in switchable:
+                if target == cur_backend:
+                    continue
+                toggles.append(
+                    f'<form class="inline" method="post" action="/admin/providers/backend" style="margin-left:0.5rem;">'
+                    f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+                    f'<input type="hidden" name="slug" value="{_e(p["namespace"])}">'
+                    f'<input type="hidden" name="backend" value="{_e(target)}">'
+                    f'<button type="submit" class="secondary sm">Switch to {_e(target)}</button></form>'
+                )
+            backend_cell += "".join(toggles)
         prov_rows.append(
             f"<tr>"
             f"<td><code>{_e(p['namespace'])}</code></td>"
             f"<td>{_e(p['kind'])}</td>"
-            f"<td><code>{backend}</code></td>"
+            f"<td>{backend_cell}</td>"
             f"<td>{badge}</td>"
             f"<td>{_e(_fmt_ts(p['last_seen_at']))}</td>"
             f"</tr>"
@@ -173,6 +200,7 @@ def render_overview_page(*, overview: dict[str, Any], csrf_token: str) -> str:
 
     body = f"""
     <h1>Overview</h1>
+    {banners}
     <div class="stats">
       <div class="stat"><div class="label">Active MCP Sessions</div><div class="value">{int(overview['active_sessions'])}</div></div>
       <div class="stat"><div class="label">Online Providers</div><div class="value">{online_count} / {len(providers)}</div></div>

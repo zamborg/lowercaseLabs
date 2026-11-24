@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -74,6 +75,7 @@ class ZosRuntime:
     session_manager: StreamableHTTPSessionManager
     actuator_manager: ActuatorManager
     google_hub: GoogleServiceHub
+    switch_provider_backend: Callable[[str, str], Awaitable[ToolProvider]] | None = None
 
 
 def _extract_call_context(rctx: Any) -> CallContext:
@@ -161,6 +163,72 @@ def create_app(
     actuator_manager = ActuatorManager(pool, registry, sessions)
     google_hub = GoogleServiceHub(pool, cfg, sessions, passphrase_limiter=passphrase_limiter)
 
+    active_gcal_mcp: McpUpstreamProvider | None = None
+    gcal_switch_lock = asyncio.Lock()
+
+    def _effective_gcal_mcp_url() -> str:
+        gcal_cfg = google_hub.gcal_config
+        return (
+            (gcal_mcp_url or "").strip()
+            or str(gcal_cfg.get("url") or "").strip()
+            or cfg.gcal_mcp_url
+            or DEFAULT_GCAL_MCP_URL
+        )
+
+    async def _on_google_connected() -> None:
+        if active_gcal_mcp is not None:
+            await active_gcal_mcp.ensure_connected(broadcast_on_change=False)
+
+    async def _on_google_revoked() -> None:
+        if active_gcal_mcp is not None:
+            await active_gcal_mcp.disconnect(broadcast_on_change=False)
+
+    google_hub.add_on_connect(_on_google_connected)
+    google_hub.add_on_revoke(_on_google_revoked)
+
+    async def _activate_gcal_backend(
+        backend: str,
+        *,
+        broadcast: bool = True,
+    ) -> ToolProvider:
+        nonlocal active_gcal_mcp
+        async with gcal_switch_lock:
+            old_mcp = active_gcal_mcp
+            active_gcal_mcp = None
+            if old_mcp is not None:
+                with contextlib.suppress(Exception):
+                    await old_mcp.aclose()
+
+            google_hub.set_gcal_backend_config(backend)
+            provider: ToolProvider
+            if backend == "api":
+                provider = GoogleCalendarProvider(google_hub)
+                registry.register(provider)
+            else:
+                new_mcp = McpUpstreamProvider(
+                    namespace="gcal",
+                    url=_effective_gcal_mcp_url(),
+                    token_source=google_hub,
+                    sessions=sessions,
+                    provider_id_getter=lambda: google_hub.gcal_provider_id,
+                    audit_elicitation=audit_recorder.record_elicitation,
+                    http_client_factory=gcal_http_client_factory,
+                )
+                active_gcal_mcp = new_mcp
+                registry.register(new_mcp)
+                provider = new_mcp
+                if google_hub.is_connected:
+                    await new_mcp.ensure_connected(broadcast_on_change=False)
+
+        if broadcast:
+            await sessions.broadcast_tools_changed()
+        return provider
+
+    async def switch_provider_backend(slug: str, backend: str) -> ToolProvider:
+        if slug != "gcal":
+            raise ValueError(f"Hot backend switching is not supported for '{slug}'")
+        return await _activate_gcal_backend(backend, broadcast=True)
+
     runtime = ZosRuntime(
         settings=cfg,
         pool=pool,
@@ -171,12 +239,13 @@ def create_app(
         session_manager=session_manager,
         actuator_manager=actuator_manager,
         google_hub=google_hub,
+        switch_provider_backend=switch_provider_backend,
     )
 
     @contextlib.asynccontextmanager
     async def lifespan(starlette_app: Starlette) -> AsyncIterator[None]:
         await pool.open()
-        closables: list[McpUpstreamProvider] = []
+        extra_closables: list[McpUpstreamProvider] = []
         try:
             if run_migrations_on_startup:
                 await run_migrations(pool, cfg.migrations_dir)
@@ -202,42 +271,21 @@ def create_app(
                 or cfg.gcal_backend
                 or "mcp"
             )
-            effective_mcp_url = (
-                (gcal_mcp_url or "").strip()
-                or str(gcal_cfg.get("url") or "").strip()
-                or cfg.gcal_mcp_url
-                or DEFAULT_GCAL_MCP_URL
-            )
-
-            if effective_backend == "api":
-                registry.register(GoogleCalendarProvider(google_hub))
-            else:
-                gcal_mcp = McpUpstreamProvider(
-                    namespace="gcal",
-                    url=effective_mcp_url,
-                    token_source=google_hub,
-                    sessions=sessions,
-                    provider_id_getter=lambda: google_hub.gcal_provider_id,
-                    audit_elicitation=audit_recorder.record_elicitation,
-                    http_client_factory=gcal_http_client_factory,
-                )
-                google_hub.add_on_connect(lambda: gcal_mcp.ensure_connected(broadcast_on_change=False))
-                google_hub.add_on_revoke(lambda: gcal_mcp.disconnect(broadcast_on_change=False))
-                registry.register(gcal_mcp)
-                closables.append(gcal_mcp)
-                if google_hub.is_connected:
-                    await gcal_mcp.ensure_connected(broadcast_on_change=False)
+            await _activate_gcal_backend(effective_backend, broadcast=False)
 
             registry.register(GmailProvider(google_hub))
             for provider in extra_providers or []:
                 registry.register(provider)
                 if isinstance(provider, McpUpstreamProvider):
-                    closables.append(provider)
+                    extra_closables.append(provider)
 
             async with session_manager.run():
                 yield
         finally:
-            for upstream in closables:
+            if active_gcal_mcp is not None:
+                with contextlib.suppress(Exception):
+                    await active_gcal_mcp.aclose()
+            for upstream in extra_closables:
                 with contextlib.suppress(Exception):
                     await upstream.aclose()
             await pool.close()
@@ -287,6 +335,7 @@ def create_app(
             registry,
             sessions,
             passphrase_limiter=passphrase_limiter,
+            switch_provider_backend=switch_provider_backend,
         ),
     ]
     if extra_routes_factory is not None:

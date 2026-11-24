@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from typing import Any
 from uuid import UUID
 
 from psycopg import AsyncConnection
@@ -59,6 +61,7 @@ def create_admin_routes(
     *,
     session_manager: AdminSessionManager | None = None,
     passphrase_limiter: GlobalPassphraseRateLimiter | None = None,
+    switch_provider_backend: Callable[[str, str], Awaitable[Any]] | None = None,
 ) -> list[Route]:
     """Create passphrase-gated, CSRF-protected /admin dashboard routes."""
     service = AdminService(pool)
@@ -136,6 +139,38 @@ def create_admin_routes(
             return _redirect("/admin/login")
         overview = await service.get_overview(registry, sessions)
         return _html(render_overview_page(overview=overview, csrf_token=session.csrf_token))
+
+    async def provider_set_backend(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        slug = data.get("slug", "").strip()
+        backend = data.get("backend", "").strip()
+        notice = None
+        error = None
+        try:
+            res = await service.set_provider_backend(
+                slug=slug,
+                backend=backend,
+                on_switch=switch_provider_backend,
+            )
+            notice = f"Switched provider '{res['slug']}' backend to '{res['backend']}'."
+        except Exception as exc:
+            error = str(exc)
+
+        overview = await service.get_overview(registry, sessions)
+        return _html(
+            render_overview_page(
+                overview=overview,
+                csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+            )
+        )
 
     async def clients_page(request: Request) -> Response:
         session = _require_session(request)
@@ -373,6 +408,7 @@ def create_admin_routes(
 
     return [
         Route("/admin", overview_page, methods=["GET"]),
+        Route("/admin/providers/backend", provider_set_backend, methods=["POST"]),
         Route("/admin/login", login, methods=["GET", "POST"]),
         Route("/admin/logout", logout, methods=["POST"]),
         Route("/admin/clients", clients_page, methods=["GET"]),

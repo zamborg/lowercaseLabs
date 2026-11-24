@@ -113,6 +113,9 @@ class GoogleServiceHub:
     def gcal_config(self) -> dict[str, Any]:
         return dict(self._gcal_config)
 
+    def set_gcal_backend_config(self, backend: str) -> None:
+        self._gcal_config["backend"] = backend
+
     @property
     def gcal_provider_id(self) -> UUID | None:
         return self._gcal_provider_id

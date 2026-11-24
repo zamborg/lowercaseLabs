@@ -22,11 +22,13 @@ client_app = typer.Typer(help="Manage MCP clients.")
 token_app = typer.Typer(help="Manage bearer and OAuth tokens.")
 policy_app = typer.Typer(help="Manage per-client and default tool policies.")
 actuator_app = typer.Typer(help="Manage dial-out actuators.")
+provider_app = typer.Typer(help="Manage upstream providers.")
 
 app.add_typer(client_app, name="client")
 app.add_typer(token_app, name="token")
 app.add_typer(policy_app, name="policy")
 app.add_typer(actuator_app, name="actuator")
+app.add_typer(provider_app, name="provider")
 
 
 def _settings() -> Settings:
@@ -246,6 +248,32 @@ def actuator_add_cmd(
     typer.echo(f"provider_id={res['provider']['id']}")
     typer.echo(f"token_id={res['token_id']}")
     typer.echo(f"token={res['token']}")
+
+
+@provider_app.command("set-backend")
+def provider_set_backend_cmd(
+    slug: Annotated[str, typer.Argument(help="Upstream provider slug (e.g. gcal)")],
+    backend: Annotated[str, typer.Argument(help="Backend: api | mcp")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Switch an upstream provider's backend (persisted & audited)."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).set_provider_backend(
+                slug=slug,
+                backend=backend,
+                principal_slug=principal,
+            )
+
+    try:
+        res = asyncio.run(_run())
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    prev = res.get("previous_backend") or "default"
+    typer.echo(f"Provider backend set: slug={res['slug']} from={prev} to={res['backend']}")
 
 
 @app.command("hash-password")

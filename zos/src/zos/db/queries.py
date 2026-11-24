@@ -324,6 +324,64 @@ async def delete_oauth_client(
         return dict(row) if row else None
 
 
+async def set_provider_backend(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    space_id: UUID,
+    slug: str,
+    backend: str,
+    default_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Persist an upstream provider's backend in `providers.config` (preserving other keys)."""
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            """
+            SELECT id, slug, kind, config, enabled, last_seen_at
+            FROM providers
+            WHERE principal_id = %s AND slug = %s
+            FOR UPDATE
+            """,
+            (principal_id, slug),
+        )
+        existing = await cur.fetchone()
+        if existing is not None:
+            if existing["kind"] != "upstream":
+                raise ValueError(f"Provider '{slug}' is not an upstream provider (kind={existing['kind']})")
+            old_cfg = dict(existing["config"]) if isinstance(existing["config"], dict) else {}
+            prev_backend = str(old_cfg.get("backend")) if old_cfg.get("backend") else None
+            new_cfg = {**old_cfg, "backend": backend}
+            cur = await conn.execute(
+                """
+                UPDATE providers
+                SET config = %s
+                WHERE id = %s
+                RETURNING id, slug, kind, config, enabled, last_seen_at
+                """,
+                (Jsonb(new_cfg), existing["id"]),
+            )
+            row = await cur.fetchone()
+            assert row is not None
+        else:
+            prev_backend = None
+            new_cfg = {**(default_config or {}), "backend": backend}
+            cur = await conn.execute(
+                """
+                INSERT INTO providers (principal_id, space_id, slug, kind, config, enabled)
+                VALUES (%s, %s, %s, 'upstream', %s, true)
+                RETURNING id, slug, kind, config, enabled, last_seen_at
+                """,
+                (principal_id, space_id, slug, Jsonb(new_cfg)),
+            )
+            row = await cur.fetchone()
+            assert row is not None
+
+    out = dict(row)
+    out["previous_backend"] = prev_backend
+    out["backend"] = backend
+    return out
+
+
 async def set_client_policy(
     pool: AsyncConnectionPool[AsyncConnection[DictRow]],
     *,

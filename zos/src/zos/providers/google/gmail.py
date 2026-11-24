@@ -125,9 +125,22 @@ class GmailProvider:
                     "type": "object",
                     "properties": {
                         "query": {"type": "string", "description": "Gmail search query."},
-                        "limit": {"type": "integer", "minimum": 1, "maximum": MAX_SEARCH_LIMIT, "default": 10},
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_SEARCH_LIMIT,
+                            "default": 10,
+                            "description": "Maximum number of messages to return (1..25, default 10).",
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_SEARCH_LIMIT,
+                            "description": "Alias for limit (1..25).",
+                        },
                     },
                     "required": ["query"],
+                    "additionalProperties": False,
                 },
                 destructive_hint=False,
                 idempotent_hint=True,
@@ -186,10 +199,19 @@ class GmailProvider:
             )
 
     async def _search(self, args: dict[str, Any]) -> types.CallToolResult:
+        unknown = set(args) - {"query", "limit", "max_results"}
+        if unknown:
+            raise ValueError(f"Unknown argument(s) for gmail_search: {', '.join(sorted(unknown))}")
         query = str(args.get("query", "")).strip()
         if not query:
             raise ValueError("query is required")
-        limit = max(1, min(int(args.get("limit", 10)), MAX_SEARCH_LIMIT))
+
+        raw_limit = args.get("limit")
+        raw_max_results = args.get("max_results")
+        if raw_limit is not None and raw_max_results is not None and int(raw_limit) != int(raw_max_results):
+            raise ValueError("Pass either 'limit' or 'max_results', not conflicting values")
+        chosen_limit = raw_limit if raw_limit is not None else raw_max_results
+        limit = max(1, min(int(10 if chosen_limit is None else chosen_limit), MAX_SEARCH_LIMIT))
 
         listed = await self.hub.api_request(
             "GET",
