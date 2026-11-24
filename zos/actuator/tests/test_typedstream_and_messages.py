@@ -127,3 +127,7 @@ def test_messages_index_sync_attributed_body_and_filters(tmp_path: Path) -> None
     assert res3["synced_new"] == 1
     assert res3["count"] == 2
     assert "roast" in res3["matches"][0]["text"]
+
+    # Verify FTS5 external-content index integrity after incremental syncs
+    with sqlite3.connect(idx_db) as idx_check:
+        idx_check.execute("INSERT INTO messages_fts(messages_fts) VALUES('integrity-check')")

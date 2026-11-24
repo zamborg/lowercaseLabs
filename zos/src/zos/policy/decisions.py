@@ -1,8 +1,9 @@
-"""Per-client policy decision resolution and DB-backed evaluator."""
+"""Per-client policy decision resolution, pure PolicySnapshot, and DB-backed loader."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Literal
 
 from psycopg import AsyncConnection
@@ -50,19 +51,45 @@ def resolve_decision(
     return decision
 
 
+@dataclass(frozen=True, slots=True)
+class PolicySnapshot:
+    """In-memory snapshot of tiers and client policies loaded once per request."""
+
+    tiers: Mapping[str, Tier]
+    client_rules: Mapping[str, Decision]
+    global_rules: Mapping[str, Decision]
+
+    def evaluate(
+        self,
+        exposed_name: str,
+        *,
+        trust_ceiling: TrustCeiling,
+        destructive_hint: bool = False,
+        idempotent_hint: bool | None = None,
+    ) -> PolicyEvaluation:
+        tier = resolve_tier(exposed_name, self.tiers)
+        decision = resolve_decision(
+            exposed_name,
+            tier=tier,
+            trust_ceiling=trust_ceiling,
+            client_rules=self.client_rules,
+            global_rules=self.global_rules,
+        )
+        annotations = build_tool_annotations(
+            tier,
+            destructive_hint=destructive_hint,
+            idempotent_hint=idempotent_hint,
+        )
+        return PolicyEvaluation(tier=tier, decision=decision, annotations=annotations)
+
+
 class DatabasePolicyEvaluator:
-    """Loads tool_tiers and client_policies from Postgres to evaluate each tool."""
+    """Loads tool_tiers and client_policies from Postgres once per request (avoids N+1 queries)."""
 
     def __init__(self, pool: AsyncConnectionPool[AsyncConnection[DictRow]]) -> None:
         self.pool = pool
 
-    async def evaluate(
-        self,
-        ctx: CallContext,
-        exposed_name: str,
-        destructive_hint: bool = False,
-        idempotent_hint: bool | None = None,
-    ) -> PolicyEvaluation:
+    async def load_snapshot(self, ctx: CallContext) -> PolicySnapshot:
         async with self.pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT tool_pattern, tier FROM tool_tiers WHERE principal_id = %s",
@@ -86,17 +113,19 @@ class DatabasePolicyEvaluator:
                 else:
                     client_rules[row["tool_pattern"]] = row["decision"]
 
-        tier = resolve_tier(exposed_name, tiers)
-        decision = resolve_decision(
+        return PolicySnapshot(tiers=tiers, client_rules=client_rules, global_rules=global_rules)
+
+    async def evaluate(
+        self,
+        ctx: CallContext,
+        exposed_name: str,
+        destructive_hint: bool = False,
+        idempotent_hint: bool | None = None,
+    ) -> PolicyEvaluation:
+        snapshot = await self.load_snapshot(ctx)
+        return snapshot.evaluate(
             exposed_name,
-            tier=tier,
             trust_ceiling=ctx.trust_ceiling,
-            client_rules=client_rules,
-            global_rules=global_rules,
-        )
-        annotations = build_tool_annotations(
-            tier,
             destructive_hint=destructive_hint,
             idempotent_hint=idempotent_hint,
         )
-        return PolicyEvaluation(tier=tier, decision=decision, annotations=annotations)

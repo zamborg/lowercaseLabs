@@ -135,6 +135,8 @@ class MemoryProvider:
         args: dict[str, Any],
         ctx: CallContext,
     ) -> types.CallToolResult:
+        if self._provider_id is None:
+            await self._resolve_provider_id(ctx.principal_id)
         if name == "put":
             return await self._put(args, ctx)
         if name == "get":
@@ -147,6 +149,16 @@ class MemoryProvider:
             content=[types.TextContent(type="text", text=f"Unknown memory tool: {name}")],
             is_error=True,
         )
+
+    async def _resolve_provider_id(self, principal_id: UUID) -> None:
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT id FROM providers WHERE principal_id = %s AND slug = 'memory' AND kind = 'hosted' LIMIT 1",
+                (principal_id,),
+            )
+            row = await cur.fetchone()
+        if row is not None:
+            self._provider_id = row["id"]
 
     async def _put(self, args: dict[str, Any], ctx: CallContext) -> types.CallToolResult:
         key = str(args.get("key", "")).strip()

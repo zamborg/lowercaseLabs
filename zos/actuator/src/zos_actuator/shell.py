@@ -162,6 +162,7 @@ class TmuxShellRunner:
             self.temp_root.mkdir(parents=True, exist_ok=True)
             with contextlib.suppress(OSError):
                 os.chmod(self.temp_root, 0o700)
+            self._prune_stale_temp_files()
 
             call_id = uuid.uuid4().hex[:12]
             sh_path = self.temp_root / f"{call_id}.sh"
@@ -218,8 +219,8 @@ class TmuxShellRunner:
                 }
 
             if exit_code is None:
-                # Timed out; leave script/output readable no longer needed after reading
-                self._cleanup_files(sh_path, out_path, rc_path)
+                # Timed out: leave temp files intact while background process may still finish;
+                # _prune_stale_temp_files reaps old files automatically.
                 return {
                     "ok": False,
                     "error_code": "TIMEOUT",
@@ -243,6 +244,13 @@ class TmuxShellRunner:
                 "timed_out": False,
                 "pane_recreated": False,
             }
+
+    def _prune_stale_temp_files(self, *, max_age_s: float = 3600.0) -> None:
+        cutoff = time.time() - max_age_s
+        with contextlib.suppress(OSError):
+            for entry in self.temp_root.iterdir():
+                if entry.is_file() and entry.stat().st_mtime < cutoff:
+                    entry.unlink(missing_ok=True)
 
     @staticmethod
     def _cleanup_files(*paths: Path) -> None:

@@ -3,6 +3,7 @@ from zos.policy.decisions import (
     TIER_DEFAULT_DECISION,
     DatabasePolicyEvaluator,
     Decision,
+    PolicySnapshot,
     resolve_decision,
 )
 from zos.policy.elicitation import (
@@ -19,6 +20,7 @@ __all__ = [
     "TIER_DEFAULT_DECISION",
     "DatabasePolicyEvaluator",
     "Decision",
+    "PolicySnapshot",
     "Tier",
     "build_tool_annotations",
     "format_approval_message",

@@ -32,6 +32,7 @@ PolicyEvaluator = Callable[
     [CallContext, str, bool, bool | None],
     Awaitable[PolicyEvaluation],
 ]
+PolicySnapshotLoader = Callable[[CallContext], Awaitable[Any]]
 ConfirmationHandler = Callable[
     [ServerSession | None, Any, CallContext, str, dict[str, Any]],
     Awaitable[tuple[bool, str | None]],
@@ -51,12 +52,14 @@ class ToolRouter:
         sessions: SessionTracker | None = None,
         *,
         evaluate_policy: PolicyEvaluator | None = None,
+        load_policy_snapshot: PolicySnapshotLoader | None = None,
         confirm_call: ConfirmationHandler | None = None,
         record_audit: AuditRecorder | None = None,
     ) -> None:
         self.registry = registry
         self.sessions = sessions or SessionTracker()
         self._evaluate_policy = evaluate_policy
+        self._load_policy_snapshot = load_policy_snapshot
         self._confirm_call = confirm_call
         self._record_audit = record_audit
 
@@ -67,7 +70,23 @@ class ToolRouter:
         *,
         destructive_hint: bool = False,
         idempotent_hint: bool | None = None,
+        snapshot: Any = None,
     ) -> PolicyEvaluation:
+        if snapshot is not None:
+            return snapshot.evaluate(
+                exposed_name,
+                trust_ceiling=ctx.trust_ceiling,
+                destructive_hint=destructive_hint,
+                idempotent_hint=idempotent_hint,
+            )
+        if self._load_policy_snapshot is not None:
+            snap = await self._load_policy_snapshot(ctx)
+            return snap.evaluate(
+                exposed_name,
+                trust_ceiling=ctx.trust_ceiling,
+                destructive_hint=destructive_hint,
+                idempotent_hint=idempotent_hint,
+            )
         if self._evaluate_policy is not None:
             return await self._evaluate_policy(ctx, exposed_name, destructive_hint, idempotent_hint)
         return PolicyEvaluation(
@@ -111,9 +130,14 @@ class ToolRouter:
 
     async def list_tools(self, ctx: CallContext) -> list[types.Tool]:
         tools: list[types.Tool] = []
+        snapshot = (
+            await self._load_policy_snapshot(ctx) if self._load_policy_snapshot is not None else None
+        )
 
         # Always-on zos_status (unless explicitly denied by policy)
-        status_eval = await self._eval_policy(ctx, ZOS_STATUS_TOOL_NAME, destructive_hint=False)
+        status_eval = await self._eval_policy(
+            ctx, ZOS_STATUS_TOOL_NAME, destructive_hint=False, snapshot=snapshot
+        )
         if status_eval.decision != "deny":
             tools.append(zos_status_tool(annotations=status_eval.annotations))
 
@@ -125,6 +149,7 @@ class ToolRouter:
                 exposed_name,
                 destructive_hint=ptool.destructive_hint,
                 idempotent_hint=ptool.idempotent_hint,
+                snapshot=snapshot,
             )
             if ev.decision == "deny":
                 continue

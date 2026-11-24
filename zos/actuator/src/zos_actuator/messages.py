@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -71,6 +73,14 @@ class MessagesIndex:
                 content='messages_store',
                 content_rowid='rowid'
             );
+            CREATE TRIGGER IF NOT EXISTS messages_store_ai AFTER INSERT ON messages_store BEGIN
+                INSERT INTO messages_fts (rowid, text, handle, chat_identifier)
+                VALUES (new.rowid, new.text, new.handle, new.chat_identifier);
+            END;
+            CREATE TRIGGER IF NOT EXISTS messages_store_ad AFTER DELETE ON messages_store BEGIN
+                INSERT INTO messages_fts (messages_fts, rowid, text, handle, chat_identifier)
+                VALUES ('delete', old.rowid, old.text, old.handle, old.chat_identifier);
+            END;
             """
         )
         return conn
@@ -79,10 +89,20 @@ class MessagesIndex:
         if not self.chat_db_path.exists():
             raise FileNotFoundError(f"Messages database not found at {self.chat_db_path}")
         uri = f"file:{quote(str(self.chat_db_path), safe='/')}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA busy_timeout = 2000")
-        return conn
+        try:
+            conn = sqlite3.connect(uri, uri=True)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout = 2000")
+            # Probe readability immediately so macOS TCC/FDA errors surface clearly
+            conn.execute("SELECT 1 FROM message LIMIT 1")
+            return conn
+        except (PermissionError, sqlite3.OperationalError) as exc:
+            resolved_py = os.path.realpath(sys.executable)
+            raise PermissionError(
+                f"Cannot read {self.chat_db_path} ({exc}). "
+                f"Grant Full Disk Access in System Settings -> Privacy & Security -> Full Disk Access to: "
+                f"{resolved_py}"
+            ) from exc
 
     def sync(self) -> int:
         """Incrementally copy new messages (ROWID > last_rowid) into local FTS5 index."""
@@ -136,22 +156,16 @@ class MessagesIndex:
                     date_iso = apple_timestamp_to_iso(r["date_raw"])
                     is_from_me = 1 if r["is_from_me"] else 0
 
-                    idx_conn.execute(
+                    cur_ins = idx_conn.execute(
                         """
-                        INSERT OR REPLACE INTO messages_store
+                        INSERT OR IGNORE INTO messages_store
                             (rowid, handle, is_from_me, date_iso, chat_identifier, text)
                         VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         (rowid, handle, is_from_me, date_iso, chat_id, text),
                     )
-                    idx_conn.execute(
-                        """
-                        INSERT OR REPLACE INTO messages_fts (rowid, text, handle, chat_identifier)
-                        VALUES (?, ?, ?, ?)
-                        """,
-                        (rowid, text, handle, chat_id),
-                    )
-                    inserted += 1
+                    if cur_ins.rowcount:
+                        inserted += 1
 
                 idx_conn.execute(
                     "INSERT OR REPLACE INTO meta (key, value) VALUES ('last_rowid', ?)",

@@ -97,7 +97,7 @@ def create_app(
     router = ToolRouter(
         registry,
         sessions,
-        evaluate_policy=policy_evaluator.evaluate,
+        load_policy_snapshot=policy_evaluator.load_snapshot,
         confirm_call=request_tool_confirmation,
         record_audit=audit_recorder.record_tool_call,
     )

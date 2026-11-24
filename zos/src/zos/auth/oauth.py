@@ -281,6 +281,12 @@ def create_oauth_routes(
         if resource:
             hidden["resource"] = resource
 
+        html_headers = {
+            "Cache-Control": "no-store",
+            "X-Frame-Options": "DENY",
+            "Content-Security-Policy": "frame-ancestors 'none'",
+        }
+
         if request.method == "GET":
             html_body = render_authorize_page(
                 client_name=client["name"],
@@ -288,7 +294,7 @@ def create_oauth_routes(
                 scopes=scopes,
                 hidden_fields=hidden,
             )
-            return HTMLResponse(html_body, headers={"Cache-Control": "no-store"})
+            return HTMLResponse(html_body, headers=html_headers)
 
         # POST submission
         decision = params.get("decision", "approve")
@@ -299,6 +305,7 @@ def create_oauth_routes(
             return HTMLResponse(
                 "<h1>Owner passphrase not configured (ZOS_OWNER_PASSWORD_HASH)</h1>",
                 status_code=503,
+                headers=html_headers,
             )
 
         passphrase = params.get("passphrase", "")
@@ -310,7 +317,7 @@ def create_oauth_routes(
                 hidden_fields=hidden,
                 error="Invalid owner passphrase.",
             )
-            return HTMLResponse(html_body, status_code=401, headers={"Cache-Control": "no-store"})
+            return HTMLResponse(html_body, status_code=401, headers=html_headers)
 
         raw_code = secrets.token_urlsafe(32)
         code_hash = hash_secret(raw_code)

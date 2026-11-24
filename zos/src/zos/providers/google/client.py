@@ -192,6 +192,15 @@ class GoogleServiceHub:
             event_type="credential.connected",
             payload={"issuer": "google", "credential_id": str(cred_id), "scopes": scopes},
         )
+        for slug in ("gcal", "gmail"):
+            await record_event(
+                self.pool,
+                principal_id=p_id,
+                space_id=s_id,
+                provider_id=ids[slug],
+                event_type="provider.connected",
+                payload={"slug": slug, "issuer": "google"},
+            )
         await self.sessions.broadcast_tools_changed()
         return cred_id
 
@@ -320,6 +329,12 @@ class GoogleServiceHub:
         base_url = self.settings.zos_base_url.rstrip("/")
         callback_uri = f"{base_url}/connect/google/callback"
 
+        html_headers = {
+            "Cache-Control": "no-store",
+            "X-Frame-Options": "DENY",
+            "Content-Security-Policy": "frame-ancestors 'none'",
+        }
+
         async def connect_google(request: Request) -> Response:
             if request.method == "GET":
                 status = (
@@ -329,15 +344,27 @@ class GoogleServiceHub:
                 )
                 return HTMLResponse(
                     render_google_connect_page(status_message=status),
-                    headers={"Cache-Control": "no-store"},
+                    headers=html_headers,
                 )
 
             if not self.settings.zos_owner_password_hash:
-                return HTMLResponse("<h1>ZOS_OWNER_PASSWORD_HASH is not configured</h1>", status_code=503)
+                return HTMLResponse(
+                    "<h1>ZOS_OWNER_PASSWORD_HASH is not configured</h1>",
+                    status_code=503,
+                    headers=html_headers,
+                )
             if not self.settings.google_client_id or not self.settings.google_client_secret:
-                return HTMLResponse("<h1>GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not configured</h1>", status_code=503)
+                return HTMLResponse(
+                    "<h1>GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not configured</h1>",
+                    status_code=503,
+                    headers=html_headers,
+                )
             if self._store is None:
-                return HTMLResponse("<h1>ZOS_SECRET_KEY is not configured</h1>", status_code=503)
+                return HTMLResponse(
+                    "<h1>ZOS_SECRET_KEY is not configured</h1>",
+                    status_code=503,
+                    headers=html_headers,
+                )
 
             form = await request.form()
             passphrase = str(form.get("passphrase", ""))
@@ -345,7 +372,7 @@ class GoogleServiceHub:
                 return HTMLResponse(
                     render_google_connect_page(error="Invalid owner passphrase."),
                     status_code=401,
-                    headers={"Cache-Control": "no-store"},
+                    headers=html_headers,
                 )
 
             now = time.monotonic()
