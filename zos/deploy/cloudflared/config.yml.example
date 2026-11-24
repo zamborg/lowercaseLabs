@@ -1,0 +1,38 @@
+# Declarative Cloudflare Named Tunnel config template for ZOS.
+# Copy to ~/.cloudflared/config.yml and fill in <TUNNEL-UUID>, <HOME>, and zos.<your-domain>.
+# NEVER commit your real tunnel credentials JSON or ~/.cloudflared/config.yml.
+#
+# Strict ingress allowlist:
+#   - Allowed publicly (behind optional Cloudflare Access on browser paths):
+#       /mcp, /.well-known/*, /oauth/*, /admin*, /connect/*
+#   - Blocked (404) from public internet:
+#       /actuator (local Mac actuator connects to ws://127.0.0.1:8787/actuator directly)
+#       /healthz  (local health check only)
+#       everything else
+
+tunnel: <TUNNEL-UUID>
+credentials-file: <HOME>/.cloudflared/<TUNNEL-UUID>.json
+
+ingress:
+  - hostname: zos.<your-domain>
+    path: ^/mcp$
+    service: http://localhost:8787
+
+  - hostname: zos.<your-domain>
+    path: ^/\.well-known/
+    service: http://localhost:8787
+
+  - hostname: zos.<your-domain>
+    path: ^/oauth/
+    service: http://localhost:8787
+
+  - hostname: zos.<your-domain>
+    path: ^/admin($|/)
+    service: http://localhost:8787
+
+  - hostname: zos.<your-domain>
+    path: ^/connect/
+    service: http://localhost:8787
+
+  # Catch-all: /actuator, /healthz, and all unknown paths/hosts return 404.
+  - service: http_status:404

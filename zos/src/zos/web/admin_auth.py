@@ -1,4 +1,4 @@
-"""Signed HttpOnly cookie sessions, CSRF verification, and login rate limiting for /admin."""
+"""Signed HttpOnly cookie sessions and CSRF verification for /admin."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import hmac
 import json
 import secrets
 import time
-from collections import deque
 from dataclasses import dataclass
 
 from starlette.requests import Request
@@ -134,38 +133,3 @@ class AdminSessionManager:
         if not submitted_token:
             return False
         return hmac.compare_digest(session.csrf_token, submitted_token)
-
-
-class LoginRateLimiter:
-    """Sliding-window rate limiter for failed /admin/login attempts per client IP."""
-
-    def __init__(self, *, max_failures: int = 5, window_seconds: float = 60.0) -> None:
-        self.max_failures = max_failures
-        self.window_seconds = window_seconds
-        self._failures: dict[str, deque[float]] = {}
-
-    def _prune(self, key: str, now: float) -> deque[float]:
-        bucket = self._failures.get(key)
-        if bucket is None:
-            bucket = deque()
-            self._failures[key] = bucket
-        cutoff = now - self.window_seconds
-        while bucket and bucket[0] <= cutoff:
-            bucket.popleft()
-        return bucket
-
-    def retry_after_seconds(self, key: str, *, now: float | None = None) -> int | None:
-        current = time.monotonic() if now is None else now
-        bucket = self._prune(key, current)
-        if len(bucket) >= self.max_failures:
-            wait = max(1, int(self.window_seconds - (current - bucket[0])) + 1)
-            return wait
-        return None
-
-    def record_failure(self, key: str, *, now: float | None = None) -> None:
-        current = time.monotonic() if now is None else now
-        bucket = self._prune(key, current)
-        bucket.append(current)
-
-    def reset(self, key: str) -> None:
-        self._failures.pop(key, None)

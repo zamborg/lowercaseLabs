@@ -116,7 +116,45 @@ Pass `Authorization: Bearer <token>` to `http://localhost:8787/mcp`.
 6. Open **`http://localhost:8787/connect/google`** in your browser, enter the passphrase from `zos/.owner-passphrase`, and complete Google consent. Both `gcal_*` (proxied from `https://calendarmcp.googleapis.com/mcp/v1`) and `gmail_*` (REST adapter) appear immediately via `notifications/tools/list_changed`.
    - *Fallback switch:* to fall back to ZOS's REST Calendar adapter, set `config = '{"backend": "api"}'` on the `gcal` row in `providers` (or `ZOS_GCAL_BACKEND=api` in `.env`) and restart `zos`.
 
-### C. Later / optional
+### C. Public exposure via Cloudflare Named Tunnel (for ChatGPT & remote MCP clients)
+
+When ready to expose ZOS at `https://zos.<your-domain>` (e.g. so ChatGPT connectors can reach `/mcp`):
+
+1. **Configure ZOS environment (`zos/.env`):**
+   - Set `ZOS_BASE_URL=https://zos.<your-domain>` (turns on `Secure` cookies on `/admin`, sets OAuth `issuer`/`resource`/PRM/`WWW-Authenticate` to the public URL, and sets the Google callback to `https://zos.<your-domain>/connect/google/callback`).
+   - Set `ZOS_ALLOWED_REDIRECT_HOSTS=chatgpt.com` (default is empty = loopback-only; ChatGPT MCP connectors use `https://chatgpt.com/connector_platform_oauth_redirect` and `https://chatgpt.com/connector/oauth/<id>`).
+   - Recreate the container:
+     ```bash
+     cd /Users/zubinaysola/Documents/personal/lowercaseLabs/zos
+     docker compose --env-file .env -f deploy/docker-compose.yml up -d --force-recreate zos
+     ```
+2. **Update Google Cloud Console redirect URI:**
+   - Under **Google Auth Platform → Clients → your Web client → Authorized redirect URIs**, add:
+     ```text
+     https://zos.<your-domain>/connect/google/callback
+     ```
+3. **Re-point local MCP clients (`Claude Code` & `Codex`):**
+   - OAuth access tokens are bound to `ZOS_BASE_URL` (RFC 8707 `resource`), so once `ZOS_BASE_URL` switches to `https://zos.<your-domain>`, re-point Claude Code and Codex to **`https://zos.<your-domain>/mcp`** and sign in again.
+   - **Mac actuator stays local:** keep `~/.zos-actuator/config.toml` dialing `ws://127.0.0.1:8787/actuator` directly — `/actuator` is intentionally blocked on the public tunnel.
+4. **Cloudflare Tunnel ingress allowlist (`deploy/cloudflared/config.yml.example`):**
+   - Copy `deploy/cloudflared/config.yml.example` to `~/.cloudflared/config.yml` and fill in your tunnel UUID, home path, and hostname (`zos.<your-domain>`).
+   - Only `/mcp`, `/.well-known/*`, `/oauth/*`, `/admin*`, and `/connect/*` are routed to `http://localhost:8787`; everything else (including `/actuator` and `/healthz`) returns `404`.
+   - Use `deploy/launchd/com.zos.cloudflared.plist` (substituting `{{HOME}}` and `{{TUNNEL_NAME}}`) as a LaunchAgent template for `cloudflared tunnel run`.
+5. **Cloudflare Access (Zero Trust) on browser-only paths:**
+   - Put a **Cloudflare Access** self-hosted application policy (allowing only your email) on the browser-only owner paths:
+     - `zos.<your-domain>/oauth/authorize`
+     - `zos.<your-domain>/admin*`
+     - `zos.<your-domain>/connect/*`
+   - Leave the machine-to-machine OAuth & MCP paths **public** (bypass Access) so ChatGPT, Claude Code, and Codex can discover, register, exchange tokens, and call MCP:
+     - `zos.<your-domain>/mcp`
+     - `zos.<your-domain>/.well-known/*`
+     - `zos.<your-domain>/oauth/register`
+     - `zos.<your-domain>/oauth/token`
+6. **Abuse protections active automatically:**
+   - One global passphrase rate limiter (5 failures/min, 20/hour, exponential backoff) protects `/admin/login`, `/oauth/authorize`, and `/connect/google` together, auditing each failure as `auth.failed` (`outcome=denied`, zero passphrase material).
+   - `/oauth/register` is globally rate-limited (10/hour) and capped at 50 total OAuth clients; prune unused OAuth clients anytime in **`/admin/clients`** (or `zos client delete <client>`).
+
+### D. Later / optional
 
 - **Cloud deploy (Fly + Neon):** `deploy/fly.toml` and `deploy/Dockerfile` are ready whenever you want to deploy off localhost.
 
@@ -133,6 +171,7 @@ Pass `Authorization: Bearer <token>` to `http://localhost:8787/mcp`.
 | **M4 — Google Upstream** | Vault AES-GCM + concurrent refresh lock + `respx`-mocked `/connect/google`, Calendar REST fallback (`backend=api`), Gmail bounded metadata search/read/MIME threading, 429 backoff, 401 refresh, `gmail_send` elicitation, and revocation all pass. | Google Cloud Web OAuth client setup, live `/connect/google` consent, and live Calendar/Gmail/`gmail_send` elicitation smoke. |
 | **M5 — Upstream MCP Proxy (`gcal`)** | Generic `McpUpstreamProvider` verified against in-process Streamable HTTP fake upstream: prefixing, verbatim call + `structuredContent`/`isError` passthrough, upstream→downstream `list_changed`, upstream form elicitation passthrough + decline + audit, 401→refresh→retry & reconnect error, upstream down→offline, unknown preview tool→`external`. Live `/healthz` reports `gcal` with `backend: mcp`. | Live smoke against Google's `calendarmcp.googleapis.com/mcp/v1` (counts/shapes only) after Zubin connects Google. |
 | **M6 — Owner Admin Dashboard (`/admin`)** | Shared `AdminService` layer backs both CLI and `/admin`; auth (Argon2 login, signed HttpOnly `SameSite=Strict` 12h cookie, `Secure` on HTTPS, expiry, rate limiting, CSRF 403, security headers), all 4 pages (Overview, Clients, Tools & Policy matrix, cursor-paginated Activity with digests only), and CLI audit parity all tested; live `/admin` login verified on OrbStack. | None — ready to use at `http://localhost:8787/admin`. |
+| **M7 — Pre-Public Hardening** | Shared global passphrase limiter (5/min, 20/hr, backoff) + `auth.failed` audit across `/admin/login`, `/oauth/authorize`, `/connect/google`; `ZOS_ALLOWED_REDIRECT_HOSTS` loopback-only default + `chatgpt.com` allowlist + prominent redirect host on approve page; DCR 10/hr limit + 50 OAuth client cap + `/admin/clients` pruning; public `https://` base URL test; declarative `deploy/cloudflared/config.yml.example` + `com.zos.cloudflared.plist`. | Cloudflare named tunnel creation, DNS/Access setup, and ChatGPT connector live smoke (Opus + Zubin). |
 | **Definition of Done (V0)** | Every call audited in `events`; `DECISIONS.md` current; zero `later/` scope built; all Docker ports bound strictly to `127.0.0.1`. | End-to-end human session with both Claude Code and Codex signed in via OAuth using shared memory + FDA Messages + live Google. |
 
 ---
