@@ -41,6 +41,7 @@ from zos.providers.google import (
 from zos.providers.mcp_upstream import HttpClientFactory, McpUpstreamProvider
 from zos.providers.memory import MemoryProvider
 from zos.router import ProviderRegistry, SessionTracker, ToolRouter
+from zos.web.admin import create_admin_routes
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +270,7 @@ def create_app(
         *create_oauth_routes(pool, cfg),
         *actuator_manager.routes(),
         *google_hub.routes(),
+        *create_admin_routes(pool, cfg, registry, sessions),
     ]
     if extra_routes_factory is not None:
         routes.extend(extra_routes_factory(runtime))
