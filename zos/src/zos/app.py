@@ -30,6 +30,7 @@ from zos.auth.oauth import create_oauth_routes
 from zos.config import Settings
 from zos.db import create_pool, run_migrations
 from zos.policy import DatabasePolicyEvaluator, request_tool_confirmation
+from zos.providers.actuator import ActuatorManager
 from zos.providers.base import ToolProvider
 from zos.providers.memory import MemoryProvider
 from zos.router import ProviderRegistry, SessionTracker, ToolRouter
@@ -62,6 +63,7 @@ class ZosRuntime:
     router: ToolRouter
     mcp_server: ZosMCPServer
     session_manager: StreamableHTTPSessionManager
+    actuator_manager: ActuatorManager
 
 
 def _extract_call_context(rctx: Any) -> CallContext:
@@ -138,6 +140,8 @@ def create_app(
         session_idle_timeout=1800,
     )
 
+    actuator_manager = ActuatorManager(pool, registry, sessions)
+
     runtime = ZosRuntime(
         settings=cfg,
         pool=pool,
@@ -146,6 +150,7 @@ def create_app(
         router=router,
         mcp_server=mcp_server,
         session_manager=session_manager,
+        actuator_manager=actuator_manager,
     )
 
     @contextlib.asynccontextmanager
@@ -166,6 +171,7 @@ def create_app(
                     mem_provider_id = row["id"]
 
             registry.register(MemoryProvider(pool, provider_id=mem_provider_id))
+            await actuator_manager.load_registered_actuators()
             for provider in extra_providers or []:
                 registry.register(provider)
 
@@ -199,6 +205,7 @@ def create_app(
         Route("/healthz", healthz, methods=["GET"]),
         Route("/mcp", endpoint=mcp_asgi, methods=["GET", "POST", "DELETE"]),
         *create_oauth_routes(pool, cfg),
+        *actuator_manager.routes(),
     ]
     if extra_routes_factory is not None:
         routes.extend(extra_routes_factory(runtime))
