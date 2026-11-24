@@ -12,20 +12,20 @@ import uvicorn
 from starlette.applications import Starlette
 
 
-def _free_port() -> int:
+def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return int(s.getsockname()[1])
 
 
 @contextlib.asynccontextmanager
-async def run_asgi_server(app: Starlette) -> AsyncIterator[str]:
+async def run_asgi_server(app: Starlette, *, port: int | None = None) -> AsyncIterator[str]:
     """Start a Starlette ASGI app on an ephemeral localhost port and yield its base URL."""
-    port = _free_port()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    bound_port = port if port is not None else free_port()
+    config = uvicorn.Config(app, host="127.0.0.1", port=bound_port, log_level="warning")
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
-    base_url = f"http://127.0.0.1:{port}"
+    base_url = f"http://127.0.0.1:{bound_port}"
     try:
         async with httpx.AsyncClient() as client:
             for _ in range(100):
