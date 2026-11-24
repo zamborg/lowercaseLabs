@@ -225,3 +225,201 @@ async def test_m2_full_oauth_flow_refresh_rotation_reuse_revocation_and_401(db_p
 
     # Verify fresh revoke_token call returns 0 since family already revoked
     assert await revoke_token(db_pool, raw_token=at2) == 0
+
+
+async def test_m2_oauth_edge_cases_dcr_pkce_code_reuse_expiry_and_family_isolation(db_pool) -> None:
+    import base64
+    import hashlib
+    from datetime import UTC, datetime, timedelta
+
+    await init_principal_and_space(db_pool, principal_slug="zubin")
+    owner_pass = "edge-case-passphrase"
+    owner_hash = PasswordHasher().hash(owner_pass)
+
+    port = free_port()
+    base_url = f"http://127.0.0.1:{port}"
+    cfg = Settings(
+        database_url=get_test_database_url(),
+        zos_base_url=base_url,
+        zos_owner_password_hash=owner_hash,
+    )
+    app = create_app(cfg, run_migrations_on_startup=False)
+
+    async def authorize_and_get_code(
+        web: httpx.AsyncClient,
+        *,
+        client_id: str,
+        redirect_uri: str,
+        code_verifier: str,
+    ) -> str:
+        challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest())
+            .decode("ascii")
+            .rstrip("=")
+        )
+        g = await web.get(
+            f"{base_url}/oauth/authorize",
+            params={
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "scope": "mcp",
+                "resource": base_url,
+            },
+        )
+        assert g.status_code == 200
+        assert g.headers.get("x-frame-options") == "DENY"
+        hidden = _extract_hidden_inputs(g.text)
+        p = await web.post(
+            f"{base_url}/oauth/authorize",
+            data={**hidden, "passphrase": owner_pass, "decision": "approve"},
+        )
+        assert p.status_code == 302
+        return parse_qs(urlparse(p.headers["location"]).query)["code"][0]
+
+    async with run_asgi_server(app, port=port), httpx.AsyncClient(follow_redirects=False) as web:
+        # 1. DCR validation: reject non-loopback http, reject non-'none' auth method, allow custom scheme & duplicate names
+        r_http = await web.post(
+            f"{base_url}/oauth/register",
+            json={"client_name": "Evil", "redirect_uris": ["http://evil.example/cb"], "token_endpoint_auth_method": "none"},
+        )
+        assert r_http.status_code == 400
+
+        r_method = await web.post(
+            f"{base_url}/oauth/register",
+            json={"client_name": "Secret", "redirect_uris": ["http://127.0.0.1:9001/cb"], "token_endpoint_auth_method": "client_secret_post"},
+        )
+        assert r_method.status_code == 400
+
+        # Two OAuth clients with the SAME display name succeed (partial unique index applies to bearer only)
+        r_c1 = await web.post(
+            f"{base_url}/oauth/register",
+            json={"client_name": "Claude Code", "redirect_uris": ["http://127.0.0.1:9001/cb"], "token_endpoint_auth_method": "none"},
+        )
+        r_c2 = await web.post(
+            f"{base_url}/oauth/register",
+            json={"client_name": "Claude Code", "redirect_uris": ["codex://oauth/callback"], "token_endpoint_auth_method": "none"},
+        )
+        assert r_c1.status_code == 201 and r_c2.status_code == 201
+        cid1 = r_c1.json()["client_id"]
+        cid2 = r_c2.json()["client_id"]
+        assert cid1 != cid2
+
+        # 2. Wrong PKCE code_verifier fails (and consumes the single-use code!)
+        v_ok = "a" * 64
+        code_bad_pkce = await authorize_and_get_code(
+            web, client_id=cid1, redirect_uri="http://127.0.0.1:9001/cb", code_verifier=v_ok
+        )
+        r_bad_pkce = await web.post(
+            f"{base_url}/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code_bad_pkce,
+                "redirect_uri": "http://127.0.0.1:9001/cb",
+                "client_id": cid1,
+                "code_verifier": "b" * 64,
+            },
+        )
+        assert r_bad_pkce.status_code == 400
+
+        # 3. Expired auth code fails
+        code_exp = await authorize_and_get_code(
+            web, client_id=cid1, redirect_uri="http://127.0.0.1:9001/cb", code_verifier=v_ok
+        )
+        async with db_pool.connection() as conn:
+            await conn.execute(
+                "UPDATE oauth_codes SET expires_at = %s",
+                (datetime.now(UTC) - timedelta(seconds=5),),
+            )
+            await conn.commit()
+        r_exp = await web.post(
+            f"{base_url}/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code_exp,
+                "redirect_uri": "http://127.0.0.1:9001/cb",
+                "client_id": cid1,
+                "code_verifier": v_ok,
+            },
+        )
+        assert r_exp.status_code == 400
+
+        # 4. Single-use code replay fails; refresh family reuse in cid1 does NOT revoke cid2's family
+        code1 = await authorize_and_get_code(
+            web, client_id=cid1, redirect_uri="http://127.0.0.1:9001/cb", code_verifier=v_ok
+        )
+        t1 = await web.post(
+            f"{base_url}/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code1,
+                "redirect_uri": "http://127.0.0.1:9001/cb",
+                "client_id": cid1,
+                "code_verifier": v_ok,
+            },
+        )
+        assert t1.status_code == 200
+        # Replay same code -> 400
+        t1_replay = await web.post(
+            f"{base_url}/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code1,
+                "redirect_uri": "http://127.0.0.1:9001/cb",
+                "client_id": cid1,
+                "code_verifier": v_ok,
+            },
+        )
+        assert t1_replay.status_code == 400
+
+        # Issue separate family for cid2
+        code2 = await authorize_and_get_code(
+            web, client_id=cid2, redirect_uri="codex://oauth/callback", code_verifier=v_ok
+        )
+        t2 = await web.post(
+            f"{base_url}/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code2,
+                "redirect_uri": "codex://oauth/callback",
+                "client_id": cid2,
+                "code_verifier": v_ok,
+            },
+        )
+        assert t2.status_code == 200
+        cid2_at = t2.json()["access_token"]
+
+        # Rotate cid1 rt1 -> rt2, then reuse rt1 -> revokes cid1 family ONLY
+        rt1 = t1.json()["refresh_token"]
+        rot1 = await web.post(
+            f"{base_url}/oauth/token",
+            data={"grant_type": "refresh_token", "refresh_token": rt1, "client_id": cid1},
+        )
+        assert rot1.status_code == 200
+        reuse1 = await web.post(
+            f"{base_url}/oauth/token",
+            data={"grant_type": "refresh_token", "refresh_token": rt1, "client_id": cid1},
+        )
+        assert reuse1.status_code == 400
+
+        # cid2's access token MUST still work on /mcp!
+        r_cid2 = await web.post(
+            f"{base_url}/mcp",
+            headers={
+                "Authorization": f"Bearer {cid2_at}",
+                "Accept": "application/json, text/event-stream",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "c2", "version": "0.1"},
+                },
+            },
+        )
+        assert r_cid2.status_code == 200

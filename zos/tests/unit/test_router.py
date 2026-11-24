@@ -78,18 +78,43 @@ class FakeConnection:
 
 
 def test_tool_naming_validation_and_48_char_cap() -> None:
+    import re
+
     assert format_tool_name("memory", "search") == "memory_search"
     assert format_tool_name("gcal", "list_events") == "gcal_list_events"
 
-    # Reject underscore or reserved prefix
+    # Reject empty, underscore in prefix, reserved 'zos', or disallowed characters
+    with pytest.raises(ValueError):
+        validate_prefix("")
     with pytest.raises(ValueError):
         validate_prefix("bad_prefix")
     with pytest.raises(ValueError):
         validate_prefix("zos")
     with pytest.raises(ValueError):
+        format_tool_name("memory", "")
+    with pytest.raises(ValueError):
         format_tool_name("memory", "bad name!")
+    with pytest.raises(ValueError):
+        format_tool_name("memory", "bad.tool")
 
-    # Overflow > 48 chars: deterministic truncate + 6-char hash
+    # Exact 48-char boundary stays verbatim without hashing
+    exact_local = "a" * (48 - len("prov_"))
+    exact = format_tool_name("prov", exact_local)
+    assert len(exact) == 48
+    assert exact == f"prov_{exact_local}"
+
+    # 49-char overflow triggers deterministic truncate + 6-char hex hash = 48 chars
+    over_local = "a" * (49 - len("prov_"))
+    over1 = format_tool_name("prov", over_local)
+    over2 = format_tool_name("prov", over_local)
+    over_other = format_tool_name("prov", over_local[:-1] + "b")
+    assert len(over1) == MAX_TOOL_NAME_LENGTH == 48
+    assert over1 == over2
+    assert over1 != over_other
+    assert re.fullmatch(r"^[a-zA-Z0-9_-]{48}$", over1)
+    assert re.fullmatch(r"_[0-9a-f]{6}$", over1[-7:])
+
+    # Very long name > 48 chars: deterministic truncate + 6-char hash
     long_tool = "very_long_tool_name_that_definitely_exceeds_forty_eight_chars"
     name1 = format_tool_name("provider", long_tool)
     name2 = format_tool_name("provider", long_tool)

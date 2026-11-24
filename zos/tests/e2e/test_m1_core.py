@@ -157,3 +157,61 @@ async def test_m1_e2e_shared_memory_annotations_elicitation_and_audit(db_pool) -
         ("demo_action", "require_approval", "denied"),
     ]
     assert all(e["args_digest"] is not None for e in events)
+
+
+async def test_m1_e2e_untrusted_trust_ceiling_denies_external_without_elicitation(db_pool) -> None:
+    init = await init_principal_and_space(db_pool, principal_slug="zubin")
+    p_id = init["principal"]["id"]
+    s_id = init["space"]["id"]
+
+    untrusted = await create_bearer_client(
+        db_pool,
+        principal_id=p_id,
+        space_id=s_id,
+        name="untrusted-agent",
+        trust_ceiling="untrusted",
+    )
+
+    fake_ext = FakeExternalProvider()
+    cfg = Settings(database_url=get_test_database_url(), zos_base_url="http://127.0.0.1:0")
+    app = create_app(cfg, extra_providers=[fake_ext], run_migrations_on_startup=False)
+
+    elicit_called = False
+
+    async def should_not_be_called(context: ClientRequestContext, params: types.ElicitRequestParams):
+        nonlocal elicit_called
+        elicit_called = True
+        return types.ElicitResult(action="accept", content={"approve": True})
+
+    async with run_asgi_server(app) as base_url:
+        mcp_url = f"{base_url}/mcp"
+        http_c = httpx2.AsyncClient(headers={"Authorization": f"Bearer {untrusted['token']}"})
+        async with (
+            http_c,
+            streamable_http_client(mcp_url, http_client=http_c) as (r, w),
+            ClientSession(r, w, elicitation_callback=should_not_be_called) as sess,
+        ):
+            await sess.initialize()
+
+            # External tool resolves to deny for untrusted -> hidden from tools/list
+            tool_names = {t.name for t in (await sess.list_tools()).tools}
+            assert "demo_action" not in tool_names
+            assert "memory_put" in tool_names
+
+            # Direct call to external tool is denied immediately without invoking elicitation
+            res = await sess.call_tool("demo_action", {"target": "nope"})
+            assert res.is_error
+            assert "Permission denied" in res.content[0].text
+            assert elicit_called is False
+            assert fake_ext.calls == []
+
+            # Read/write tools remain allowed
+            put_res = await sess.call_tool("memory_put", {"key": "u-k", "content": "ok"})
+            assert not put_res.is_error
+
+    async with db_pool.connection() as conn:
+        cur = await conn.execute(
+            "SELECT tool, decision, outcome FROM events WHERE type = 'tool.called' ORDER BY id ASC"
+        )
+        rows = [(r["tool"], r["decision"], r["outcome"]) for r in await cur.fetchall()]
+    assert rows == [("demo_action", "deny", "denied"), ("memory_put", "allow", "ok")]

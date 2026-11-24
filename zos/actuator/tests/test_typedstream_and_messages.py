@@ -44,14 +44,42 @@ def _create_fixture_chat_db(path: Path) -> sqlite3.Connection:
 
 
 def test_typedstream_decode_short_long_utf8_and_invalid() -> None:
+    import struct
+
+    # Short (< 128 bytes)
     short = "Hello ZOS!"
     assert decode_attributed_body(build_typedstream_attributed_body(short)) == short
 
-    # > 127 bytes triggers 0x81 2-byte length prefix + multi-byte UTF-8 emoji
-    long_msg = "Lunch at 12:30 ☕️ — " + ("architecture notes " * 15)
-    assert len(long_msg.encode("utf-8")) > 200
+    # Exact 127-byte (1-byte length) and 128-byte (0x81 2-byte LE uint16) boundaries
+    b127 = "x" * 127
+    b128 = "y" * 128
+    assert decode_attributed_body(build_typedstream_attributed_body(b127)) == b127
+    assert decode_attributed_body(build_typedstream_attributed_body(b128)) == b128
+
+    # > 127 bytes + multi-byte UTF-8 emoji & CJK (byte length > char length)
+    long_msg = "Lunch at 12:30 ☕️ 東京 — " + ("architecture notes " * 15)
+    assert len(long_msg.encode("utf-8")) > len(long_msg) > 200
     assert decode_attributed_body(build_typedstream_attributed_body(long_msg)) == long_msg
 
+    # > 65535 bytes triggers 0x82 4-byte LE uint32 length encoding
+    huge_msg = "Z" * 70_000
+    assert decode_attributed_body(build_typedstream_attributed_body(huge_msg)) == huge_msg
+
+    # NSMutableString marker variant
+    mut_text = "Mutable typedstream message"
+    mut_enc = mut_text.encode("utf-8")
+    mut_blob = (
+        b"\x04\x0bstreamtyped\x81\xe8\x03\x84\x01@\x0fNSMutableString\x01\x94\x84\x01+"
+        + bytes([len(mut_enc)])
+        + mut_enc
+        + b"\x86"
+    )
+    assert decode_attributed_body(mut_blob) == mut_text
+
+    # Truncated length header and truncated payload fail safely to ""
+    trunc_blob = b"\x04\x0bstreamtyped\x08NSString\x01+\x81" + struct.pack("<H", 500) + b"too short"
+    assert decode_attributed_body(trunc_blob) == ""
+    assert decode_attributed_body(b"\x04\x0bstreamtyped\x08NSString\x01+\x81\x05") == ""
     assert decode_attributed_body(None) == ""
     assert decode_attributed_body(b"") == ""
     assert decode_attributed_body(b"not a typedstream blob") == ""
@@ -131,3 +159,20 @@ def test_messages_index_sync_attributed_body_and_filters(tmp_path: Path) -> None
     # Verify FTS5 external-content index integrity after incremental syncs
     with sqlite3.connect(idx_db) as idx_check:
         idx_check.execute("INSERT INTO messages_fts(messages_fts) VALUES('integrity-check')")
+
+
+def test_messages_index_unreadable_chat_db_gives_fda_guidance(tmp_path: Path) -> None:
+    import os
+
+    import pytest
+
+    locked_db = tmp_path / "chat.db"
+    conn = _create_fixture_chat_db(locked_db)
+    conn.close()
+    os.chmod(locked_db, 0o000)
+    try:
+        index = MessagesIndex(locked_db, tmp_path / "messages.db")
+        with pytest.raises(PermissionError, match="Full Disk Access"):
+            index.sync()
+    finally:
+        os.chmod(locked_db, 0o600)

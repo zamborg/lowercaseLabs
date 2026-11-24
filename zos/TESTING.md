@@ -108,6 +108,19 @@ Pass `Authorization: Bearer <token>` to `http://localhost:8787/mcp`.
 
 ---
 
+## 3. Honest V0 Check & Definition-of-Done Audit
+
+| Milestone / Item | Automated / Local Status | Still Pending (👤 Browser / GUI / Cloud) |
+|---|---|---|
+| **M0 — Spikes** | Local hosting spike (`ping`/`toggle`/`list_changed`/idle) passed; `DECISIONS.md` updated. | Fly.io 120s idle spike (deferred for OrbStack); M0.3 live Google personal-account restricted-scope spike (`spikes/google/oauth_spike.py` ready). |
+| **M1 — Core, Policy, Memory, Deploy** | All unit/integration/e2e tests pass (including `untrusted` ceiling, naming truncate+hash, annotations, elicitation, audit); OrbStack live stack running on `127.0.0.1:8787`; Codex CLI (`gpt-6.1-terra`) bearer smoke passed. | Fly + Neon cloud deploy smoke (deferred); manual Claude Code + Codex shared-memory smoke. |
+| **M2 — OAuth 2.1 AS** | Full MCP SDK `OAuthClientProvider` e2e passes locally and live against OrbStack; PKCE, single-use/expired codes, DCR rules, refresh rotation & family reuse isolation all tested. | Manual browser OAuth sign-in from Claude Code and Codex. |
+| **M3 — Mac Actuator** | Fixture `chat.db`, `typedstream` (127/128/70k/UTF-8/`NSMutableString`/truncated), real `tmux`, and core+actuator e2e (`list_changed`, `ACTUATOR_OFFLINE`, `ACTUATOR_DISCONNECTED_MID_CALL`, replacement, auth rejection) all pass; live LaunchAgent stop/restart tool visibility + live `mac_shell_run` via Codex passed. | Grant Full Disk Access to the resolved Python binary and run real-device `mac_messages_search` count-only smoke. |
+| **M4 — Google Upstream** | Vault AES-GCM + concurrent refresh lock + `respx`-mocked `/connect/google`, Calendar CRUD (explicit TZ), Gmail bounded metadata search/read/MIME threading, 429 backoff, 401 refresh, `gmail_send` elicitation, and revocation all pass. | Google Cloud Web OAuth client setup, live `/connect/google` consent, and live Calendar/Gmail/`gmail_send` elicitation smoke. |
+| **Definition of Done (V0)** | Every call audited in `events`; `DECISIONS.md` current; zero `later/` scope built; all Docker ports bound strictly to `127.0.0.1`. | End-to-end human session with both Claude Code and Codex signed in via OAuth using shared memory + FDA Messages + live Google. |
+
+---
+
 ## Running the automated test suites
 
 From `zos/`:

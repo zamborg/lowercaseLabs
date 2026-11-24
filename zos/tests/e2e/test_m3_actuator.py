@@ -217,3 +217,73 @@ async def test_m3_e2e_actuator_visibility_list_changed_offline_and_mid_call_drop
             assert (time.monotonic() - t0) < 5.0
             assert mid_res.is_error
             assert "ACTUATOR_DISCONNECTED_MID_CALL" in mid_res.content[0].text
+
+
+async def test_m3_actuator_connection_replacement_and_bad_token_rejected(db_pool) -> None:
+    init = await init_principal_and_space(db_pool, principal_slug="zubin")
+    p_id = init["principal"]["id"]
+    s_id = init["space"]["id"]
+
+    client_rec = await create_bearer_client(db_pool, principal_id=p_id, space_id=s_id, name="agent-rep")
+    act = await create_actuator_provider_and_token(db_pool, principal_id=p_id, space_id=s_id, slug="mac")
+
+    port = free_port()
+    base_url = f"http://127.0.0.1:{port}"
+    mcp_url = f"{base_url}/mcp"
+    ws_url = f"ws://127.0.0.1:{port}/actuator"
+    cfg = Settings(database_url=get_test_database_url(), zos_base_url=base_url)
+    app = create_app(cfg, run_migrations_on_startup=False)
+
+    async with run_asgi_server(app, port=port):
+        # 1. Invalid actuator token is rejected with close code 4401 (or handshake error)
+        rejected = False
+        try:
+            async with websockets.connect(
+                ws_url,
+                additional_headers={"Authorization": "Bearer zos_a_invalid"},
+            ) as ws:
+                await asyncio.wait_for(ws.recv(), timeout=2.0)
+        except Exception:
+            rejected = True
+        assert rejected
+
+        # 2. Actuator v1 connects, then v2 replaces v1 cleanly without dropping mac offline
+        ev1 = asyncio.Event()
+        ev2 = asyncio.Event()
+        t1 = asyncio.create_task(_run_fake_actuator(ws_url, act["token"], started_call_event=ev1, tag="v1"))
+        try:
+            http_client = httpx2.AsyncClient(headers={"Authorization": f"Bearer {client_rec['token']}"})
+            async with (
+                http_client,
+                streamable_http_client(mcp_url, http_client=http_client) as (rs, ws_s),
+                ClientSession(rs, ws_s) as session,
+            ):
+                await session.initialize()
+                # Wait for v1 online
+                for _ in range(30):
+                    names = {t.name for t in (await session.list_tools()).tools}
+                    if "mac_messages_search" in names:
+                        break
+                    await asyncio.sleep(0.05)
+
+                r1 = await session.call_tool("mac_messages_search", {"query": "q1"})
+                assert json.loads(r1.content[0].text)["tag"] == "v1"
+
+                # Connect v2 while v1 is still connected -> replaces v1
+                t2 = asyncio.create_task(_run_fake_actuator(ws_url, act["token"], started_call_event=ev2, tag="v2"))
+                try:
+                    # Wait for v1 task to finish (closed by core with 4000)
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await asyncio.wait_for(t1, timeout=5.0)
+                    # Calls must now route to v2 and mac must remain online!
+                    r2 = await session.call_tool("mac_messages_search", {"query": "q2"})
+                    assert not r2.is_error
+                    assert json.loads(r2.content[0].text)["tag"] == "v2"
+                finally:
+                    t2.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await t2
+        finally:
+            t1.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await t1

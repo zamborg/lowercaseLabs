@@ -6,6 +6,7 @@ import pytest
 
 from zos.policy import (
     Decision,
+    PolicySnapshot,
     Tier,
     build_tool_annotations,
     resolve_decision,
@@ -120,3 +121,46 @@ def test_annotations_mapping(
     assert ann.read_only_hint is expected_ro
     assert ann.destructive_hint is expected_dest
     assert ann.open_world_hint is expected_ow
+
+
+def test_policy_snapshot_edge_cases_exact_tiebreak_and_untrusted_downgrade() -> None:
+    snap = PolicySnapshot(
+        tiers={
+            "memory_*": "write",
+            "memory_get": "read",
+            "gmail_send*": "write",
+            "gmail_send": "external",
+        },
+        client_rules={
+            "memory_put": "require_approval",
+            "mac_shell_run": "allow",
+        },
+        global_rules={
+            "gcal_*": "require_approval",
+            "gcal_list_events": "allow",
+        },
+    )
+
+    # Exact match beats wildcard with identical literal character count ('gmail_send' vs 'gmail_send*')
+    ev_owner = snap.evaluate("gmail_send", trust_ceiling="owner")
+    assert ev_owner.tier == "external"
+    assert ev_owner.decision == "require_approval"
+    assert ev_owner.annotations.open_world_hint is True
+
+    # Untrusted turns tier-default, client-rule, AND global-rule require_approval into deny
+    assert snap.evaluate("gmail_send", trust_ceiling="untrusted").decision == "deny"
+    assert snap.evaluate("memory_put", trust_ceiling="untrusted").decision == "deny"
+    assert snap.evaluate("gcal_create_event", trust_ceiling="untrusted").decision == "deny"
+
+    # Untrusted preserves explicit allow (client or global) and read/write defaults
+    assert snap.evaluate("mac_shell_run", trust_ceiling="untrusted").decision == "allow"
+    assert snap.evaluate("gcal_list_events", trust_ceiling="untrusted").decision == "allow"
+    assert snap.evaluate("memory_get", trust_ceiling="untrusted").decision == "allow"
+
+    # Unknown tool defaults to external -> owner: require_approval, untrusted: deny
+    unk_owner = snap.evaluate("brand_new_tool", trust_ceiling="owner")
+    unk_untrusted = snap.evaluate("brand_new_tool", trust_ceiling="untrusted")
+    assert unk_owner.tier == "external" and unk_owner.decision == "require_approval"
+    assert unk_owner.annotations.open_world_hint is True
+    assert unk_owner.annotations.read_only_hint is False
+    assert unk_untrusted.tier == "external" and unk_untrusted.decision == "deny"
