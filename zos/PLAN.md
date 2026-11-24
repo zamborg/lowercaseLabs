@@ -46,6 +46,11 @@ With ZOS both point at the same endpoint and see the same things.
   authorization server. Bearer tokens (`zos token create`) as fallback for
   headless clients and for actuators. Minimal web pages to approve client
   sign-ins and connect Google.
+- **Owner admin dashboard** (`/admin`, Zubin 2026-11-24). Server-rendered and
+  passphrase-gated. Shows providers, clients and tokens, tool tiers, the
+  per-client policy matrix, and the audit trail. Mutations share one service
+  layer with the CLI and are audited. It's ZOS's control panel, not an agent
+  or chat UI.
 - **Router.** Merges tools from all online providers, namespaces them,
   filters by policy, routes calls, writes one audit event per call.
   Always-on `zos_status` tool lists which providers are live.
