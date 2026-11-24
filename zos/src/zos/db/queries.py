@@ -354,6 +354,36 @@ async def set_client_policy(
     return dict(row)
 
 
+async def clear_client_policy(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    tool_pattern: str,
+    client_id: UUID | None = None,
+) -> bool:
+    """Delete a client policy override row (client_id=None clears an all-clients rule)."""
+    async with pool.connection() as conn:
+        if client_id is None:
+            cur = await conn.execute(
+                """
+                DELETE FROM client_policies
+                WHERE principal_id = %s AND client_id IS NULL AND tool_pattern = %s
+                """,
+                (principal_id, tool_pattern),
+            )
+        else:
+            cur = await conn.execute(
+                """
+                DELETE FROM client_policies
+                WHERE principal_id = %s AND client_id = %s AND tool_pattern = %s
+                """,
+                (principal_id, client_id, tool_pattern),
+            )
+        deleted = (cur.rowcount or 0) > 0
+        await conn.commit()
+    return deleted
+
+
 async def create_actuator_provider_and_token(
     pool: AsyncConnectionPool[AsyncConnection[DictRow]],
     *,

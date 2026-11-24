@@ -1,27 +1,21 @@
-"""ZOS command-line interface (`zos`)."""
+"""ZOS command-line interface (`zos`).
+
+Delegates all administrative mutations to the shared `AdminService` layer
+so CLI and `/admin` share identical behavior and audit events.
+"""
 
 from __future__ import annotations
 
 import asyncio
 from typing import Annotated
-from uuid import UUID
 
 import typer
 from argon2 import PasswordHasher
 
-from zos.audit import record_event
+from zos.admin_service import AdminService
 from zos.config import Settings
 from zos.db import open_pool, run_migrations
-from zos.db.queries import (
-    create_actuator_provider_and_token,
-    create_bearer_client,
-    find_client_by_name_or_id,
-    get_principal_and_space,
-    init_principal_and_space,
-    mint_bearer_token_for_client,
-    revoke_token,
-    set_client_policy,
-)
+from zos.db.queries import init_principal_and_space
 
 app = typer.Typer(name="zos", help="ZOS MCP router administration CLI.", no_args_is_help=True)
 client_app = typer.Typer(help="Manage MCP clients.")
@@ -103,31 +97,11 @@ def client_add_cmd(
     async def _run() -> dict:
         s = _settings()
         async with open_pool(s.database_url) as pool:
-            p, sp = await get_principal_and_space(pool, principal)
-            res = await create_bearer_client(
-                pool,
-                principal_id=p["id"],
-                space_id=sp["id"],
+            return await AdminService(pool).register_bearer_client(
                 name=name,
                 trust_ceiling=trust_ceiling,
+                principal_slug=principal,
             )
-            await record_event(
-                pool,
-                principal_id=p["id"],
-                space_id=sp["id"],
-                client_id=res["client"]["id"],
-                event_type="client.registered",
-                payload={"name": name, "kind": "bearer", "trust_ceiling": trust_ceiling},
-            )
-            await record_event(
-                pool,
-                principal_id=p["id"],
-                space_id=sp["id"],
-                client_id=res["client"]["id"],
-                event_type="token.issued",
-                payload={"token_id": str(res["token_id"]), "kind": "bearer"},
-            )
-            return res
 
     res = asyncio.run(_run())
     typer.echo(f"client_id={res['client']['id']}")
@@ -145,21 +119,10 @@ def token_create_cmd(
     async def _run() -> dict:
         s = _settings()
         async with open_pool(s.database_url) as pool:
-            p, sp = await get_principal_and_space(pool, principal)
-            res = await mint_bearer_token_for_client(
-                pool,
-                principal_id=p["id"],
+            return await AdminService(pool).create_bearer_token(
                 client_name=client_name,
+                principal_slug=principal,
             )
-            await record_event(
-                pool,
-                principal_id=p["id"],
-                space_id=sp["id"],
-                client_id=res["client"]["id"],
-                event_type="token.issued",
-                payload={"token_id": str(res["token_id"]), "kind": "bearer"},
-            )
-            return res
 
     res = asyncio.run(_run())
     typer.echo(f"token_id={res['token_id']}")
@@ -180,33 +143,11 @@ def token_revoke_cmd(
     async def _run() -> int:
         s = _settings()
         async with open_pool(s.database_url) as pool:
-            p, sp = await get_principal_and_space(pool, principal)
-            client_id: UUID | None = None
-            token_id: UUID | None = None
-            raw_token: str | None = None
-
-            if client:
-                c = await find_client_by_name_or_id(pool, principal_id=p["id"], identifier=client)
-                if c is None:
-                    raise ValueError(f"Client not found: {client}")
-                client_id = c["id"]
-            elif target:
-                try:
-                    token_id = UUID(target)
-                except ValueError:
-                    raw_token = target
-
-            count = await revoke_token(pool, token_id=token_id, raw_token=raw_token, client_id=client_id)
-            if count > 0:
-                await record_event(
-                    pool,
-                    principal_id=p["id"],
-                    space_id=sp["id"],
-                    client_id=client_id,
-                    event_type="token.revoked",
-                    payload={"count": count, "token_id": str(token_id) if token_id else None},
-                )
-            return count
+            return await AdminService(pool).revoke_tokens(
+                target=target,
+                client_identifier=client,
+                principal_slug=principal,
+            )
 
     count = asyncio.run(_run())
     typer.echo(f"Revoked {count} token(s).")
@@ -227,36 +168,41 @@ def policy_set_cmd(
     async def _run() -> dict:
         s = _settings()
         async with open_pool(s.database_url) as pool:
-            p, sp = await get_principal_and_space(pool, principal)
-            client_id: UUID | None = None
-            if client:
-                c = await find_client_by_name_or_id(pool, principal_id=p["id"], identifier=client)
-                if c is None:
-                    raise ValueError(f"Client not found: {client}")
-                client_id = c["id"]
-
-            row = await set_client_policy(
-                pool,
-                principal_id=p["id"],
-                client_id=client_id,
-                tool_pattern=pattern,
+            return await AdminService(pool).set_policy(
+                pattern=pattern,
                 decision=decision,
+                client_identifier=client,
+                principal_slug=principal,
             )
-            await record_event(
-                pool,
-                principal_id=p["id"],
-                space_id=sp["id"],
-                client_id=client_id,
-                event_type="policy.changed",
-                tool=pattern,
-                decision=decision,
-                payload={"client": client or "*"},
-            )
-            return row
 
     row = asyncio.run(_run())
     scope_label = client or "*"
     typer.echo(f"Policy set: client={scope_label} pattern={row['tool_pattern']} decision={row['decision']}")
+
+
+@policy_app.command("clear")
+def policy_clear_cmd(
+    pattern: Annotated[str, typer.Argument(help="Tool name or pattern to clear override for")],
+    client: Annotated[str | None, typer.Option("--client", help="Client name or ID (omit for all clients)")] = None,
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Clear a policy override so resolution falls back to global/tier default."""
+
+    async def _run() -> bool:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).clear_policy(
+                pattern=pattern,
+                client_identifier=client,
+                principal_slug=principal,
+            )
+
+    deleted = asyncio.run(_run())
+    scope_label = client or "*"
+    if deleted:
+        typer.echo(f"Policy cleared: client={scope_label} pattern={pattern}")
+    else:
+        typer.echo(f"No policy override found: client={scope_label} pattern={pattern}")
 
 
 @actuator_app.command("add")
@@ -272,22 +218,10 @@ def actuator_add_cmd(
     async def _run() -> dict:
         s = _settings()
         async with open_pool(s.database_url) as pool:
-            p, sp = await get_principal_and_space(pool, principal)
-            res = await create_actuator_provider_and_token(
-                pool,
-                principal_id=p["id"],
-                space_id=sp["id"],
+            return await AdminService(pool).add_actuator(
                 slug=slug,
+                principal_slug=principal,
             )
-            await record_event(
-                pool,
-                principal_id=p["id"],
-                space_id=sp["id"],
-                provider_id=res["provider"]["id"],
-                event_type="token.issued",
-                payload={"token_id": str(res["token_id"]), "kind": "actuator", "slug": slug},
-            )
-            return res
 
     res = asyncio.run(_run())
     typer.echo(f"provider_id={res['provider']['id']}")
