@@ -85,4 +85,5 @@ async def request_tool_confirmation(
 
     if result.action == "accept":
         return False, f"Call to '{tool_name}' was denied (approve was not true)."
-    return False, f"Call to '{tool_name}' was {result.action}d by user."
+    verb = {"decline": "declined", "cancel": "cancelled"}.get(result.action, result.action)
+    return False, f"Call to '{tool_name}' was {verb} by user."
