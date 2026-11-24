@@ -83,7 +83,14 @@ With ZOS both point at the same endpoint and see the same things.
 
 - **hosted `memory`.**
 - **upstream `gcal` + `gmail`** — two providers sharing one Google
-  credential (one sign-in). No other services.
+  credential (one sign-in). No other services. They deliberately exercise
+  the two upstream shapes (Zubin, 2026-11-24):
+  - `gcal` — **MCP proxy**: ZOS is an MCP client to Google's remote
+    Calendar MCP (`calendarmcp.googleapis.com/mcp/v1`) and re-exposes its
+    tools namespaced, under ZOS policy and audit. Our REST adapter stays as a
+    config-selected fallback while Google's server is in preview.
+  - `gmail` — **API adapter**: our own tools over the Gmail REST API
+    (Google's Gmail MCP has no send).
 - **actuator `mac`** — exactly two tools:
   - `mac_messages_search` — read-only search over `~/Library/Messages/chat.db`.
   - `mac_shell_run` — run a command in a persistent local tmux session.
