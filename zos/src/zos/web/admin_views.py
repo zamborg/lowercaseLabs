@@ -201,6 +201,7 @@ def render_clients_page(
     notice: str | None = None,
     error: str | None = None,
     new_token_info: dict[str, str] | None = None,
+    max_oauth_clients: int = 50,
 ) -> str:
     banners = ""
     if error:
@@ -215,6 +216,7 @@ def render_clients_page(
         </div>
         """
 
+    oauth_count = sum(1 for c in clients if c["kind"] == "oauth")
     rows = []
     for c in clients:
         cid = str(c["id"])
@@ -237,6 +239,13 @@ def render_clients_page(
             f'<input type="hidden" name="client_id" value="{_e(cid)}">'
             f'<button type="submit" class="danger sm">Revoke</button></form>'
         )
+        if c["kind"] == "oauth":
+            actions.append(
+                f'<form class="inline" method="post" action="/admin/clients/delete">'
+                f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+                f'<input type="hidden" name="client_id" value="{_e(cid)}">'
+                f'<button type="submit" class="secondary sm">Prune</button></form>'
+            )
         rows.append(
             f"<tr>"
             f"<td><strong>{_e(c['name'])}</strong><div class=\"muted mono\">{_e(c['oauth_client_id'] or cid)}</div></td>"
@@ -270,7 +279,7 @@ def render_clients_page(
       </form>
     </div>
     <div class="card">
-      <h2>Registered Clients</h2>
+      <h2>Registered Clients <span class="badge badge-muted">OAuth: {oauth_count} / {int(max_oauth_clients)}</span></h2>
       <div class="scroll-x">
         <table>
           <thead><tr><th>Client</th><th>Kind</th><th>Trust Ceiling</th><th>Active Tokens</th><th>Last Seen</th><th>Actions</th></tr></thead>

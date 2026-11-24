@@ -23,6 +23,20 @@ def _default_migrations_dir() -> Path:
     return candidates[0]
 
 
+def _parse_host_list(raw: str) -> tuple[str, ...]:
+    return tuple(h.strip().lower().rstrip(".") for h in raw.split(",") if h.strip())
+
+
+def _parse_positive_int(raw: str, default: int) -> int:
+    val = raw.strip()
+    if not val:
+        return default
+    parsed = int(val)
+    if parsed <= 0:
+        raise ValueError(f"Expected positive integer, got {val!r}")
+    return parsed
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     database_url: str
@@ -33,6 +47,9 @@ class Settings:
     google_client_secret: str = ""
     gcal_backend: str = ""
     gcal_mcp_url: str = ""
+    allowed_redirect_hosts: tuple[str, ...] = ()
+    dcr_max_per_hour: int = 10
+    max_oauth_clients: int = 50
     migrations_dir: Path = field(default_factory=_default_migrations_dir)
 
     @classmethod
@@ -53,5 +70,10 @@ class Settings:
             google_client_secret=os.environ.get("GOOGLE_CLIENT_SECRET", "").strip(),
             gcal_backend=os.environ.get("ZOS_GCAL_BACKEND", "").strip().lower(),
             gcal_mcp_url=os.environ.get("ZOS_GCAL_MCP_URL", "").strip(),
+            allowed_redirect_hosts=_parse_host_list(
+                os.environ.get("ZOS_ALLOWED_REDIRECT_HOSTS", "")
+            ),
+            dcr_max_per_hour=_parse_positive_int(os.environ.get("ZOS_DCR_MAX_PER_HOUR", ""), 10),
+            max_oauth_clients=_parse_positive_int(os.environ.get("ZOS_MAX_OAUTH_CLIENTS", ""), 50),
             migrations_dir=Path(mig_override) if mig_override else _default_migrations_dir(),
         )

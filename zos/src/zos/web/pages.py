@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from urllib.parse import urlparse
 
 
 def render_authorize_page(
@@ -22,6 +23,8 @@ def render_authorize_page(
         f'<p style="color:#b91c1c;font-weight:600;">{html.escape(error)}</p>' if error else ""
     )
     scopes_text = html.escape(" ".join(scopes) if scopes else "(default)")
+    parsed_uri = urlparse(redirect_uri)
+    redirect_host = parsed_uri.netloc or parsed_uri.hostname or redirect_uri
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -32,6 +35,7 @@ def render_authorize_page(
     .card {{ border: 1px solid #d4d4d8; border-radius: 8px; padding: 1.5rem; }}
     dt {{ font-weight: 600; margin-top: 0.75rem; }}
     dd {{ margin: 0.25rem 0 0; word-break: break-all; font-family: ui-monospace, monospace; font-size: 0.9rem; }}
+    .host-callout {{ background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 0.55rem 0.75rem; font-size: 1.05rem; font-weight: 700; color: #78350f; }}
     input[type=password] {{ width: 100%; padding: 0.5rem; margin: 0.5rem 0 1rem; box-sizing: border-box; }}
     .actions {{ display: flex; gap: 0.75rem; }}
     button {{ padding: 0.55rem 1rem; border-radius: 6px; border: 1px solid #18181b; cursor: pointer; }}
@@ -47,7 +51,9 @@ def render_authorize_page(
     <dl>
       <dt>Client</dt>
       <dd>{html.escape(client_name)}</dd>
-      <dt>Redirect URI</dt>
+      <dt>Redirect Host</dt>
+      <dd class="host-callout">{html.escape(redirect_host)}</dd>
+      <dt>Full Redirect URI</dt>
       <dd>{html.escape(redirect_uri)}</dd>
       <dt>Scopes</dt>
       <dd>{scopes_text}</dd>

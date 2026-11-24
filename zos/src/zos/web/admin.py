@@ -142,7 +142,13 @@ def create_admin_routes(
         if session is None:
             return _redirect("/admin/login")
         clients = await service.list_clients()
-        return _html(render_clients_page(clients=clients, csrf_token=session.csrf_token))
+        return _html(
+            render_clients_page(
+                clients=clients,
+                csrf_token=session.csrf_token,
+                max_oauth_clients=settings.max_oauth_clients,
+            )
+        )
 
     async def clients_create(request: Request) -> Response:
         session = _require_session(request)
@@ -172,6 +178,7 @@ def create_admin_routes(
                 notice=notice,
                 error=error,
                 new_token_info=token_info,
+                max_oauth_clients=settings.max_oauth_clients,
             )
         )
 
@@ -202,6 +209,7 @@ def create_admin_routes(
                 notice=notice,
                 error=error,
                 new_token_info=token_info,
+                max_oauth_clients=settings.max_oauth_clients,
             )
         )
 
@@ -229,6 +237,35 @@ def create_admin_routes(
                 csrf_token=session.csrf_token,
                 notice=notice,
                 error=error,
+                max_oauth_clients=settings.max_oauth_clients,
+            )
+        )
+
+    async def clients_delete(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        client_id = data.get("client_id", "").strip()
+        error = None
+        notice = None
+        try:
+            deleted = await service.delete_oauth_client(client_identifier=client_id)
+            notice = f"Pruned OAuth client '{deleted['name']}'."
+        except Exception as exc:
+            error = str(exc)
+
+        clients = await service.list_clients()
+        return _html(
+            render_clients_page(
+                clients=clients,
+                csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+                max_oauth_clients=settings.max_oauth_clients,
             )
         )
 
@@ -342,6 +379,7 @@ def create_admin_routes(
         Route("/admin/clients/create", clients_create, methods=["POST"]),
         Route("/admin/clients/token", clients_new_token, methods=["POST"]),
         Route("/admin/clients/revoke", clients_revoke, methods=["POST"]),
+        Route("/admin/clients/delete", clients_delete, methods=["POST"]),
         Route("/admin/policy", policy_page, methods=["GET"]),
         Route("/admin/policy/set", policy_set, methods=["POST"]),
         Route("/admin/policy/clear", policy_clear, methods=["POST"]),

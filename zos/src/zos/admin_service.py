@@ -17,6 +17,7 @@ from zos.db.queries import (
     clear_client_policy,
     create_actuator_provider_and_token,
     create_bearer_client,
+    delete_oauth_client,
     find_client_by_name_or_id,
     get_principal_and_space,
     mint_bearer_token_for_client,
@@ -140,6 +141,42 @@ class AdminService:
                 payload={"count": count, "token_id": str(token_id) if token_id else None},
             )
         return count
+
+    async def delete_oauth_client(
+        self,
+        *,
+        client_identifier: str,
+        principal_slug: str | None = None,
+    ) -> dict[str, Any]:
+        clean_id = client_identifier.strip()
+        if not clean_id:
+            raise ValueError("Must specify OAuth client ID or name to prune")
+
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        c = await find_client_by_name_or_id(self.pool, principal_id=p["id"], identifier=clean_id)
+        if c is None:
+            raise ValueError(f"Client not found: {clean_id}")
+        if c["kind"] != "oauth":
+            raise ValueError("Only OAuth clients can be pruned; revoke bearer tokens instead.")
+
+        deleted = await delete_oauth_client(self.pool, principal_id=p["id"], client_id=c["id"])
+        if deleted is None:
+            raise ValueError(f"OAuth client not found: {clean_id}")
+
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            client_id=None,
+            event_type="client.deleted",
+            payload={
+                "deleted_client_id": str(deleted["id"]),
+                "name": deleted["name"],
+                "kind": "oauth",
+                "oauth_client_id": deleted.get("oauth_client_id"),
+            },
+        )
+        return deleted
 
     async def set_policy(
         self,

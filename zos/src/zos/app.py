@@ -154,7 +154,10 @@ def create_app(
     )
 
     passphrase_limiter = GlobalPassphraseRateLimiter()
-    dcr_limiter = GlobalSlidingWindowLimiter()
+    dcr_limiter = GlobalSlidingWindowLimiter(
+        max_requests=cfg.dcr_max_per_hour,
+        window_seconds=3600.0,
+    )
     actuator_manager = ActuatorManager(pool, registry, sessions)
     google_hub = GoogleServiceHub(pool, cfg, sessions, passphrase_limiter=passphrase_limiter)
 

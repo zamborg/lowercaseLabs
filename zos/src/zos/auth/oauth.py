@@ -35,15 +35,57 @@ AUTH_CODE_TTL_SECONDS = 60
 ACCESS_TOKEN_TTL_SECONDS = 3600  # 1 hour
 REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 3600  # 30 days
 
+LOOPBACK_REDIRECT_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
 _password_hasher = PasswordHasher()
 
 
-def _oauth_error(error: str, description: str, *, status_code: int = 400) -> JSONResponse:
+def _oauth_error(
+    error: str,
+    description: str,
+    *,
+    status_code: int = 400,
+    extra_headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    headers = {"Cache-Control": "no-store", "Pragma": "no-cache"}
+    if extra_headers:
+        headers.update(extra_headers)
     return JSONResponse(
         {"error": error, "error_description": description},
         status_code=status_code,
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+        headers=headers,
     )
+
+
+def validate_redirect_uri(uri: str, allowed_hosts: tuple[str, ...] = ()) -> str | None:
+    """Validate an OAuth DCR redirect_uri against loopback + configured HTTPS host allowlist.
+
+    Returns an error description if invalid, or None if allowed.
+    """
+    parsed = urlparse(uri)
+    if parsed.scheme not in ("http", "https"):
+        return f"Unsupported redirect_uri scheme: {uri}"
+    if parsed.fragment:
+        return "redirect_uri must not contain a fragment"
+    if parsed.username is not None or parsed.password is not None:
+        return "redirect_uri must not contain userinfo"
+    if not parsed.hostname:
+        return f"Invalid redirect_uri host: {uri}"
+
+    host = parsed.hostname.lower().rstrip(".")
+    if host in LOOPBACK_REDIRECT_HOSTS:
+        return None
+
+    if parsed.scheme != "https":
+        return "Non-loopback redirect_uri must use HTTPS"
+
+    normalized_allowlist = {h.strip().lower().rstrip(".") for h in allowed_hosts if h.strip()}
+    if host not in normalized_allowlist:
+        return (
+            f"Redirect host '{host}' is not allowed. "
+            "Loopback hosts are always allowed; add external hosts to ZOS_ALLOWED_REDIRECT_HOSTS."
+        )
+    return None
 
 
 def _normalize_url(url: str) -> str:
@@ -92,7 +134,10 @@ def create_oauth_routes(
     """Create discovery, DCR, authorize, and token routes for MCP OAuth 2.1."""
     base_url = _normalize_url(settings.zos_base_url)
     pw_limiter = passphrase_limiter or GlobalPassphraseRateLimiter()
-    _dcr_limiter = dcr_limiter  # wired in M7.3
+    reg_limiter = dcr_limiter or GlobalSlidingWindowLimiter(
+        max_requests=settings.dcr_max_per_hour,
+        window_seconds=3600.0,
+    )
 
     def _cors_json(data: dict[str, Any], *, status_code: int = 200) -> JSONResponse:
         return JSONResponse(
@@ -152,6 +197,19 @@ def create_oauth_routes(
     async def register_client(request: Request) -> Response:
         if request.method == "OPTIONS":
             return _cors_preflight(request)
+
+        retry_after = reg_limiter.check_and_record()
+        if retry_after is not None:
+            return _oauth_error(
+                "too_many_requests",
+                f"Dynamic client registration rate limit exceeded. Try again in {retry_after}s.",
+                status_code=429,
+                extra_headers={
+                    "Retry-After": str(retry_after),
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+
         try:
             body = await request.json()
         except Exception:
@@ -166,11 +224,9 @@ def create_oauth_routes(
 
         redirect_uris: list[str] = []
         for uri in raw_uris:
-            parsed = urlparse(uri)
-            if parsed.scheme not in ("http", "https") and not parsed.scheme:
-                return _oauth_error("invalid_redirect_uri", f"Invalid redirect_uri: {uri}")
-            if parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
-                return _oauth_error("invalid_redirect_uri", "Non-loopback redirect_uri must use HTTPS")
+            uri_err = validate_redirect_uri(uri, settings.allowed_redirect_hosts)
+            if uri_err is not None:
+                return _oauth_error("invalid_redirect_uri", uri_err)
             redirect_uris.append(uri)
 
         auth_method = body.get("token_endpoint_auth_method", "none")
@@ -191,6 +247,23 @@ def create_oauth_routes(
             return _oauth_error("server_error", str(exc), status_code=503)
 
         async with pool.connection() as conn:
+            cnt_cur = await conn.execute(
+                "SELECT COUNT(*) AS cnt FROM clients WHERE principal_id = %s AND kind = 'oauth'",
+                (principal["id"],),
+            )
+            cnt_row = await cnt_cur.fetchone()
+            oauth_count = int(cnt_row["cnt"]) if cnt_row is not None else 0
+            if oauth_count >= settings.max_oauth_clients:
+                return _oauth_error(
+                    "registration_cap_reached",
+                    (
+                        f"Maximum number of OAuth clients ({settings.max_oauth_clients}) reached. "
+                        "Prune unused OAuth clients in /admin/clients."
+                    ),
+                    status_code=429,
+                    extra_headers={"Access-Control-Allow-Origin": "*"},
+                )
+
             cur = await conn.execute(
                 """
                 INSERT INTO clients (

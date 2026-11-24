@@ -303,6 +303,27 @@ async def find_client_by_name_or_id(
         return dict(row) if row else None
 
 
+async def delete_oauth_client(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    client_id: UUID,
+) -> dict[str, Any] | None:
+    """Delete an OAuth client (cascading codes/tokens/policies, preserving events). Returns deleted row."""
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            """
+            DELETE FROM clients
+            WHERE principal_id = %s AND id = %s AND kind = 'oauth'
+            RETURNING id, name, kind, oauth_client_id
+            """,
+            (principal_id, client_id),
+        )
+        row = await cur.fetchone()
+        await conn.commit()
+        return dict(row) if row else None
+
+
 async def set_client_policy(
     pool: AsyncConnectionPool[AsyncConnection[DictRow]],
     *,

@@ -300,7 +300,7 @@ async def test_m2_oauth_edge_cases_dcr_pkce_code_reuse_expiry_and_family_isolati
         )
         r_c2 = await web.post(
             f"{base_url}/oauth/register",
-            json={"client_name": "Claude Code", "redirect_uris": ["codex://oauth/callback"], "token_endpoint_auth_method": "none"},
+            json={"client_name": "Claude Code", "redirect_uris": ["http://localhost:9002/cb"], "token_endpoint_auth_method": "none"},
         )
         assert r_c1.status_code == 201 and r_c2.status_code == 201
         cid1 = r_c1.json()["client_id"]
@@ -376,14 +376,14 @@ async def test_m2_oauth_edge_cases_dcr_pkce_code_reuse_expiry_and_family_isolati
 
         # Issue separate family for cid2
         code2 = await authorize_and_get_code(
-            web, client_id=cid2, redirect_uri="codex://oauth/callback", code_verifier=v_ok
+            web, client_id=cid2, redirect_uri="http://localhost:9002/cb", code_verifier=v_ok
         )
         t2 = await web.post(
             f"{base_url}/oauth/token",
             data={
                 "grant_type": "authorization_code",
                 "code": code2,
-                "redirect_uri": "codex://oauth/callback",
+                "redirect_uri": "http://localhost:9002/cb",
                 "client_id": cid2,
                 "code_verifier": v_ok,
             },

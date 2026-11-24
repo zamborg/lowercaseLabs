@@ -109,6 +109,25 @@ def client_add_cmd(
     typer.echo(f"token={res['token']}")
 
 
+@client_app.command("delete")
+def client_delete_cmd(
+    client: Annotated[str, typer.Argument(help="OAuth client UUID, oauth_client_id, or name")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Prune an OAuth client (cascades tokens/codes/policies, preserves audit events)."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).delete_oauth_client(
+                client_identifier=client,
+                principal_slug=principal,
+            )
+
+    res = asyncio.run(_run())
+    typer.echo(f"Pruned OAuth client name={res['name']} id={res['id']}")
+
+
 @token_app.command("create")
 def token_create_cmd(
     client_name: Annotated[str, typer.Argument(help="Existing bearer client name")],
