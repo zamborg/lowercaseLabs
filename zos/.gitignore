@@ -1,0 +1,26 @@
+# Keep project Python pin tracked despite parent .gitignore
+!.python-version
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Local databases / spike tokens
+*.db
+*.sqlite
+*.sqlite3
+spikes/google/token.json
+spikes/google/client_secret*.json
+
+# Python / tool caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
