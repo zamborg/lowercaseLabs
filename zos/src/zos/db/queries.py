@@ -1,0 +1,389 @@
+"""Database query helpers for principals, spaces, clients, tokens, policies, and providers."""
+
+from __future__ import annotations
+
+import hashlib
+import secrets
+from typing import Any
+from uuid import UUID
+
+from psycopg import AsyncConnection
+from psycopg.rows import DictRow
+from psycopg.types.json import Jsonb
+from psycopg_pool import AsyncConnectionPool
+
+V0_TIER_SEEDS: dict[str, str] = {
+    "zos_status": "read",
+    "memory_get": "read",
+    "memory_search": "read",
+    "memory_put": "write",
+    "memory_delete": "write",
+    "mac_messages_search": "read",
+    "mac_shell_run": "external",
+    "gcal_list_events": "read",
+    "gcal_create_event": "external",
+    "gcal_update_event": "external",
+    "gcal_delete_event": "external",
+    "gmail_search": "read",
+    "gmail_read": "read",
+    "gmail_send": "external",
+}
+
+
+def hash_secret(raw: str) -> bytes:
+    """Compute SHA-256 digest for opaque tokens and authorization codes."""
+    return hashlib.sha256(raw.encode("utf-8")).digest()
+
+
+def generate_token(prefix: str = "zos") -> tuple[str, bytes]:
+    """Generate a high-entropy opaque token and its SHA-256 hash."""
+    raw = f"{prefix}_{secrets.token_urlsafe(32)}"
+    return raw, hash_secret(raw)
+
+
+async def init_principal_and_space(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_slug: str = "owner",
+    display_name: str = "Owner",
+    space_slug: str = "main",
+    space_name: str = "Main",
+) -> dict[str, Any]:
+    """Idempotently initialize principal, single space, memory provider, and V0 tool tier seeds."""
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            """
+                INSERT INTO principals (slug, display_name)
+                VALUES (%s, %s)
+                ON CONFLICT (slug) DO UPDATE SET display_name = EXCLUDED.display_name
+                RETURNING id, slug, display_name
+                """,
+            (principal_slug, display_name),
+        )
+        principal = await cur.fetchone()
+        assert principal is not None
+        principal_id: UUID = principal["id"]
+
+        cur = await conn.execute(
+            """
+                INSERT INTO spaces (principal_id, slug, name)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (principal_id, slug) DO UPDATE SET name = EXCLUDED.name
+                RETURNING id, slug, name
+                """,
+            (principal_id, space_slug, space_name),
+        )
+        space = await cur.fetchone()
+        assert space is not None
+        space_id: UUID = space["id"]
+
+        cur = await conn.execute(
+            """
+                INSERT INTO providers (principal_id, space_id, slug, kind, config, enabled)
+                VALUES (%s, %s, 'memory', 'hosted', %s, true)
+                ON CONFLICT (principal_id, slug) DO UPDATE SET enabled = true
+                RETURNING id, slug, kind
+                """,
+            (principal_id, space_id, Jsonb({})),
+        )
+        provider = await cur.fetchone()
+        assert provider is not None
+
+        for pattern, tier in V0_TIER_SEEDS.items():
+            await conn.execute(
+                """
+                    INSERT INTO tool_tiers (principal_id, tool_pattern, tier)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (principal_id, tool_pattern) DO NOTHING
+                    """,
+                (principal_id, pattern, tier),
+            )
+
+    return {
+        "principal": dict(principal),
+        "space": dict(space),
+        "memory_provider": dict(provider),
+        "tier_seed_count": len(V0_TIER_SEEDS),
+    }
+
+
+async def get_principal_and_space(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    principal_slug: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Fetch the principal (by slug, or the sole principal in V0) and its single space."""
+    async with pool.connection() as conn:
+        if principal_slug:
+            cur = await conn.execute(
+                "SELECT id, slug, display_name FROM principals WHERE slug = %s",
+                (principal_slug,),
+            )
+            principal = await cur.fetchone()
+        else:
+            cur = await conn.execute(
+                "SELECT id, slug, display_name FROM principals ORDER BY created_at ASC LIMIT 1"
+            )
+            principal = await cur.fetchone()
+        if principal is None:
+            raise ValueError("No principal found. Run `zos init` first.")
+
+        cur = await conn.execute(
+            """
+            SELECT id, principal_id, slug, name
+            FROM spaces
+            WHERE principal_id = %s
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (principal["id"],),
+        )
+        space = await cur.fetchone()
+        if space is None:
+            raise ValueError("No space found for principal. Run `zos init` first.")
+
+    return dict(principal), dict(space)
+
+
+async def create_bearer_client(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    space_id: UUID,
+    name: str,
+    trust_ceiling: str = "owner",
+) -> dict[str, Any]:
+    """Create a bearer client and mint its initial opaque bearer token."""
+    raw_token, token_hash = generate_token("zos_b")
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            """
+                INSERT INTO clients (principal_id, default_space_id, name, kind, trust_ceiling)
+                VALUES (%s, %s, %s, 'bearer', %s)
+                RETURNING id, name, kind, trust_ceiling
+                """,
+            (principal_id, space_id, name, trust_ceiling),
+        )
+        client = await cur.fetchone()
+        assert client is not None
+
+        cur = await conn.execute(
+            """
+                INSERT INTO tokens (principal_id, client_id, kind, token_hash, scopes)
+                VALUES (%s, %s, 'bearer', %s, %s)
+                RETURNING id
+                """,
+            (principal_id, client["id"], token_hash, ["mcp"]),
+        )
+        token_row = await cur.fetchone()
+        assert token_row is not None
+
+    return {
+        "client": dict(client),
+        "token_id": token_row["id"],
+        "token": raw_token,
+    }
+
+
+async def mint_bearer_token_for_client(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    client_name: str,
+) -> dict[str, Any]:
+    """Mint a new bearer token for an existing bearer client."""
+    raw_token, token_hash = generate_token("zos_b")
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            """
+            SELECT id, name, default_space_id FROM clients
+            WHERE principal_id = %s AND name = %s AND kind = 'bearer'
+            """,
+            (principal_id, client_name),
+        )
+        client = await cur.fetchone()
+        if client is None:
+            raise ValueError(f"Bearer client not found: {client_name}")
+
+        cur = await conn.execute(
+            """
+            INSERT INTO tokens (principal_id, client_id, kind, token_hash, scopes)
+            VALUES (%s, %s, 'bearer', %s, %s)
+            RETURNING id
+            """,
+            (principal_id, client["id"], token_hash, ["mcp"]),
+        )
+        token_row = await cur.fetchone()
+        await conn.commit()
+        assert token_row is not None
+
+    return {
+        "client": dict(client),
+        "token_id": token_row["id"],
+        "token": raw_token,
+    }
+
+
+async def revoke_token(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    token_id: UUID | None = None,
+    raw_token: str | None = None,
+    client_id: UUID | None = None,
+) -> int:
+    """Revoke matching active token(s). Returns count revoked."""
+    async with pool.connection() as conn:
+        if token_id is not None:
+            cur = await conn.execute(
+                """
+                UPDATE tokens SET revoked_at = now()
+                WHERE id = %s AND revoked_at IS NULL
+                """,
+                (token_id,),
+            )
+        elif raw_token is not None:
+            cur = await conn.execute(
+                """
+                UPDATE tokens SET revoked_at = now()
+                WHERE token_hash = %s AND revoked_at IS NULL
+                """,
+                (hash_secret(raw_token),),
+            )
+        elif client_id is not None:
+            cur = await conn.execute(
+                """
+                UPDATE tokens SET revoked_at = now()
+                WHERE client_id = %s AND revoked_at IS NULL
+                """,
+                (client_id,),
+            )
+        else:
+            raise ValueError("Must specify token_id, raw_token, or client_id")
+        count = cur.rowcount or 0
+        await conn.commit()
+    return count
+
+
+async def find_client_by_name_or_id(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    identifier: str,
+) -> dict[str, Any] | None:
+    """Resolve a client by UUID, oauth_client_id, or bearer client name."""
+    async with pool.connection() as conn:
+        try:
+            parsed_uuid = UUID(identifier)
+        except ValueError:
+            parsed_uuid = None
+
+        if parsed_uuid is not None:
+            cur = await conn.execute(
+                "SELECT id, name, kind, default_space_id, trust_ceiling FROM clients WHERE principal_id = %s AND id = %s",
+                (principal_id, parsed_uuid),
+            )
+            row = await cur.fetchone()
+            if row:
+                return dict(row)
+
+        cur = await conn.execute(
+            """
+            SELECT id, name, kind, default_space_id, trust_ceiling FROM clients
+            WHERE principal_id = %s AND (oauth_client_id = %s OR name = %s)
+            ORDER BY CASE WHEN kind = 'bearer' THEN 0 ELSE 1 END, created_at ASC
+            LIMIT 1
+            """,
+            (principal_id, identifier, identifier),
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def set_client_policy(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    tool_pattern: str,
+    decision: str,
+    client_id: UUID | None = None,
+) -> dict[str, Any]:
+    """Upsert a client policy rule (client_id=None applies to all clients)."""
+    if decision not in ("allow", "deny", "require_approval"):
+        raise ValueError(f"Invalid decision {decision!r}; must be allow, deny, or require_approval")
+
+    async with pool.connection() as conn:
+        if client_id is None:
+            cur = await conn.execute(
+                """
+                UPDATE client_policies
+                SET decision = %s
+                WHERE principal_id = %s AND client_id IS NULL AND tool_pattern = %s
+                RETURNING id, principal_id, client_id, tool_pattern, decision
+                """,
+                (decision, principal_id, tool_pattern),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                cur = await conn.execute(
+                    """
+                    INSERT INTO client_policies (principal_id, client_id, tool_pattern, decision)
+                    VALUES (%s, NULL, %s, %s)
+                    RETURNING id, principal_id, client_id, tool_pattern, decision
+                    """,
+                    (principal_id, tool_pattern, decision),
+                )
+                row = await cur.fetchone()
+        else:
+            cur = await conn.execute(
+                """
+                INSERT INTO client_policies (principal_id, client_id, tool_pattern, decision)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (principal_id, client_id, tool_pattern)
+                DO UPDATE SET decision = EXCLUDED.decision
+                RETURNING id, principal_id, client_id, tool_pattern, decision
+                """,
+                (principal_id, client_id, tool_pattern, decision),
+            )
+            row = await cur.fetchone()
+        await conn.commit()
+    assert row is not None
+    return dict(row)
+
+
+async def create_actuator_provider_and_token(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    space_id: UUID,
+    slug: str,
+) -> dict[str, Any]:
+    """Create or reuse an actuator provider row and mint a fresh actuator token."""
+    raw_token, token_hash = generate_token("zos_a")
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            """
+                INSERT INTO providers (principal_id, space_id, slug, kind, config, enabled)
+                VALUES (%s, %s, %s, 'actuator', %s, true)
+                ON CONFLICT (principal_id, slug) DO UPDATE SET enabled = true
+                RETURNING id, slug, kind
+                """,
+            (principal_id, space_id, slug, Jsonb({})),
+        )
+        provider = await cur.fetchone()
+        assert provider is not None
+
+        cur = await conn.execute(
+            """
+                INSERT INTO tokens (principal_id, provider_id, kind, token_hash, scopes)
+                VALUES (%s, %s, 'actuator', %s, %s)
+                RETURNING id
+                """,
+            (principal_id, provider["id"], token_hash, ["actuator"]),
+        )
+        token_row = await cur.fetchone()
+        assert token_row is not None
+
+    return {
+        "provider": dict(provider),
+        "token_id": token_row["id"],
+        "token": raw_token,
+    }
