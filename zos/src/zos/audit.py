@@ -75,3 +75,34 @@ async def record_event(
         await conn.commit()
     assert row is not None
     return int(row["id"])
+
+
+class DatabaseAuditRecorder:
+    """Router audit callback recording one `tool.called` event per tool invocation."""
+
+    def __init__(self, pool: AsyncConnectionPool[AsyncConnection[DictRow]]) -> None:
+        self.pool = pool
+
+    async def record_tool_call(
+        self,
+        ctx: Any,
+        provider_id: UUID | None,
+        tool: str,
+        decision: str,
+        outcome: str,
+        args: dict[str, Any],
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        await record_event(
+            self.pool,
+            principal_id=ctx.principal_id,
+            space_id=ctx.space_id,
+            client_id=ctx.client_id,
+            provider_id=provider_id,
+            event_type="tool.called",
+            tool=tool,
+            decision=decision,
+            outcome=outcome,  # type: ignore[arg-type]
+            args=args,
+            payload=payload,
+        )
