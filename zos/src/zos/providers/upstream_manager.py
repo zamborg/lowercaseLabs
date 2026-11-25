@@ -37,17 +37,19 @@ from zos.auth.oauth import verify_owner_passphrase
 from zos.auth.rate_limit import GlobalPassphraseRateLimiter, record_auth_failure
 from zos.config import Settings
 from zos.db.queries import (
+    apply_manifest_tiers_for_tools,
     attach_upstream_credential,
     get_remote_upstream,
     list_remote_upstreams,
 )
+from zos.providers.base import ProviderTool
 from zos.providers.mcp_upstream import (
     DEFAULT_CONNECT_TIMEOUT_S,
     ElicitationAuditFn,
     HttpClientFactory,
     McpUpstreamProvider,
 )
-from zos.router import ProviderRegistry, SessionTracker
+from zos.router import ProviderRegistry, SessionTracker, format_tool_name
 from zos.vault import (
     REFRESH_SKEW_SECONDS,
     CredentialRevokedError,
@@ -626,6 +628,28 @@ class UpstreamManager:
                 http_client_factory=self._http_client_factory,
             )
 
+        manifest_tiers = cfg.get("manifest_tiers") if isinstance(cfg.get("manifest_tiers"), dict) else None
+        manifest_patterns = (
+            dict(manifest_tiers.get("patterns") or {})
+            if isinstance(manifest_tiers, dict)
+            else {}
+        )
+        catalog_slug = str(cfg.get("catalog_slug") or slug)
+
+        async def _on_tools_updated(tools: list[ProviderTool]) -> None:
+            if not manifest_patterns or not tools:
+                return
+            exposed = [(format_tool_name(slug, pt.name), pt.name) for pt in tools]
+            await apply_manifest_tiers_for_tools(
+                self.pool,
+                principal_id=principal_id,
+                provider_id=provider_id,
+                slug=slug,
+                catalog_slug=catalog_slug,
+                patterns=manifest_patterns,
+                exposed_tools=exposed,
+            )
+
         mcp_provider = McpUpstreamProvider(
             namespace=slug,
             url=url,
@@ -637,6 +661,7 @@ class UpstreamManager:
             connect_timeout_s=self._connect_timeout_s,
             auth_mode=auth_mode,
             on_auth_failed=_on_auth_failed,
+            on_tools_updated=_on_tools_updated if manifest_patterns else None,
         )
         return _ManagedUpstream(
             slug=slug,
@@ -818,12 +843,20 @@ class UpstreamManager:
         async def callback_handler() -> AuthorizationCodeResult:
             return await asyncio.wait_for(callback_future, timeout=CONNECT_FLOW_TTL_SECONDS)
 
+        requires_reg = bool(cfg.get("requires_client_registration", False))
+        existing_client_info = await storage.get_client_info()
+        if requires_reg and existing_client_info is None:
+            raise RuntimeError(
+                f"Upstream '{slug}' requires pre-registered OAuth client credentials. "
+                "Set Client ID and Client Secret in /admin/upstreams first."
+            )
+
         client_metadata = OAuthClientMetadata(
             client_name=f"ZOS ({slug})",
             redirect_uris=[AnyUrl(self._callback_url(slug))],
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
-            token_endpoint_auth_method="none",
+            token_endpoint_auth_method="client_secret_post" if requires_reg else "none",
         )
         oauth_provider = OAuthClientProvider(
             server_url=server_url,

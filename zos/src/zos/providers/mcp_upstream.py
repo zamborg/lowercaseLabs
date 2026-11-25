@@ -158,6 +158,7 @@ class McpUpstreamProvider:
         transport: str = "mcp",
         auth_mode: str = "oauth",
         on_auth_failed: Callable[[str], Awaitable[None]] | None = None,
+        on_tools_updated: Callable[[list[ProviderTool]], Awaitable[None]] | None = None,
     ) -> None:
         self._namespace = namespace
         self.url = url
@@ -171,6 +172,7 @@ class McpUpstreamProvider:
         self._http_client_factory = http_client_factory
         self._connect_timeout_s = connect_timeout_s
         self._on_auth_failed = on_auth_failed
+        self._on_tools_updated = on_tools_updated
 
         self._session: ClientSession | None = None
         self._auth: _UpstreamBearerAuth | None = None
@@ -355,6 +357,9 @@ class McpUpstreamProvider:
                     list(tools_res.tools),
                     namespace=self._namespace,
                 )
+                if self._on_tools_updated is not None:
+                    with contextlib.suppress(Exception):
+                        await self._on_tools_updated(list(self._tools))
                 self._session = session
                 self._last_connect_ok = True
                 self._needs_reconnect = False
@@ -409,6 +414,9 @@ class McpUpstreamProvider:
                 list(tools_res.tools),
                 namespace=self._namespace,
             )
+            if self._on_tools_updated is not None:
+                with contextlib.suppress(Exception):
+                    await self._on_tools_updated(list(self._tools))
             await self.sessions.broadcast_tools_changed()
         except Exception as exc:
             logger.warning("Failed refreshing tool list from upstream '%s': %s", self._namespace, exc)

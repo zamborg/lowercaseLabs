@@ -247,6 +247,7 @@ def render_upstreams_page(
     *,
     upstreams: list[dict[str, Any]],
     csrf_token: str,
+    catalog: list[dict[str, Any]] | None = None,
     notice: str | None = None,
     error: str | None = None,
 ) -> str:
@@ -263,6 +264,9 @@ def render_upstreams_page(
         "offline": '<span class="badge badge-muted">offline</span>',
     }
 
+    installed_slugs = {str(u["slug"]) for u in upstreams}
+    installed_catalog_slugs = {str(u["catalog_slug"]) for u in upstreams if u.get("catalog_slug")}
+
     rows = []
     for u in upstreams:
         slug = str(u["slug"])
@@ -273,6 +277,12 @@ def render_upstreams_page(
             if u.get("last_error")
             else ""
         )
+        help_note = ""
+        if u["auth_mode"] == "bearer" and u.get("token_help") and not u.get("has_credential"):
+            help_note = f'<div class="muted" style="max-width:300px;margin-top:0.25rem;">{_e(u["token_help"])}</div>'
+        elif u["auth_mode"] == "oauth" and u.get("requires_client_registration") and u.get("client_help"):
+            help_note = f'<div class="muted" style="max-width:300px;margin-top:0.25rem;">{_e(u["client_help"])}</div>'
+
         actions: list[str] = []
         if u["auth_mode"] == "bearer":
             actions.append(
@@ -290,6 +300,15 @@ def render_upstreams_page(
                     f'<button type="submit" class="secondary sm">Disconnect</button></form>'
                 )
         elif u["auth_mode"] == "oauth":
+            if u.get("requires_client_registration"):
+                actions.append(
+                    f'<form class="inline" method="post" action="/admin/upstreams/oauth-client">'
+                    f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+                    f'<input type="hidden" name="slug" value="{_e(slug)}">'
+                    f'<input type="text" name="client_id" placeholder="Client ID" required style="width:100px;">'
+                    f'<input type="password" name="client_secret" placeholder="Client Secret" autocomplete="new-password" required style="width:110px;">'
+                    f'<button type="submit" class="secondary sm">Set Client</button></form>'
+                )
             label = "Reconnect" if status == "needs_reconnect" else "Connect"
             actions.append(f'<a class="btn sm" href="/connect/{_e(slug)}">{label}</a>')
             if u.get("has_credential") or u.get("online"):
@@ -307,7 +326,7 @@ def render_upstreams_page(
         )
         rows.append(
             f"<tr>"
-            f'<td><code>{_e(slug)}</code><div class="muted mono">{_e(u["url"])}</div></td>'
+            f'<td><code>{_e(slug)}</code><div class="muted mono">{_e(u["url"])}</div>{help_note}</td>'
             f'<td><code>{_e(u["auth_mode"])}</code></td>'
             f'<td><code>{_e(u["default_tier"])}</code></td>'
             f"<td>{badge}{err_note}</td>"
@@ -316,11 +335,53 @@ def render_upstreams_page(
             f"</tr>"
         )
 
+    cat_rows = []
+    for c in catalog or []:
+        c_slug = str(c["slug"])
+        is_installed = c_slug in installed_slugs or c_slug in installed_catalog_slugs
+        auth_label = f"{c['auth_mode']} (pre-reg)" if c.get("requires_client_registration") else c["auth_mode"]
+        inst_badge = ' <span class="badge badge-ok">installed</span>' if is_installed else ""
+        action_form = (
+            f'<form class="inline" method="post" action="/admin/upstreams/install">'
+            f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+            f'<input type="hidden" name="catalog_slug" value="{_e(c_slug)}">'
+            f'<input type="text" name="as_slug" placeholder="alias (optional)" pattern="[a-z][a-z0-9]{{1,15}}" style="width:115px;">'
+            f'<button type="submit" class="{"secondary" if is_installed else ""} sm">{"Install another" if is_installed else "Install"}</button></form>'
+        )
+        cat_rows.append(
+            f"<tr>"
+            f'<td><strong>{_e(c["name"])}</strong>{inst_badge} <code class="muted">{_e(c_slug)}</code>'
+            f'<div class="muted">{_e(c["description"])}</div></td>'
+            f'<td><code>{_e(auth_label)}</code></td>'
+            f'<td><a href="{_e(c["docs_url"])}" target="_blank" rel="noopener noreferrer">Docs</a></td>'
+            f"<td>{action_form}</td>"
+            f"</tr>"
+        )
+
     body = f"""
     <h1>MCP Servers</h1>
     {banners}
     <div class="card">
-      <h2>Add Remote MCP Server</h2>
+      <h2>Registered Remote MCP Servers</h2>
+      <div class="scroll-x">
+        <table>
+          <thead><tr><th>Server</th><th>Auth</th><th>Default Tier</th><th>Status</th><th>Tools</th><th>Actions</th></tr></thead>
+          <tbody>{''.join(rows) or '<tr><td colspan="6" class="muted">No remote MCP servers registered yet. Install one from the catalog below or add a custom URL.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Available Connectors</h2>
+      <p class="muted">Verified official remote MCP servers. Nothing is installed by default; click <strong>Install</strong> to register with manifest tier rules, then connect.</p>
+      <div class="scroll-x">
+        <table>
+          <thead><tr><th>Connector</th><th>Auth</th><th>Docs</th><th>Install</th></tr></thead>
+          <tbody>{''.join(cat_rows) or '<tr><td colspan="4" class="muted">No catalog manifests found.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Add Custom Remote MCP Server</h2>
       <p class="muted">Tools are exposed as <code>&lt;slug&gt;_&lt;tool&gt;</code>. Default tier is <code>external</code> (approval required) unless opted down; override individual tools on <a href="/admin/policy">Tools &amp; Policy</a>.</p>
       <form class="form-row" method="post" action="/admin/upstreams/add">
         <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
@@ -350,15 +411,6 @@ def render_upstreams_page(
         </label>
         <button type="submit">Add Server</button>
       </form>
-    </div>
-    <div class="card">
-      <h2>Registered Remote MCP Servers</h2>
-      <div class="scroll-x">
-        <table>
-          <thead><tr><th>Server</th><th>Auth</th><th>Default Tier</th><th>Status</th><th>Tools</th><th>Actions</th></tr></thead>
-          <tbody>{''.join(rows) or '<tr><td colspan="6" class="muted">No remote MCP servers registered yet.</td></tr>'}</tbody>
-        </table>
-      </div>
     </div>
     """
     return _layout(title="MCP Servers", active="upstreams", csrf_token=csrf_token, body=body)

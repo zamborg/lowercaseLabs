@@ -17,6 +17,7 @@ import typer
 from argon2 import PasswordHasher
 
 from zos.admin_service import AdminService
+from zos.catalog import load_catalog
 from zos.config import Settings
 from zos.db import open_pool, run_migrations
 from zos.db.queries import init_principal_and_space
@@ -30,6 +31,7 @@ policy_app = typer.Typer(help="Manage per-client and default tool policies.")
 actuator_app = typer.Typer(help="Manage dial-out actuators.")
 provider_app = typer.Typer(help="Manage upstream providers.")
 upstream_app = typer.Typer(help="Manage routed remote MCP servers.")
+catalog_app = typer.Typer(help="Browse and install connectors from the built-in catalog.")
 memory_app = typer.Typer(help="Import and export agent memories.")
 backup_app = typer.Typer(help="Record encrypted backup status.")
 
@@ -39,6 +41,7 @@ app.add_typer(policy_app, name="policy")
 app.add_typer(actuator_app, name="actuator")
 app.add_typer(provider_app, name="provider")
 app.add_typer(upstream_app, name="upstream")
+app.add_typer(catalog_app, name="catalog")
 app.add_typer(memory_app, name="memory")
 app.add_typer(backup_app, name="backup")
 
@@ -444,6 +447,61 @@ def upstream_remove_cmd(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=2) from exc
     typer.echo(f"Removed upstream slug={res['slug']}")
+
+
+@catalog_app.command("list")
+def catalog_list_cmd() -> None:
+    """List available connectors from the built-in catalog (`catalog/connectors/*.toml`)."""
+    entries = load_catalog()
+    if not entries:
+        typer.echo("No catalog connectors found.")
+        return
+    for c in entries:
+        reg_note = " (pre-reg)" if c.auth.requires_client_registration else ""
+        typer.echo(f"{c.slug}\t{c.name}\tauth={c.auth.mode}{reg_note}\turl={c.runtime.url}")
+
+
+@catalog_app.command("install")
+def catalog_install_cmd(
+    slug: Annotated[str, typer.Argument(help="Catalog connector slug (e.g. linear, github, cfdocs)")],
+    as_slug: Annotated[
+        str | None,
+        typer.Option("--as", help="Install under a custom prefix/slug (e.g. a second account)"),
+    ] = None,
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Install a connector from the catalog and apply its manifest tier rules."""
+
+    async def _run() -> tuple[str, dict]:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            res = await AdminService(pool).install_catalog_connector(
+                catalog_slug=slug,
+                as_slug=as_slug,
+                catalog_dir=s.catalog_dir,
+                principal_slug=principal,
+            )
+        return s.zos_base_url.rstrip("/"), res
+
+    try:
+        base_url, res = asyncio.run(_run())
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    manifest = res["manifest"]
+    target = res["provider"]["slug"]
+    typer.echo(
+        f"Installed catalog connector '{manifest.slug}' as slug={target} "
+        f"(auth={manifest.auth.mode}, default_tier={manifest.tiers.default})"
+    )
+    if manifest.auth.mode == "oauth":
+        if manifest.auth.requires_client_registration:
+            typer.echo(f"Next: set OAuth client credentials in {base_url}/admin/upstreams, then open {base_url}/connect/{target}")
+        else:
+            typer.echo(f"Next: open {base_url}/connect/{target}")
+    elif manifest.auth.mode == "bearer":
+        typer.echo(f"Next: run `zos upstream set-token {target}` (stdin) or paste token in {base_url}/admin/upstreams")
 
 
 @memory_app.command("export")

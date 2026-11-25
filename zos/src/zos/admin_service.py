@@ -6,14 +6,18 @@ Every mutation goes through this service and writes the exact audit events to `e
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from mcp.shared.auth import OAuthClientInformationFull
 from psycopg import AsyncConnection
 from psycopg.rows import DictRow
 from psycopg_pool import AsyncConnectionPool
+from pydantic import AnyUrl
 
 from zos.audit import record_event
+from zos.catalog import get_catalog_entry
 from zos.db.queries import (
     attach_upstream_credential,
     clear_client_policy,
@@ -32,11 +36,13 @@ from zos.db.queries import (
     set_client_policy,
     set_provider_backend,
     set_tool_tier,
+    unmark_managed_tier_pattern,
 )
 from zos.policy import Decision, Tier, build_tool_annotations, resolve_decision, resolve_tier
 from zos.providers.upstream_manager import (
     ISSUER_MCP_BEARER,
     UpstreamManager,
+    VaultOAuthTokenStorage,
     validate_upstream_url,
 )
 from zos.router import ZOS_STATUS_TOOL_NAME, ProviderRegistry, SessionTracker, format_tool_name
@@ -416,6 +422,11 @@ class AdminService:
             tool_pattern=clean_pattern,
             tier=clean_tier,
         )
+        await unmark_managed_tier_pattern(
+            self.pool,
+            principal_id=p["id"],
+            tool_pattern=clean_pattern,
+        )
         await record_event(
             self.pool,
             principal_id=p["id"],
@@ -435,6 +446,7 @@ class AdminService:
         url: str,
         auth_mode: str,
         default_tier: str = "external",
+        extra_config: dict[str, Any] | None = None,
         principal_slug: str | None = None,
         upstream_manager: UpstreamManager | None = None,
     ) -> dict[str, Any]:
@@ -458,6 +470,7 @@ class AdminService:
             url=clean_url,
             auth_mode=clean_auth,
             default_tier=clean_tier,
+            extra_config=extra_config,
         )
         if upstream_manager is not None:
             await upstream_manager.hot_register_from_row(row, connect=True)
@@ -477,6 +490,129 @@ class AdminService:
             },
         )
         return row
+
+    async def install_catalog_connector(
+        self,
+        *,
+        catalog_slug: str,
+        as_slug: str | None = None,
+        catalog_dir: Path | None = None,
+        principal_slug: str | None = None,
+        upstream_manager: UpstreamManager | None = None,
+    ) -> dict[str, Any]:
+        manifest = get_catalog_entry(catalog_slug, catalog_dir)
+        if manifest is None:
+            raise ValueError(f"Catalog connector not found: {catalog_slug}")
+
+        target_slug = validate_upstream_slug(as_slug) if (as_slug and as_slug.strip()) else manifest.slug
+        extra_config: dict[str, Any] = {
+            "catalog_slug": manifest.slug,
+            "manifest_version": manifest.manifest_version,
+            "manifest_tiers": {
+                "default": manifest.tiers.default,
+                "patterns": dict(manifest.tiers.patterns),
+            },
+            "requires_client_registration": manifest.auth.requires_client_registration,
+            "managed_tier_patterns": [],
+        }
+        if manifest.auth.token_help:
+            extra_config["token_help"] = manifest.auth.token_help
+        if manifest.auth.client_help:
+            extra_config["client_help"] = manifest.auth.client_help
+
+        row = await self.add_remote_upstream(
+            slug=target_slug,
+            url=manifest.runtime.url,
+            auth_mode=manifest.auth.mode,
+            default_tier=manifest.tiers.default,
+            extra_config=extra_config,
+            principal_slug=principal_slug,
+            upstream_manager=upstream_manager,
+        )
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            provider_id=row["id"],
+            event_type="catalog.installed",
+            outcome="ok",
+            payload={
+                "catalog_slug": manifest.slug,
+                "slug": target_slug,
+                "auth_mode": manifest.auth.mode,
+                "default_tier": manifest.tiers.default,
+            },
+        )
+        return {"manifest": manifest, "provider": row}
+
+    async def set_upstream_oauth_client(
+        self,
+        *,
+        slug: str,
+        client_id: str,
+        client_secret: str,
+        secret_key: str,
+        base_url: str,
+        principal_slug: str | None = None,
+        upstream_manager: UpstreamManager | None = None,
+    ) -> dict[str, Any]:
+        """Store pre-registered OAuth client_id + client_secret in vault for non-DCR upstreams."""
+        clean_slug = slug.strip().lower()
+        clean_cid = client_id.strip()
+        clean_csec = client_secret.strip()
+        if not clean_cid or not clean_csec:
+            raise ValueError("Both client_id and client_secret are required")
+        if not secret_key:
+            raise ValueError("ZOS_SECRET_KEY is not configured; cannot encrypt OAuth client credentials")
+
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        row = await get_remote_upstream(self.pool, slug=clean_slug, principal_id=p["id"])
+        if row is None:
+            raise ValueError(f"Remote MCP upstream not found: {clean_slug}")
+        cfg = row["config"] if isinstance(row.get("config"), dict) else {}
+        if str(cfg.get("auth_mode") or "").lower() != "oauth":
+            raise ValueError(f"Upstream '{clean_slug}' is not an OAuth upstream")
+
+        store = CredentialStore(self.pool, CredentialVault(secret_key))
+        storage = VaultOAuthTokenStorage(
+            store=store,
+            principal_id=p["id"],
+            slug=clean_slug,
+            credential_id=row.get("credential_id"),
+        )
+        callback_url = f"{base_url.rstrip('/')}/connect/{clean_slug}/callback"
+        client_info = OAuthClientInformationFull(
+            client_id=clean_cid,
+            client_secret=clean_csec,
+            client_name=f"ZOS ({clean_slug})",
+            redirect_uris=[AnyUrl(callback_url)],
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            token_endpoint_auth_method="client_secret_post",
+        )
+        await storage.set_client_info(client_info)
+        assert storage.credential_id is not None
+        await attach_upstream_credential(
+            self.pool,
+            provider_id=row["id"],
+            credential_id=storage.credential_id,
+        )
+        if upstream_manager is not None:
+            refreshed = await get_remote_upstream(self.pool, slug=clean_slug, principal_id=p["id"])
+            if refreshed is not None:
+                await upstream_manager.hot_register_from_row(refreshed, connect=False)
+
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            provider_id=row["id"],
+            event_type="upstream.oauth_client_set",
+            outcome="ok",
+            payload={"slug": clean_slug, "credential_id": str(storage.credential_id)},
+        )
+        return {"slug": clean_slug, "credential_id": storage.credential_id}
 
     async def set_upstream_bearer_token(
         self,
@@ -624,6 +760,10 @@ class AdminService:
                     "url": str(cfg.get("url") or ""),
                     "auth_mode": auth_mode,
                     "default_tier": str(cfg.get("default_tier") or "external"),
+                    "catalog_slug": cfg.get("catalog_slug"),
+                    "requires_client_registration": bool(cfg.get("requires_client_registration", False)),
+                    "token_help": str(cfg.get("token_help") or ""),
+                    "client_help": str(cfg.get("client_help") or ""),
                     "has_credential": has_cred,
                     "status": status,
                     "online": online,

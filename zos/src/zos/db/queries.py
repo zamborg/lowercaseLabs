@@ -435,15 +435,18 @@ async def create_remote_upstream(
     url: str,
     auth_mode: str,
     default_tier: str = "external",
+    extra_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Register a generic remote MCP upstream (`runtime: remote`) in `providers`."""
-    config = {
+    config: dict[str, Any] = {
         "runtime": "remote",
         "transport": "mcp",
         "url": url,
         "auth_mode": auth_mode,
         "default_tier": default_tier,
     }
+    if extra_config:
+        config.update(extra_config)
     async with pool.connection() as conn, conn.transaction():
         cur = await conn.execute(
             "SELECT id, slug FROM providers WHERE principal_id = %s AND slug = %s",
@@ -476,6 +479,102 @@ async def create_remote_upstream(
                 (principal_id, f"{slug}_*", default_tier),
             )
     return dict(row)
+
+
+async def apply_manifest_tiers_for_tools(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    provider_id: UUID,
+    slug: str,
+    catalog_slug: str,
+    patterns: dict[str, str],
+    exposed_tools: list[tuple[str, str]],
+) -> list[str]:
+    """Resolve manifest glob/exact tier patterns onto discovered tools without overriding owner tiers.
+
+    `exposed_tools` is a list of `(exposed_name, local_sanitized_name)`.
+    Returns list of newly written `tool_tiers` patterns.
+    """
+    from zos.policy.tiers import match_best_pattern
+    from zos.router.naming import format_tool_name
+
+    if not patterns or not exposed_tools:
+        return []
+
+    written: list[str] = []
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            "SELECT tool_pattern FROM tool_tiers WHERE principal_id = %s",
+            (principal_id,),
+        )
+        existing_patterns = {str(r["tool_pattern"]) for r in await cur.fetchall()}
+
+        cur = await conn.execute(
+            "SELECT config FROM providers WHERE id = %s FOR UPDATE",
+            (provider_id,),
+        )
+        prow = await cur.fetchone()
+        if prow is None:
+            return []
+        cfg = dict(prow["config"]) if isinstance(prow["config"], dict) else {}
+        managed = set(cfg.get("managed_tier_patterns") or [])
+
+        for exposed_name, local_name in exposed_tools:
+            if exposed_name in existing_patterns:
+                continue
+            matched = match_best_pattern(exposed_name, patterns)
+            if matched is None and catalog_slug and catalog_slug != slug:
+                canonical_name = format_tool_name(catalog_slug, local_name)
+                matched = match_best_pattern(canonical_name, patterns)
+            if matched is None:
+                continue
+            ins = await conn.execute(
+                """
+                INSERT INTO tool_tiers (principal_id, tool_pattern, tier)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (principal_id, tool_pattern) DO NOTHING
+                """,
+                (principal_id, exposed_name, matched),
+            )
+            if (ins.rowcount or 0) > 0:
+                existing_patterns.add(exposed_name)
+                managed.add(exposed_name)
+                written.append(exposed_name)
+
+        if written:
+            cfg["managed_tier_patterns"] = sorted(managed)
+            await conn.execute(
+                "UPDATE providers SET config = %s WHERE id = %s",
+                (Jsonb(cfg), provider_id),
+            )
+    return written
+
+
+async def unmark_managed_tier_pattern(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    tool_pattern: str,
+) -> None:
+    """Remove `tool_pattern` from any remote upstream's `managed_tier_patterns` after owner edit."""
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            """
+            SELECT id, config FROM providers
+            WHERE principal_id = %s AND kind = 'upstream' AND config->>'runtime' = 'remote'
+            """,
+            (principal_id,),
+        )
+        for row in await cur.fetchall():
+            cfg = dict(row["config"]) if isinstance(row["config"], dict) else {}
+            managed = list(cfg.get("managed_tier_patterns") or [])
+            if tool_pattern in managed:
+                cfg["managed_tier_patterns"] = [p for p in managed if p != tool_pattern]
+                await conn.execute(
+                    "UPDATE providers SET config = %s WHERE id = %s",
+                    (Jsonb(cfg), row["id"]),
+                )
 
 
 async def list_remote_upstreams(
@@ -600,9 +699,12 @@ async def delete_remote_upstream(
         cred_id = row["credential_id"]
         if cred_id is not None:
             await conn.execute("DELETE FROM credentials WHERE id = %s", (cred_id,))
+        cfg = row["config"] if isinstance(row["config"], dict) else {}
+        managed_patterns = [str(p) for p in (cfg.get("managed_tier_patterns") or []) if str(p)]
+        patterns_to_drop = sorted({f"{slug}_*", *managed_patterns})
         await conn.execute(
-            "DELETE FROM tool_tiers WHERE principal_id = %s AND tool_pattern = %s",
-            (principal_id, f"{slug}_*"),
+            "DELETE FROM tool_tiers WHERE principal_id = %s AND tool_pattern = ANY(%s)",
+            (principal_id, patterns_to_drop),
         )
     return dict(row)
 

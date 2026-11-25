@@ -16,6 +16,7 @@ from starlette.routing import Route
 from zos.admin_service import AdminService
 from zos.auth.oauth import verify_owner_passphrase
 from zos.auth.rate_limit import GlobalPassphraseRateLimiter, record_auth_failure
+from zos.catalog import load_catalog
 from zos.config import Settings
 from zos.providers.upstream_manager import UpstreamManager
 from zos.router import ProviderRegistry, SessionTracker
@@ -406,12 +407,33 @@ def create_admin_routes(
             )
         )
 
+    def _catalog_entries() -> list[dict[str, Any]]:
+        return [
+            {
+                "slug": m.slug,
+                "name": m.name,
+                "description": m.description,
+                "docs_url": m.docs_url,
+                "url": m.runtime.url,
+                "auth_mode": m.auth.mode,
+                "requires_client_registration": m.auth.requires_client_registration,
+                "default_tier": m.tiers.default,
+            }
+            for m in load_catalog(settings.catalog_dir)
+        ]
+
     async def upstreams_page(request: Request) -> Response:
         session = _require_session(request)
         if session is None:
             return _redirect("/admin/login")
         upstreams = await service.list_remote_upstreams(upstream_manager=upstream_manager)
-        return _html(render_upstreams_page(upstreams=upstreams, csrf_token=session.csrf_token))
+        return _html(
+            render_upstreams_page(
+                upstreams=upstreams,
+                catalog=_catalog_entries(),
+                csrf_token=session.csrf_token,
+            )
+        )
 
     async def upstreams_add(request: Request) -> Response:
         session = _require_session(request)
@@ -443,6 +465,53 @@ def create_admin_routes(
         return _html(
             render_upstreams_page(
                 upstreams=upstreams,
+                catalog=_catalog_entries(),
+                csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+            )
+        )
+
+    async def upstreams_install(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        catalog_slug = data.get("catalog_slug", "").strip()
+        as_slug = data.get("as_slug", "").strip() or None
+        notice = None
+        error = None
+        try:
+            res = await service.install_catalog_connector(
+                catalog_slug=catalog_slug,
+                as_slug=as_slug,
+                catalog_dir=settings.catalog_dir,
+                upstream_manager=upstream_manager,
+            )
+            manifest = res["manifest"]
+            target = res["provider"]["slug"]
+            if manifest.auth.mode == "oauth" and not manifest.auth.requires_client_registration:
+                return _redirect(f"/connect/{target}")
+            if manifest.auth.mode == "bearer":
+                notice = f"Installed '{manifest.name}' as '{target}'. Paste your bearer token below to connect."
+            elif manifest.auth.requires_client_registration:
+                notice = (
+                    f"Installed '{manifest.name}' as '{target}'. "
+                    "Enter your pre-registered OAuth Client ID & Secret below, then click Connect."
+                )
+            else:
+                notice = f"Installed '{manifest.name}' as '{target}'."
+        except Exception as exc:
+            error = str(exc)
+
+        upstreams = await service.list_remote_upstreams(upstream_manager=upstream_manager)
+        return _html(
+            render_upstreams_page(
+                upstreams=upstreams,
+                catalog=_catalog_entries(),
                 csrf_token=session.csrf_token,
                 notice=notice,
                 error=error,
@@ -476,6 +545,44 @@ def create_admin_routes(
         return _html(
             render_upstreams_page(
                 upstreams=upstreams,
+                catalog=_catalog_entries(),
+                csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+            )
+        )
+
+    async def upstreams_set_oauth_client(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        slug = data.get("slug", "").strip()
+        client_id = data.get("client_id", "").strip()
+        client_secret = data.get("client_secret", "")
+        notice = None
+        error = None
+        try:
+            await service.set_upstream_oauth_client(
+                slug=slug,
+                client_id=client_id,
+                client_secret=client_secret,
+                secret_key=settings.zos_secret_key,
+                base_url=settings.zos_base_url,
+                upstream_manager=upstream_manager,
+            )
+            notice = f"Saved OAuth client credentials for '{slug}'. Click Connect to authorize."
+        except Exception as exc:
+            error = str(exc)
+
+        upstreams = await service.list_remote_upstreams(upstream_manager=upstream_manager)
+        return _html(
+            render_upstreams_page(
+                upstreams=upstreams,
+                catalog=_catalog_entries(),
                 csrf_token=session.csrf_token,
                 notice=notice,
                 error=error,
@@ -506,6 +613,7 @@ def create_admin_routes(
         return _html(
             render_upstreams_page(
                 upstreams=upstreams,
+                catalog=_catalog_entries(),
                 csrf_token=session.csrf_token,
                 notice=notice,
                 error=error,
@@ -536,6 +644,7 @@ def create_admin_routes(
         return _html(
             render_upstreams_page(
                 upstreams=upstreams,
+                catalog=_catalog_entries(),
                 csrf_token=session.csrf_token,
                 notice=notice,
                 error=error,
@@ -589,7 +698,9 @@ def create_admin_routes(
         Route("/admin/policy/tier", policy_set_tier, methods=["POST"]),
         Route("/admin/upstreams", upstreams_page, methods=["GET"]),
         Route("/admin/upstreams/add", upstreams_add, methods=["POST"]),
+        Route("/admin/upstreams/install", upstreams_install, methods=["POST"]),
         Route("/admin/upstreams/token", upstreams_set_token, methods=["POST"]),
+        Route("/admin/upstreams/oauth-client", upstreams_set_oauth_client, methods=["POST"]),
         Route("/admin/upstreams/disconnect", upstreams_disconnect, methods=["POST"]),
         Route("/admin/upstreams/remove", upstreams_remove, methods=["POST"]),
         Route("/admin/activity", activity_page, methods=["GET"]),
