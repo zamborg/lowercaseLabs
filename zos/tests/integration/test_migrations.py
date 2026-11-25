@@ -30,7 +30,9 @@ async def test_fresh_db_migrates_and_second_run_is_noop() -> None:
     try:
         async with open_pool(temp_url) as pool:
             first = await run_migrations(pool, MIGRATIONS_DIR)
-            assert first == ["0001_init.sql"]
+            expected_files = sorted(p.name for p in MIGRATIONS_DIR.glob("*.sql"))
+            assert first == expected_files
+            assert "0001_init.sql" in first
 
             second = await run_migrations(pool, MIGRATIONS_DIR)
             assert second == []

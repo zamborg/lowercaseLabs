@@ -25,6 +25,7 @@ V0_TIER_SEEDS: dict[str, str] = {
     "gcal_list_calendars": "read",
     "gcal_suggest_time": "read",
     "gcal_search_events": "read",
+    "gcal_freebusy": "read",
     "gcal_create_event": "external",
     "gcal_update_event": "external",
     "gcal_delete_event": "external",
