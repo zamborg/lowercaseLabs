@@ -1,4 +1,5 @@
 from zos.policy.annotations import build_tool_annotations
+from zos.policy.approvals import ApprovalError, ApprovalManager
 from zos.policy.decisions import (
     TIER_DEFAULT_DECISION,
     DatabasePolicyEvaluator,
@@ -18,6 +19,8 @@ from zos.policy.tiers import Tier, match_best_pattern, pattern_specificity, reso
 __all__ = [
     "APPROVAL_SCHEMA",
     "TIER_DEFAULT_DECISION",
+    "ApprovalError",
+    "ApprovalManager",
     "DatabasePolicyEvaluator",
     "Decision",
     "PolicySnapshot",

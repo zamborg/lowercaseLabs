@@ -49,6 +49,16 @@ def _parse_positive_int(raw: str, default: int) -> int:
     return parsed
 
 
+def _parse_non_negative_float(raw: str, default: float) -> float:
+    val = raw.strip()
+    if not val:
+        return default
+    parsed = float(val)
+    if parsed < 0:
+        raise ValueError(f"Expected non-negative number, got {val!r}")
+    return parsed
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     database_url: str
@@ -62,6 +72,8 @@ class Settings:
     allowed_redirect_hosts: tuple[str, ...] = ()
     dcr_max_per_hour: int = 10
     max_oauth_clients: int = 50
+    approval_wait_seconds: float = 45.0
+    approval_ttl_seconds: int = 600
     instructions_file: str = ""
     migrations_dir: Path = field(default_factory=_default_migrations_dir)
     catalog_dir: Path = field(default_factory=_default_catalog_dir)
@@ -90,6 +102,12 @@ class Settings:
             ),
             dcr_max_per_hour=_parse_positive_int(os.environ.get("ZOS_DCR_MAX_PER_HOUR", ""), 10),
             max_oauth_clients=_parse_positive_int(os.environ.get("ZOS_MAX_OAUTH_CLIENTS", ""), 50),
+            approval_wait_seconds=_parse_non_negative_float(
+                os.environ.get("ZOS_APPROVAL_WAIT_S", ""), 45.0
+            ),
+            approval_ttl_seconds=_parse_positive_int(
+                os.environ.get("ZOS_APPROVAL_TTL_S", ""), 600
+            ),
             instructions_file=os.environ.get("ZOS_INSTRUCTIONS_FILE", "").strip(),
             migrations_dir=Path(mig_override) if mig_override else _default_migrations_dir(),
             catalog_dir=Path(cat_override) if cat_override else _default_catalog_dir(),

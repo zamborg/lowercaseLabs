@@ -44,10 +44,11 @@ async def record_event(
     tool: str | None = None,
     decision: str | None = None,
     args: dict[str, Any] | None = None,
+    raw_args_digest: bytes | None = None,
     payload: dict[str, Any] | None = None,
 ) -> int:
     """Insert one immutable row into `events` and return its monotonic id."""
-    digest = args_digest(args) if args is not None else None
+    digest = raw_args_digest if raw_args_digest is not None else (args_digest(args) if args is not None else None)
     async with pool.connection() as conn:
         cur = await conn.execute(
             """
