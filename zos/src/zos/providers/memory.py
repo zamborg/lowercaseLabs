@@ -12,6 +12,7 @@ from psycopg.rows import DictRow
 from psycopg_pool import AsyncConnectionPool
 
 from zos.auth.context import CallContext
+from zos.memory_service import MemoryService
 from zos.providers.base import ProviderKind, ProviderTool
 
 MAX_SEARCH_LIMIT = 50
@@ -169,24 +170,14 @@ class MemoryProvider:
                 is_error=True,
             )
         raw_tags = args.get("tags") or []
-        tags = sorted({str(t).strip() for t in raw_tags if str(t).strip()})
-
-        async with self.pool.connection() as conn:
-            cur = await conn.execute(
-                """
-                INSERT INTO memories (principal_id, space_id, key, content, tags, created_by_client_id)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (space_id, key) DO UPDATE
-                SET content = EXCLUDED.content,
-                    tags = EXCLUDED.tags,
-                    updated_at = now()
-                RETURNING key, content, tags, created_at, updated_at
-                """,
-                (ctx.principal_id, ctx.space_id, key, content, tags, ctx.client_id),
-            )
-            row = await cur.fetchone()
-            await conn.commit()
-        assert row is not None
+        row, _status = await MemoryService(self.pool).put_memory(
+            principal_id=ctx.principal_id,
+            space_id=ctx.space_id,
+            client_id=ctx.client_id,
+            key=key,
+            content=content,
+            tags=raw_tags,
+        )
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=json.dumps(_serialize_memory(row), indent=2))]
         )

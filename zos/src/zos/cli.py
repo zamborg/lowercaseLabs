@@ -7,6 +7,8 @@ so CLI and `/admin` share identical behavior and audit events.
 from __future__ import annotations
 
 import asyncio
+import sys
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -16,6 +18,8 @@ from zos.admin_service import AdminService
 from zos.config import Settings
 from zos.db import open_pool, run_migrations
 from zos.db.queries import init_principal_and_space
+from zos.importers import IMPORTERS, dumps_jsonl, loads_jsonl
+from zos.memory_service import MemoryService
 
 app = typer.Typer(name="zos", help="ZOS MCP router administration CLI.", no_args_is_help=True)
 client_app = typer.Typer(help="Manage MCP clients.")
@@ -23,12 +27,14 @@ token_app = typer.Typer(help="Manage bearer and OAuth tokens.")
 policy_app = typer.Typer(help="Manage per-client and default tool policies.")
 actuator_app = typer.Typer(help="Manage dial-out actuators.")
 provider_app = typer.Typer(help="Manage upstream providers.")
+memory_app = typer.Typer(help="Import and export agent memories.")
 
 app.add_typer(client_app, name="client")
 app.add_typer(token_app, name="token")
 app.add_typer(policy_app, name="policy")
 app.add_typer(actuator_app, name="actuator")
 app.add_typer(provider_app, name="provider")
+app.add_typer(memory_app, name="memory")
 
 
 def _settings() -> Settings:
@@ -274,6 +280,72 @@ def provider_set_backend_cmd(
         raise typer.Exit(code=2) from exc
     prev = res.get("previous_backend") or "default"
     typer.echo(f"Provider backend set: slug={res['slug']} from={prev} to={res['backend']}")
+
+
+@memory_app.command("export")
+def memory_export_cmd(
+    source: Annotated[str, typer.Argument(help="Importer source: claude-code | codex")],
+    root: Annotated[Path | None, typer.Option("--root", help="Override source root directory")] = None,
+) -> None:
+    """Discover memories from a host agent directory and emit JSONL on stdout (no DB required)."""
+    importer = IMPORTERS.get(source.strip().lower())
+    if importer is None:
+        typer.echo(f"Error: unknown source '{source}' (supported: {', '.join(sorted(IMPORTERS))})", err=True)
+        raise typer.Exit(code=2)
+    items = importer.discover(root)
+    sys.stdout.write(dumps_jsonl(items))
+
+
+@memory_app.command("import")
+def memory_import_cmd(
+    source: Annotated[
+        str,
+        typer.Argument(help="Importer source: claude-code | codex | - (read JSONL from stdin)"),
+    ],
+    root: Annotated[Path | None, typer.Option("--root", help="Override source root directory")] = None,
+    source_label: Annotated[
+        str,
+        typer.Option("--source-label", help="Source label for audit events when reading from stdin ('-')"),
+    ] = "stdin",
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Idempotently import agent memories into ZOS (prints counts only)."""
+    clean_source = source.strip().lower()
+    if clean_source == "-":
+        raw = sys.stdin.read()
+        try:
+            items = loads_jsonl(raw)
+        except Exception as exc:
+            typer.echo(f"Error: invalid JSONL input: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
+        audit_source = source_label
+    else:
+        importer = IMPORTERS.get(clean_source)
+        if importer is None:
+            typer.echo(
+                f"Error: unknown source '{source}' (supported: {', '.join(sorted(IMPORTERS))}, -)",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        items = importer.discover(root)
+        audit_source = importer.source
+
+    async def _run():
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await MemoryService(pool).import_items(
+                items,
+                source=audit_source,
+                principal_slug=principal,
+            )
+
+    summary = asyncio.run(_run())
+    typer.echo(
+        f"discovered={summary.discovered} "
+        f"created={summary.created} "
+        f"updated={summary.updated} "
+        f"unchanged={summary.unchanged}"
+    )
 
 
 @app.command("hash-password")
