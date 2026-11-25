@@ -1,0 +1,30 @@
+manifest_version = 2
+slug = "inbox"
+name = "Inbox"
+version = "0.1.0"
+description = "Async email-like mailboxes shared between you and your agents (one mailbox per client plus general and owner)."
+
+[runtime]
+kind = "container"
+build = "modules/inbox"
+mcp_port = 8081
+mcp_path = "/mcp"
+ui_port = 8082
+
+[storage]
+postgres = true
+
+[network]
+egress = false
+
+[ui]
+title = "Inbox"
+path = "/"
+
+[tiers]
+default = "write"
+"inbox_list" = "read"
+"inbox_read" = "read"
+"inbox_directory" = "read"
+"inbox_send" = "write"
+"inbox_archive" = "write"
