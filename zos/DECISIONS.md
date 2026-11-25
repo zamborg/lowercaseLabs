@@ -144,6 +144,16 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Lets the owner open any installed module UI directly from `/admin` (including over mobile + Cloudflare Access) with zero extra domains, tunnels, or logins while preventing the admin session cookie or owner passphrase from ever reaching module containers.
 - **Impact:** Installed modules with a `ui_port` automatically appear in the `/admin` navigation bar and Overview page and render seamlessly under `/admin/m/<slug>/`.
 
+## 2026-11-25 — Inbox as first standalone ZOS module (M10d)
+
+- **Decision:** Build the first installable ZOS module (`modules/inbox/`, manifest `catalog/modules/inbox.toml`) as a standalone Python package (`zos-inbox`) with zero imports from `zos`, using only its own isolated Postgres schema (`mod_inbox`) and a copy of the stdlib-only caller verifier (`zos_inbox/caller.py`).
+  1. **Async email-like model (not chat):** Mailboxes (`mailboxes` table) auto-create per client name (normalized lowercase) alongside seeded `owner` and `general`. Messages store `(id, thread_id, sender, recipients[], subject, body, created_at)`, with `sender` always derived from the verified signed caller and never accepted as a tool parameter. Read and archived state live in `message_states (message_id, reader)` so `general` tracks read/archive state independently per reader.
+  2. **Strict caller verification & mailbox privacy:** Unsigned (system) MCP calls to `send`, `list`, `read`, and `archive` are refused; `directory` returns known mailboxes without caller-scoped attribution when unsigned. Clients may list only their own mailbox or `general`, and may read/archive only messages addressed to them, addressed to `general`, or sent by them.
+  3. **Mobile-first owner UI:** Served on `ui_port = 8082` (proxied behind `/admin/m/inbox/`), authenticating every request via `X-ZOS-Caller` + `X-ZOS-Caller-Signature`, escaping all HTML, and enforcing CSRF via its own `inbox_csrf` cookie scoped under `X-Forwarded-Prefix`.
+  4. **Zero-egress isolation:** `catalog/modules/inbox.toml` declares `storage.postgres = true` and `network.egress = false`, running exclusively on the internal `zos_modules` network.
+- **Why:** Proves the entire M10 module seam end-to-end (manifest v2 → Docker build/run → isolated Postgres role → signed MCP `_meta["zos/caller"]` → `/admin/m/<slug>` owner UI proxy) with a genuinely useful cross-agent mailbox that works from a phone without adding any module-specific code to `src/zos/`.
+- **Impact:** Any connected MCP client (Claude Code, Codex, ChatGPT, phone Claude) can exchange async messages with other clients and with the owner, while the owner reads threads and composes replies from `/admin/m/inbox/`.
+
 
 
 

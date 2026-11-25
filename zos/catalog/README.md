@@ -95,5 +95,73 @@ client_help = "Create an OAuth app with redirect URI <ZOS_BASE_URL>/connect/<slu
 ## Tier safety guarantees
 
 - Manifest patterns **never overwrite** a tool tier you have edited manually on `/admin/policy`.
-- Removing an installed connector automatically removes its manifest-managed tier rows while keeping any tiers you customized by hand.
+- Removing an installed connector or module automatically removes its manifest-managed tier rows while keeping any tiers you customized by hand.
 - Malformed manifests are logged and skipped without preventing ZOS from starting.
+
+---
+
+# Container Module Catalog (`catalog/modules/*.toml`)
+
+Installable container modules live in `catalog/modules/<slug>.toml` using **`manifest_version = 2`** (`runtime.kind = "container"`). Install them from **`/admin/modules`** or the CLI:
+
+```bash
+docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module list --catalog
+docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module install inbox
+docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module disable inbox
+docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module enable inbox
+docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module uninstall inbox          # keeps Postgres schema
+docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module uninstall inbox --purge  # drops schema, role, and secrets
+```
+
+## How to write a module
+
+1. **Build a standalone MCP server** (in any language) with zero imports from `zos`:
+   - Serve Streamable-HTTP MCP on `MCP_PORT` at `MCP_PATH` (default `/mcp`).
+   - Optionally serve a human UI on `UI_PORT` (respecting `X-Forwarded-Prefix: /admin/m/<slug>` for links, redirects, and CSRF cookie paths).
+   - **Owner visibility primitive:** every module that stores data **must** ship an owner UI under `/admin/m/<slug>` that exposes **all** of its underlying state (including client-to-client data, not just owner-targeted rows), and owner reads must not mutate any client's per-client state (such as unread flags).
+   - Copy the stdlib-only verifier [zos_module_sdk/caller.py](../zos_module_sdk/caller.py) (or port its HMAC-SHA256 verification) to verify `params._meta["zos/caller"]` on `tools/call` and `X-ZOS-Caller` / `X-ZOS-Caller-Signature` on UI requests using `ZOS_MODULE_SECRET`. Refuse to attribute unsigned (system) MCP calls to any client.
+   - If `[storage] postgres = true`, connect using `ZOS_MODULE_DATABASE_URL` (whose `search_path` is already scoped to your isolated `mod_<slug>` schema).
+2. **Add a manifest at `catalog/modules/<slug>.toml`**:
+   - Registry images **must** be digest-pinned (`image = "ghcr.io/org/mod@sha256:<64-hex>"`).
+   - First-party in-repo modules may set `build = "modules/<slug>"` (ZOS builds the context locally and records the resulting image ID as the pin).
+   - Network egress is **off by default** (`[network] egress = false`). Enable it only when the module must reach the internet.
+   - Because module UIs are served same-origin under `/admin/m/<slug>/`, only catalog manifests can be installed.
+3. **See `modules/inbox/` and `catalog/modules/inbox.toml`** for a complete working example.
+
+## Manifest v2 example (`catalog/modules/inbox.toml`)
+
+```toml
+manifest_version = 2
+slug = "inbox"
+name = "Inbox"
+version = "0.1.0"
+description = "Async email-like mailboxes shared between you and your agents."
+
+[runtime]
+kind = "container"
+build = "modules/inbox"      # or: image = "ghcr.io/example/mod@sha256:<64-hex>"
+mcp_port = 8081
+mcp_path = "/mcp"
+ui_port = 8082               # optional
+
+[storage]
+postgres = true              # provisions isolated role + schema mod_<slug>
+
+[network]
+egress = false               # default false (internal zos_modules network only)
+
+[ui]
+title = "Inbox"
+path = "/"
+
+[[config]]                   # optional extra config fields shown at install time
+name = "EXAMPLE_OPTION"
+secret = false
+help = "Optional setting"
+
+[tiers]
+default = "write"
+"inbox_list" = "read"
+"inbox_read" = "read"
+"inbox_directory" = "read"
+```

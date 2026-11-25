@@ -277,13 +277,31 @@ Attributed to the dedicated `memory-import` client and audited as `memory.import
 
 ---
 
-## 10. Running Automated Tests & Linting
+## 10. Modules & Inbox
+
+`deploy/docker-compose.yml` mounts `/var/run/docker.sock` into `zos` and declares the internal `zos_modules` network (shared by `zos`, `postgres`, and installed modules) plus `zos_modules_egress` (attached only when a module declares `network.egress = true`).
+
+- **Install from UI:** Open `/admin/modules` and click **Install** next to **Inbox**. Once running, **Inbox** appears in the `/admin` nav bar and Overview page at `/admin/m/inbox/`.
+- **Install / manage from CLI:**
+  ```bash
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module list --catalog
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module install inbox
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module list
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module disable inbox
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module enable inbox
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module uninstall inbox --purge
+  ```
+- **Manual host mode (no Docker socket):** Set `ZOS_MODULE_HOST=manual`; `zos module install <slug>` prints container run instructions, and `zos module attach <slug> --url <mcp-url> [--ui-url <ui-url>]` finishes registration.
+
+---
+
+## 11. Running Automated Tests & Linting
 
 Integration and end-to-end tests expect an isolated Postgres 17 test container on `127.0.0.1:55432` (never touching your live `deploy_zos_pgdata` volume):
 
 ```bash
 docker run -d --name zos-pg-test \
-  -e POSTGRES_USER=zos -e POSTGRES_PASSWORD=zos -e POSTGRES_DB=zos \
+  -e POSTGRES_USER=zos -e POSTGRES_PASSWORD=zos -e POSTGRES_DB=zos_test \
   -p 127.0.0.1:55432:5432 postgres:17
 ```
 
@@ -293,4 +311,5 @@ Run checks from `zos/`:
 uv run ruff check
 uv run pytest
 (cd actuator && uv run ruff check && uv run pytest)
+(cd modules/inbox && uv run ruff check && uv run pytest)
 ```
