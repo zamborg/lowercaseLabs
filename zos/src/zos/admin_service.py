@@ -15,19 +15,33 @@ from psycopg_pool import AsyncConnectionPool
 
 from zos.audit import record_event
 from zos.db.queries import (
+    attach_upstream_credential,
     clear_client_policy,
+    clear_upstream_credential,
     create_actuator_provider_and_token,
     create_bearer_client,
+    create_remote_upstream,
     delete_oauth_client,
+    delete_remote_upstream,
     find_client_by_name_or_id,
     get_principal_and_space,
+    get_remote_upstream,
+    list_remote_upstreams,
     mint_bearer_token_for_client,
     revoke_token,
     set_client_policy,
     set_provider_backend,
+    set_tool_tier,
 )
 from zos.policy import Decision, Tier, build_tool_annotations, resolve_decision, resolve_tier
+from zos.providers.upstream_manager import (
+    ISSUER_MCP_BEARER,
+    UpstreamManager,
+    validate_upstream_url,
+)
 from zos.router import ZOS_STATUS_TOOL_NAME, ProviderRegistry, SessionTracker, format_tool_name
+from zos.router.naming import BUILTIN_PROVIDER_SLUGS, validate_upstream_slug
+from zos.vault import CredentialStore, CredentialVault
 
 SWITCHABLE_PROVIDER_BACKENDS: dict[str, tuple[str, ...]] = {
     "gcal": ("api", "mcp"),
@@ -380,6 +394,245 @@ class AdminService:
             payload=payload,
         )
         return payload
+
+    async def set_tool_tier(
+        self,
+        *,
+        pattern: str,
+        tier: str,
+        principal_slug: str | None = None,
+    ) -> dict[str, Any]:
+        clean_pattern = pattern.strip()
+        clean_tier = tier.strip().lower()
+        if not clean_pattern:
+            raise ValueError("Tool pattern must be non-empty")
+        if clean_tier not in ("read", "write", "external"):
+            raise ValueError("tier must be one of: read, write, external")
+
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        row = await set_tool_tier(
+            self.pool,
+            principal_id=p["id"],
+            tool_pattern=clean_pattern,
+            tier=clean_tier,
+        )
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            event_type="tier.changed",
+            tool=clean_pattern,
+            decision=clean_tier,
+            outcome="ok",
+            payload={"tool_pattern": clean_pattern, "tier": clean_tier},
+        )
+        return row
+
+    async def add_remote_upstream(
+        self,
+        *,
+        slug: str,
+        url: str,
+        auth_mode: str,
+        default_tier: str = "external",
+        principal_slug: str | None = None,
+        upstream_manager: UpstreamManager | None = None,
+    ) -> dict[str, Any]:
+        clean_slug = validate_upstream_slug(slug)
+        if clean_slug in BUILTIN_PROVIDER_SLUGS:
+            raise ValueError(f"Slug '{clean_slug}' is reserved for a built-in provider")
+        clean_url = validate_upstream_url(url)
+        clean_auth = auth_mode.strip().lower()
+        if clean_auth not in ("none", "bearer", "oauth"):
+            raise ValueError("auth_mode must be one of: none, bearer, oauth")
+        clean_tier = default_tier.strip().lower()
+        if clean_tier not in ("read", "write", "external"):
+            raise ValueError("default_tier must be one of: read, write, external")
+
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        row = await create_remote_upstream(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            slug=clean_slug,
+            url=clean_url,
+            auth_mode=clean_auth,
+            default_tier=clean_tier,
+        )
+        if upstream_manager is not None:
+            await upstream_manager.hot_register_from_row(row, connect=True)
+
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            provider_id=row["id"],
+            event_type="upstream.added",
+            outcome="ok",
+            payload={
+                "slug": clean_slug,
+                "url": clean_url,
+                "auth_mode": clean_auth,
+                "default_tier": clean_tier,
+            },
+        )
+        return row
+
+    async def set_upstream_bearer_token(
+        self,
+        *,
+        slug: str,
+        token: str,
+        secret_key: str,
+        principal_slug: str | None = None,
+        upstream_manager: UpstreamManager | None = None,
+    ) -> dict[str, Any]:
+        clean_slug = slug.strip().lower()
+        clean_token = token.strip()
+        if not clean_token:
+            raise ValueError("Token must be non-empty")
+        if not secret_key:
+            raise ValueError("ZOS_SECRET_KEY is not configured; cannot encrypt bearer token")
+
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        row = await get_remote_upstream(self.pool, slug=clean_slug, principal_id=p["id"])
+        if row is None:
+            raise ValueError(f"Remote MCP upstream not found: {clean_slug}")
+        cfg = row["config"] if isinstance(row.get("config"), dict) else {}
+        if str(cfg.get("auth_mode") or "").lower() != "bearer":
+            raise ValueError(
+                f"Upstream '{clean_slug}' uses auth_mode='{cfg.get('auth_mode')}', not 'bearer'"
+            )
+
+        store = CredentialStore(self.pool, CredentialVault(secret_key))
+        cred_id = await store.save_credential(
+            principal_id=p["id"],
+            issuer=ISSUER_MCP_BEARER,
+            account=clean_slug,
+            payload={"access_token": clean_token},
+        )
+        await attach_upstream_credential(
+            self.pool,
+            provider_id=row["id"],
+            credential_id=cred_id,
+        )
+        if upstream_manager is not None:
+            await upstream_manager.hot_update_bearer_token(clean_slug, cred_id)
+
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            provider_id=row["id"],
+            event_type="upstream.token_set",
+            outcome="ok",
+            payload={"slug": clean_slug, "credential_id": str(cred_id)},
+        )
+        return {"slug": clean_slug, "provider_id": row["id"], "credential_id": cred_id}
+
+    async def disconnect_remote_upstream(
+        self,
+        *,
+        slug: str,
+        principal_slug: str | None = None,
+        upstream_manager: UpstreamManager | None = None,
+    ) -> dict[str, Any]:
+        clean_slug = slug.strip().lower()
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        row = await get_remote_upstream(self.pool, slug=clean_slug, principal_id=p["id"])
+        if row is None:
+            raise ValueError(f"Remote MCP upstream not found: {clean_slug}")
+
+        old_cred_id = await clear_upstream_credential(self.pool, provider_id=row["id"])
+        if old_cred_id is not None:
+            async with self.pool.connection() as conn:
+                await conn.execute("DELETE FROM credentials WHERE id = %s", (old_cred_id,))
+                await conn.commit()
+
+        if upstream_manager is not None:
+            await upstream_manager.hot_disconnect(clean_slug)
+
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            provider_id=row["id"],
+            event_type="upstream.disconnected",
+            outcome="ok",
+            payload={"slug": clean_slug},
+        )
+        return {"slug": clean_slug, "provider_id": row["id"]}
+
+    async def remove_remote_upstream(
+        self,
+        *,
+        slug: str,
+        principal_slug: str | None = None,
+        upstream_manager: UpstreamManager | None = None,
+    ) -> dict[str, Any]:
+        clean_slug = slug.strip().lower()
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        deleted = await delete_remote_upstream(self.pool, principal_id=p["id"], slug=clean_slug)
+        if deleted is None:
+            raise ValueError(f"Remote MCP upstream not found: {clean_slug}")
+
+        if upstream_manager is not None:
+            await upstream_manager.hot_remove(clean_slug)
+
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            event_type="upstream.removed",
+            outcome="ok",
+            payload={"slug": clean_slug, "deleted_provider_id": str(deleted["id"])},
+        )
+        return deleted
+
+    async def list_remote_upstreams(
+        self,
+        *,
+        upstream_manager: UpstreamManager | None = None,
+        principal_slug: str | None = None,
+    ) -> list[dict[str, Any]]:
+        p, _sp = await get_principal_and_space(self.pool, principal_slug)
+        rows = await list_remote_upstreams(self.pool, principal_id=p["id"])
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            slug = str(row["slug"])
+            cfg = row["config"] if isinstance(row.get("config"), dict) else {}
+            auth_mode = str(cfg.get("auth_mode") or "none").lower()
+            has_cred = row.get("credential_id") is not None
+            rt = upstream_manager.get_runtime_info(slug) if upstream_manager is not None else None
+            if rt is not None:
+                status = rt["status"]
+                online = rt["online"]
+                tool_count = rt["tool_count"]
+                last_error = rt["last_error"]
+            else:
+                online = False
+                tool_count = 0
+                last_error = None
+                if auth_mode in ("bearer", "oauth") and not has_cred:
+                    status = "not_configured"
+                else:
+                    status = "offline"
+            items.append(
+                {
+                    "id": row["id"],
+                    "slug": slug,
+                    "url": str(cfg.get("url") or ""),
+                    "auth_mode": auth_mode,
+                    "default_tier": str(cfg.get("default_tier") or "external"),
+                    "has_credential": has_cred,
+                    "status": status,
+                    "online": online,
+                    "tool_count": tool_count,
+                    "last_error": last_error,
+                    "last_seen_at": row["last_seen_at"],
+                }
+            )
+        return items
 
     # ── Read Queries (for /admin pages) ───────────────────────────────────
 

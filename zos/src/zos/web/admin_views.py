@@ -437,11 +437,26 @@ def render_policy_page(
                 f"</div></td>"
             )
 
+        tier_opts = "".join(
+            f'<option value="{val}"{" selected" if t["tier"] == val else ""}>{val}</option>'
+            for val in ("read", "write", "external")
+        )
+        tier_cell = (
+            f'<div class="cell-controls">'
+            f"<div>{tier_badge}</div>"
+            f'<form class="inline" method="post" action="/admin/policy/tier">'
+            f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+            f'<input type="hidden" name="pattern" value="{_e(t["name"])}">'
+            f'<select name="tier">{tier_opts}</select>'
+            f'<button type="submit" class="secondary sm">Set</button></form>'
+            f"</div>"
+        )
+
         status_dot = "" if t["online"] else ' <span class="badge badge-muted">offline</span>'
         tool_rows.append(
             f"<tr>"
             f"<td><code>{_e(t['name'])}</code>{status_dot}<div class=\"muted\">{_e(t['provider'])}</div></td>"
-            f"<td>{tier_badge}</td>"
+            f"<td>{tier_cell}</td>"
             f"<td class=\"mono\">{_e(ann_str)}</td>"
             f"<td>{global_cell}</td>"
             f"{''.join(client_cells)}"

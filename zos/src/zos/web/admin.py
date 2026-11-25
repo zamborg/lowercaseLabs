@@ -375,6 +375,34 @@ def create_admin_routes(
             )
         )
 
+    async def policy_set_tier(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        pattern = data.get("pattern", "").strip()
+        tier = data.get("tier", "").strip()
+        error = None
+        notice = None
+        try:
+            row = await service.set_tool_tier(pattern=pattern, tier=tier)
+            notice = f"Tier set: {row['tool_pattern']} -> {row['tier']}."
+        except Exception as exc:
+            error = str(exc)
+
+        matrix = await service.get_policy_matrix(registry)
+        return _html(
+            render_policy_page(
+                matrix=matrix,
+                csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+            )
+        )
+
     async def activity_page(request: Request) -> Response:
         session = _require_session(request)
         if session is None:
@@ -419,5 +447,6 @@ def create_admin_routes(
         Route("/admin/policy", policy_page, methods=["GET"]),
         Route("/admin/policy/set", policy_set, methods=["POST"]),
         Route("/admin/policy/clear", policy_clear, methods=["POST"]),
+        Route("/admin/policy/tier", policy_set_tier, methods=["POST"]),
         Route("/admin/activity", activity_page, methods=["GET"]),
     ]
