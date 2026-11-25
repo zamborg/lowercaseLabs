@@ -5,6 +5,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.2 /uv /uvx /bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
 COPY migrations ./migrations
+COPY catalog ./catalog
 COPY src ./src
 
 RUN uv sync --frozen --no-dev

@@ -1,0 +1,15 @@
+manifest_version = 1
+slug = "cfdocs"
+name = "Cloudflare Docs"
+description = "Official Cloudflare Developer Documentation remote MCP server (public, read-only, no auth required)."
+docs_url = "https://github.com/cloudflare/mcp-server-cloudflare"
+
+[runtime]
+kind = "remote"
+url = "https://docs.mcp.cloudflare.com/mcp"
+
+[auth]
+mode = "none"
+
+[tiers]
+default = "read"

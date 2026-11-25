@@ -1,0 +1,20 @@
+manifest_version = 1
+slug = "asana"
+name = "Asana"
+description = "Official Asana remote MCP server for tasks, projects, goals, and workspace search."
+docs_url = "https://developers.asana.com/docs/using-asanas-model-context-protocol-mcp-server"
+
+[runtime]
+kind = "remote"
+url = "https://mcp.asana.com/v2/mcp"
+
+[auth]
+mode = "oauth"
+requires_client_registration = true
+client_help = "Asana's OAuth AS does not support Dynamic Client Registration (DCR). Create an Asana OAuth app in the Asana Developer Console, add redirect URL <ZOS_BASE_URL>/connect/<slug>/callback, and enter its Client ID and Client Secret before clicking Connect."
+
+[tiers]
+default = "external"
+"*_list*" = "read"
+"*_get*" = "read"
+"*_search*" = "read"

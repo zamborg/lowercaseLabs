@@ -1,0 +1,19 @@
+manifest_version = 1
+slug = "atlassian"
+name = "Atlassian (Jira & Confluence)"
+description = "Official Atlassian Rovo remote MCP server for Jira issues, Confluence pages, and workspace search."
+docs_url = "https://support.atlassian.com/rovo/docs/getting-started-with-the-atlassian-remote-mcp-server/"
+
+[runtime]
+kind = "remote"
+url = "https://mcp.atlassian.com/v2/mcp"
+
+[auth]
+mode = "oauth"
+
+[tiers]
+default = "external"
+"*_list*" = "read"
+"*_get*" = "read"
+"*_search*" = "read"
+"*_fetch*" = "read"

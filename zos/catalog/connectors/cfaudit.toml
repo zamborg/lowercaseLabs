@@ -1,0 +1,15 @@
+manifest_version = 1
+slug = "cfaudit"
+name = "Cloudflare Audit Logs"
+description = "Official Cloudflare remote MCP server for querying account audit logs."
+docs_url = "https://github.com/cloudflare/mcp-server-cloudflare"
+
+[runtime]
+kind = "remote"
+url = "https://auditlogs.mcp.cloudflare.com/mcp"
+
+[auth]
+mode = "oauth"
+
+[tiers]
+default = "read"

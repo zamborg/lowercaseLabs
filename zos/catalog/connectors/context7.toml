@@ -1,0 +1,15 @@
+manifest_version = 1
+slug = "context7"
+name = "Context7 Docs"
+description = "Official Context7 remote MCP server for up-to-date library documentation (public, read-only)."
+docs_url = "https://github.com/upstash/context7"
+
+[runtime]
+kind = "remote"
+url = "https://mcp.context7.com/mcp"
+
+[auth]
+mode = "none"
+
+[tiers]
+default = "read"

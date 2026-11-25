@@ -1,0 +1,15 @@
+manifest_version = 1
+slug = "cfradar"
+name = "Cloudflare Radar"
+description = "Official Cloudflare Radar remote MCP server for internet traffic, BGP, DNS, and security trends."
+docs_url = "https://github.com/cloudflare/mcp-server-cloudflare"
+
+[runtime]
+kind = "remote"
+url = "https://radar.mcp.cloudflare.com/mcp"
+
+[auth]
+mode = "oauth"
+
+[tiers]
+default = "read"

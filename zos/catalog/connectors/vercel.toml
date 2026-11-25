@@ -1,0 +1,18 @@
+manifest_version = 1
+slug = "vercel"
+name = "Vercel"
+description = "Official Vercel remote MCP server for deployments, projects, build logs, and docs."
+docs_url = "https://vercel.com/docs/mcp/vercel-mcp"
+
+[runtime]
+kind = "remote"
+url = "https://mcp.vercel.com/"
+
+[auth]
+mode = "oauth"
+
+[tiers]
+default = "external"
+"*_list*" = "read"
+"*_get*" = "read"
+"*_search*" = "read"
