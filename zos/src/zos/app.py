@@ -35,7 +35,12 @@ from zos.auth.rate_limit import GlobalPassphraseRateLimiter, GlobalSlidingWindow
 from zos.config import Settings
 from zos.db import create_pool, run_migrations
 from zos.instructions import load_mcp_instructions
-from zos.policy import DatabasePolicyEvaluator, request_tool_confirmation
+from zos.policy import (
+    ApprovalManager,
+    DatabasePolicyEvaluator,
+    request_tool_confirmation,
+    session_supports_elicitation,
+)
 from zos.providers.actuator import ActuatorManager
 from zos.providers.base import ToolProvider
 from zos.providers.google import (
@@ -112,6 +117,7 @@ class ZosRuntime:
     actuator_manager: ActuatorManager
     google_hub: GoogleServiceHub
     upstream_manager: UpstreamManager
+    approval_manager: ApprovalManager
     switch_provider_backend: Callable[[str, str], Awaitable[ToolProvider]] | None = None
 
 
@@ -146,11 +152,32 @@ def create_app(
     sessions = SessionTracker()
     policy_evaluator = DatabasePolicyEvaluator(pool)
     audit_recorder = DatabaseAuditRecorder(pool)
+    approval_manager = ApprovalManager(
+        pool,
+        secret_key=cfg.zos_secret_key,
+        base_url=cfg.zos_base_url,
+        wait_seconds=cfg.approval_wait_seconds,
+        ttl_seconds=cfg.approval_ttl_seconds,
+    )
+
+    async def confirm_tool_call(
+        server_session: Any,
+        request_id: Any,
+        ctx: CallContext,
+        tool_name: str,
+        args: dict[str, Any],
+    ) -> tuple[bool, str | None]:
+        if session_supports_elicitation(server_session):
+            return await request_tool_confirmation(server_session, request_id, ctx, tool_name, args)
+        if approval_manager.is_enabled:
+            return await approval_manager.request_and_wait(ctx, tool_name, args)
+        return await request_tool_confirmation(server_session, request_id, ctx, tool_name, args)
+
     router = ToolRouter(
         registry,
         sessions,
         load_policy_snapshot=policy_evaluator.load_snapshot,
-        confirm_call=request_tool_confirmation,
+        confirm_call=confirm_tool_call,
         record_audit=audit_recorder.record_tool_call,
     )
 
@@ -290,6 +317,7 @@ def create_app(
         actuator_manager=actuator_manager,
         google_hub=google_hub,
         upstream_manager=upstream_manager,
+        approval_manager=approval_manager,
         switch_provider_backend=switch_provider_backend,
     )
 
@@ -396,6 +424,7 @@ def create_app(
             passphrase_limiter=passphrase_limiter,
             switch_provider_backend=switch_provider_backend,
             upstream_manager=upstream_manager,
+            approval_manager=approval_manager,
         ),
     ]
     if extra_routes_factory is not None:

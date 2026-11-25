@@ -353,6 +353,7 @@ async def test_m9a_all_three_auth_modes_tiers_hot_reload_and_oauth_lifecycle(db_
         zos_base_url=zos_base,
         zos_secret_key=secret_key,
         zos_owner_password_hash=PasswordHasher().hash(owner_pw),
+        approval_wait_seconds=0.05,
     )
     app = create_app(cfg, run_migrations_on_startup=False, upstream_connect_timeout_s=5.0)
 
@@ -447,10 +448,10 @@ async def test_m9a_all_three_auth_modes_tiers_hot_reload_and_oauth_lifecycle(db_
             tools_after_tier = {t.name: t for t in (await sess.list_tools()).tools}
             assert tools_after_tier["docs_issues_list"].annotations.read_only_hint is True
             assert tools_after_tier["docs_issues_create"].annotations.open_world_hint is True
-            # Calling external tool without elicitation handler -> denied with policy override hint
+            # Calling external tool without elicitation handler -> hits async approval gate with link
             res_ext = await sess.call_tool("docs_issues_create", {"title": "hello"})
             assert res_ext.is_error is True
-            assert "zos policy set" in res_ext.content[0].text
+            assert "/admin/approvals/" in res_ext.content[0].text
 
             # ── 2. AUTH MODE: BEARER (default tier = external, stdin/password token in vault) ──
             r_add_b = await web.post(

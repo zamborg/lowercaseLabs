@@ -288,6 +288,7 @@ async def test_m5_e2e_mcp_upstream_proxy_full_behavior(db_pool) -> None:
         zos_owner_password_hash=PasswordHasher().hash("owner-pw"),
         google_client_id="fake-cid",
         google_client_secret="fake-csecret",
+        approval_wait_seconds=0.05,
     )
 
     async with run_asgi_server(upstream_app, port=upstream_port):
@@ -391,10 +392,10 @@ async def test_m5_e2e_mcp_upstream_proxy_full_behavior(db_pool) -> None:
                 assert tools["gcal_mystery_preview_tool"].annotations.open_world_hint is True
                 assert tools["gcal_mystery_preview_tool"].annotations.read_only_hint is False
                 assert tools["gcal_mystery_preview_tool"].annotations.destructive_hint is True
-                # Client B (no elicitation) is denied on unknown tool (proving unknown -> external -> require_approval)
+                # Client B (no elicitation) hits async approval gate on unknown tool (proving unknown -> external -> require_approval)
                 unk_b = await sess_b.call_tool("gcal_mystery_preview_tool", {"x": "1"})
                 assert unk_b.is_error
-                assert "zos policy set" in unk_b.content[0].text
+                assert "/admin/approvals/" in unk_b.content[0].text
 
                 # 3. Call passthrough: prefix stripped, args verbatim, structuredContent & isError preserved!
                 res_ok = await sess_a.call_tool("gcal_list_events", {"time_min": "2026-11-24T00:00:00Z"})

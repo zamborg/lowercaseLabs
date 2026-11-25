@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
 from psycopg import AsyncConnection
@@ -18,6 +19,7 @@ from zos.auth.oauth import verify_owner_passphrase
 from zos.auth.rate_limit import GlobalPassphraseRateLimiter, record_auth_failure
 from zos.catalog import load_catalog
 from zos.config import Settings
+from zos.policy import ApprovalError, ApprovalManager
 from zos.providers.upstream_manager import UpstreamManager
 from zos.router import ProviderRegistry, SessionTracker
 from zos.web.admin_auth import (
@@ -29,6 +31,8 @@ from zos.web.admin_auth import (
 from zos.web.admin_views import (
     render_activity_page,
     render_admin_login_page,
+    render_approval_detail_page,
+    render_approvals_page,
     render_clients_page,
     render_overview_page,
     render_policy_page,
@@ -56,6 +60,20 @@ def _parse_uuid_or_none(value: str | None) -> UUID | None:
         return None
 
 
+def _safe_next_url(raw: str | None) -> str:
+    if not raw:
+        return "/admin"
+    candidate = raw.strip()
+    if (
+        candidate.startswith("/admin")
+        and not candidate.startswith("//")
+        and "\r" not in candidate
+        and "\n" not in candidate
+    ):
+        return candidate
+    return "/admin"
+
+
 def create_admin_routes(
     pool: AsyncConnectionPool[AsyncConnection[DictRow]],
     settings: Settings,
@@ -66,9 +84,17 @@ def create_admin_routes(
     passphrase_limiter: GlobalPassphraseRateLimiter | None = None,
     switch_provider_backend: Callable[[str, str], Awaitable[Any]] | None = None,
     upstream_manager: UpstreamManager | None = None,
+    approval_manager: ApprovalManager | None = None,
 ) -> list[Route]:
     """Create passphrase-gated, CSRF-protected /admin dashboard routes."""
     service = AdminService(pool)
+    approvals = approval_manager or ApprovalManager(
+        pool,
+        secret_key=settings.zos_secret_key,
+        base_url=settings.zos_base_url,
+        wait_seconds=settings.approval_wait_seconds,
+        ttl_seconds=settings.approval_ttl_seconds,
+    )
     auth = session_manager or AdminSessionManager(
         signing_key=derive_session_signing_key(
             secret_key=settings.zos_secret_key,
@@ -90,15 +116,19 @@ def create_admin_routes(
 
     async def login(request: Request) -> Response:
         if request.method == "GET":
+            next_url = _safe_next_url(request.query_params.get("next"))
             if _require_session(request) is not None:
-                return _redirect("/admin")
-            return _html(render_admin_login_page())
+                return _redirect(next_url)
+            return _html(render_admin_login_page(next_url=next_url if next_url != "/admin" else None))
 
+        form = await request.form()
+        next_url = _safe_next_url(str(form.get("next", "")))
         retry_after = limiter.retry_after_seconds()
         if retry_after is not None:
             return _html(
                 render_admin_login_page(
-                    error=f"Too many failed login attempts. Try again in {retry_after}s."
+                    error=f"Too many failed login attempts. Try again in {retry_after}s.",
+                    next_url=next_url if next_url != "/admin" else None,
                 ),
                 status_code=429,
                 extra_headers={"Retry-After": str(retry_after)},
@@ -106,23 +136,28 @@ def create_admin_routes(
 
         if not settings.zos_owner_password_hash:
             return _html(
-                render_admin_login_page(error="ZOS_OWNER_PASSWORD_HASH is not configured."),
+                render_admin_login_page(
+                    error="ZOS_OWNER_PASSWORD_HASH is not configured.",
+                    next_url=next_url if next_url != "/admin" else None,
+                ),
                 status_code=503,
             )
 
-        form = await request.form()
         passphrase = str(form.get("passphrase", ""))
         if not verify_owner_passphrase(passphrase, settings.zos_owner_password_hash):
             limiter.record_failure()
             await record_auth_failure(pool, route="/admin/login", reason="invalid_passphrase")
             return _html(
-                render_admin_login_page(error="Invalid owner passphrase."),
+                render_admin_login_page(
+                    error="Invalid owner passphrase.",
+                    next_url=next_url if next_url != "/admin" else None,
+                ),
                 status_code=401,
             )
 
         limiter.record_success()
         _sess, cookie_token = auth.create_session()
-        resp = _redirect("/admin")
+        resp = _redirect(next_url)
         auth.set_cookie(resp, cookie_token)
         return resp
 
@@ -141,6 +176,7 @@ def create_admin_routes(
         session = _require_session(request)
         if session is None:
             return _redirect("/admin/login")
+        await approvals.sweep_expired()
         overview = await service.get_overview(registry, sessions)
         return _html(render_overview_page(overview=overview, csrf_token=session.csrf_token))
 
@@ -682,11 +718,79 @@ def create_admin_routes(
         }
         return _html(render_activity_page(data=data, filters=filters, csrf_token=session.csrf_token))
 
+    async def approvals_page(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect(f"/admin/login?next={quote(request.url.path, safe='/')}")
+        data = await approvals.list_approvals()
+        return _html(render_approvals_page(approvals=data, csrf_token=session.csrf_token))
+
+    async def approval_detail_page(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect(f"/admin/login?next={quote(request.url.path, safe='/')}")
+        approval_id = str(request.path_params.get("approval_id", "")).strip()
+        item = await approvals.get_approval(approval_id)
+        pending_count = await approvals.count_pending()
+        status_code = 200 if item is not None else 404
+        return _html(
+            render_approval_detail_page(
+                approval=item,
+                csrf_token=session.csrf_token,
+                pending_approvals=pending_count,
+            ),
+            status_code=status_code,
+        )
+
+    async def _approval_decide(request: Request, *, approve: bool) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        approval_id = str(request.path_params.get("approval_id", "")).strip()
+        notice = None
+        error = None
+        try:
+            decided = await approvals.decide(approval_id, approve=approve)
+            if approve:
+                notice = f"Approved '{decided['tool']}'. The tool call will execute now (or on retry within the TTL)."
+            else:
+                notice = f"Denied '{decided['tool']}'."
+        except ApprovalError as exc:
+            error = str(exc)
+
+        item = await approvals.get_approval(approval_id)
+        pending_count = await approvals.count_pending()
+        status_code = 200 if item is not None else 404
+        return _html(
+            render_approval_detail_page(
+                approval=item,
+                csrf_token=session.csrf_token,
+                pending_approvals=pending_count,
+                notice=notice,
+                error=error,
+            ),
+            status_code=status_code,
+        )
+
+    async def approval_approve(request: Request) -> Response:
+        return await _approval_decide(request, approve=True)
+
+    async def approval_deny(request: Request) -> Response:
+        return await _approval_decide(request, approve=False)
+
     return [
         Route("/admin", overview_page, methods=["GET"]),
         Route("/admin/providers/backend", provider_set_backend, methods=["POST"]),
         Route("/admin/login", login, methods=["GET", "POST"]),
         Route("/admin/logout", logout, methods=["POST"]),
+        Route("/admin/approvals", approvals_page, methods=["GET"]),
+        Route("/admin/approvals/{approval_id}", approval_detail_page, methods=["GET"]),
+        Route("/admin/approvals/{approval_id}/approve", approval_approve, methods=["POST"]),
+        Route("/admin/approvals/{approval_id}/deny", approval_deny, methods=["POST"]),
         Route("/admin/clients", clients_page, methods=["GET"]),
         Route("/admin/clients/create", clients_create, methods=["POST"]),
         Route("/admin/clients/token", clients_new_token, methods=["POST"]),

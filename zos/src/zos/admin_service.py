@@ -813,6 +813,15 @@ class AdminService:
             )
             backup_row = await cur.fetchone()
 
+            cur = await conn.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM pending_approvals
+                WHERE status = 'pending' AND expires_at > now()
+                """
+            )
+            pending_approvals_row = await cur.fetchone()
+
         providers: list[dict[str, Any]] = []
         seen: set[str] = set()
         for p in registry.all_providers():
@@ -868,6 +877,7 @@ class AdminService:
             "providers": providers,
             "google_credential": google_credential,
             "last_backup": last_backup,
+            "pending_approvals_count": int(pending_approvals_row["cnt"]) if pending_approvals_row is not None else 0,
         }
 
     async def list_clients(self) -> list[dict[str, Any]]:

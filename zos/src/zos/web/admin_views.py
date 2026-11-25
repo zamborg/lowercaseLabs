@@ -65,12 +65,39 @@ button.sm { padding: 0.2rem 0.45rem; font-size: 0.76rem; }
 .scroll-x { overflow-x: auto; }
 .muted { color: var(--muted); font-size: 0.84rem; }
 .cell-controls { display: flex; flex-direction: column; gap: 0.3rem; }
+.approval-pre { background: #111827; color: #f9fafb; padding: 0.9rem 1rem; border-radius: 6px; font-family: var(--mono); font-size: 0.84rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; overflow-x: auto; margin: 0.5rem 0 0; }
+.approval-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1.1rem; }
+.approval-actions form { flex: 1; min-width: 140px; }
+.approval-actions button { width: 100%; padding: 0.75rem 1rem; font-size: 1rem; font-weight: 600; border-radius: 7px; }
+button.approve-btn { background: var(--ok); border-color: var(--ok); color: #fff; }
+button.deny-btn { background: var(--err); border-color: var(--err); color: #fff; }
+.meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+.meta-item .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.meta-item .val { font-size: 0.95rem; margin-top: 0.15rem; word-break: break-word; }
+@media (max-width: 640px) {
+  header { padding: 0.65rem 0.9rem; }
+  main { margin: 1rem auto; padding: 0 0.75rem 2.5rem; }
+  .card { padding: 0.95rem 0.95rem; }
+}
 """
 
 
-def _layout(*, title: str, active: str, csrf_token: str, body: str) -> str:
+def _layout(
+    *,
+    title: str,
+    active: str,
+    csrf_token: str,
+    body: str,
+    pending_approvals: int = 0,
+) -> str:
+    approvals_label = (
+        f'Approvals <span class="badge badge-warn">{int(pending_approvals)}</span>'
+        if pending_approvals > 0
+        else "Approvals"
+    )
     nav_items = [
         ("overview", "/admin", "Overview"),
+        ("approvals", "/admin/approvals", approvals_label),
         ("upstreams", "/admin/upstreams", "MCP Servers"),
         ("clients", "/admin/clients", "Clients"),
         ("policy", "/admin/policy", "Tools &amp; Policy"),
@@ -84,6 +111,7 @@ def _layout(*, title: str, active: str, csrf_token: str, body: str) -> str:
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ZOS Admin — {_e(title)}</title>
   <style>{_CSS}</style>
 </head>
@@ -104,15 +132,19 @@ def _layout(*, title: str, active: str, csrf_token: str, body: str) -> str:
 """
 
 
-def render_admin_login_page(*, error: str | None = None) -> str:
+def render_admin_login_page(*, error: str | None = None, next_url: str | None = None) -> str:
     err_html = f'<div class="notice notice-err">{_e(error)}</div>' if error else ""
+    next_input = (
+        f'<input type="hidden" name="next" value="{_e(next_url)}">' if next_url else ""
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ZOS Admin — Sign In</title>
   <style>{_CSS}
-    .login-wrap {{ max-width: 420px; margin: 5rem auto; padding: 0 1rem; }}
+    .login-wrap {{ max-width: 420px; margin: 4rem auto; padding: 0 1rem; }}
   </style>
 </head>
 <body>
@@ -122,6 +154,7 @@ def render_admin_login_page(*, error: str | None = None) -> str:
       <p class="muted">Enter your owner passphrase to open the control panel.</p>
       {err_html}
       <form method="post" action="/admin/login">
+        {next_input}
         <label class="field" style="margin-bottom:0.85rem;">
           Owner passphrase
           <input name="passphrase" type="password" autocomplete="current-password" required autofocus>
@@ -218,12 +251,20 @@ def render_overview_page(
     else:
         backup_val = '<span class="muted" style="font-size:1rem;">Never</span>'
 
+    pending_count = int(overview.get("pending_approvals_count", 0))
+    pending_badge = (
+        f'<span class="badge badge-warn" style="font-size:0.9rem;">{pending_count} pending</span>'
+        if pending_count > 0
+        else '<span class="badge badge-muted" style="font-size:0.9rem;">0 pending</span>'
+    )
+
     body = f"""
     <h1>Overview</h1>
     {banners}
     <div class="stats">
       <div class="stat"><div class="label">Active MCP Sessions</div><div class="value">{int(overview['active_sessions'])}</div></div>
       <div class="stat"><div class="label">Online Providers</div><div class="value">{online_count} / {len(providers)}</div></div>
+      <div class="stat"><div class="label">Pending Approvals</div><div class="value"><a href="/admin/approvals" style="text-decoration:none;">{pending_badge}</a></div></div>
       <div class="stat"><div class="label">Last Backup</div><div class="value">{backup_val}</div></div>
     </div>
     <div class="card">
@@ -240,7 +281,13 @@ def render_overview_page(
       {cred_html}
     </div>
     """
-    return _layout(title="Overview", active="overview", csrf_token=csrf_token, body=body)
+    return _layout(
+        title="Overview",
+        active="overview",
+        csrf_token=csrf_token,
+        body=body,
+        pending_approvals=pending_count,
+    )
 
 
 def render_upstreams_page(
@@ -803,3 +850,178 @@ def render_activity_page(
     </div>
     """
     return _layout(title="Activity", active="activity", csrf_token=csrf_token, body=body)
+
+
+def _approval_status_badge(status: str) -> str:
+    cls = {
+        "pending": "badge-warn",
+        "approved": "badge-ok",
+        "consumed": "badge-ok",
+        "denied": "badge-err",
+        "expired": "badge-muted",
+    }.get(status, "badge-muted")
+    return f'<span class="badge {cls}">{_e(status)}</span>'
+
+
+def render_approvals_page(
+    *,
+    approvals: dict[str, list[dict[str, Any]]],
+    csrf_token: str,
+    notice: str | None = None,
+    error: str | None = None,
+) -> str:
+    banners = ""
+    if error:
+        banners += f'<div class="notice notice-err">{_e(error)}</div>'
+    if notice:
+        banners += f'<div class="notice notice-ok">{_e(notice)}</div>'
+
+    pending = approvals.get("pending") or []
+    recent = approvals.get("recent") or []
+
+    pending_rows = []
+    for item in pending:
+        aid = item["id"]
+        digest_hex = item.get("args_digest_hex") or ""
+        digest_cell = f'<code title="{_e(digest_hex)}">{_e(digest_hex[:12])}…</code>' if digest_hex else "—"
+        pending_rows.append(
+            f"<tr>"
+            f"<td><strong>{_e(item['client_name'])}</strong></td>"
+            f"<td><code>{_e(item['tool'])}</code></td>"
+            f"<td>{digest_cell}</td>"
+            f'<td class="mono">{_e(_fmt_ts(item["created_at"]))}</td>'
+            f'<td class="mono">{_e(_fmt_ts(item["expires_at"]))}</td>'
+            f'<td><a class="btn sm" href="/admin/approvals/{_e(aid)}">Review</a></td>'
+            f"</tr>"
+        )
+
+    recent_rows = []
+    for item in recent:
+        aid = item["id"]
+        digest_hex = item.get("args_digest_hex") or ""
+        digest_cell = f'<code title="{_e(digest_hex)}">{_e(digest_hex[:12])}…</code>' if digest_hex else "—"
+        recent_rows.append(
+            f"<tr>"
+            f"<td>{_approval_status_badge(item['status'])}</td>"
+            f"<td>{_e(item['client_name'])}</td>"
+            f"<td><code>{_e(item['tool'])}</code></td>"
+            f"<td>{digest_cell}</td>"
+            f'<td class="mono">{_e(_fmt_ts(item["created_at"]))}</td>'
+            f'<td class="mono">{_e(_fmt_ts(item["decided_at"] or item["expires_at"]))}</td>'
+            f'<td><a class="btn secondary sm" href="/admin/approvals/{_e(aid)}">View</a></td>'
+            f"</tr>"
+        )
+
+    body = f"""
+    <h1>Tool Approvals</h1>
+    {banners}
+    <div class="card">
+      <h2>Pending Approvals ({len(pending)})</h2>
+      <p class="muted">Requests from clients without MCP elicitation. Open a request to inspect its exact arguments and approve or deny.</p>
+      <div class="scroll-x">
+        <table>
+          <thead><tr><th>Client</th><th>Tool</th><th>Args Digest</th><th>Requested</th><th>Expires</th><th>Action</th></tr></thead>
+          <tbody>{''.join(pending_rows) or '<tr><td colspan="6" class="muted">No pending approvals.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Recent Approvals</h2>
+      <div class="scroll-x">
+        <table>
+          <thead><tr><th>Status</th><th>Client</th><th>Tool</th><th>Args Digest</th><th>Requested</th><th>Decided / Expired</th><th>Details</th></tr></thead>
+          <tbody>{''.join(recent_rows) or '<tr><td colspan="7" class="muted">No recent approvals yet.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+    """
+    return _layout(
+        title="Approvals",
+        active="approvals",
+        csrf_token=csrf_token,
+        body=body,
+        pending_approvals=len(pending),
+    )
+
+
+def render_approval_detail_page(
+    *,
+    approval: dict[str, Any] | None,
+    csrf_token: str,
+    pending_approvals: int = 0,
+    notice: str | None = None,
+    error: str | None = None,
+) -> str:
+    banners = ""
+    if error:
+        banners += f'<div class="notice notice-err">{_e(error)}</div>'
+    if notice:
+        banners += f'<div class="notice notice-ok">{_e(notice)}</div>'
+
+    if approval is None:
+        body = f"""
+        <h1>Approval Not Found</h1>
+        {banners}
+        <div class="card">
+          <p class="muted">This approval request does not exist or has been removed.</p>
+          <p><a class="btn secondary" href="/admin/approvals">&larr; Back to Approvals</a></p>
+        </div>
+        """
+        return _layout(
+            title="Approval Not Found",
+            active="approvals",
+            csrf_token=csrf_token,
+            body=body,
+            pending_approvals=pending_approvals,
+        )
+
+    aid = approval["id"]
+    is_pending = approval["status"] == "pending"
+    if is_pending and approval.get("args_pretty") is not None:
+        args_section = f"""
+        <div class="card">
+          <h2>Arguments</h2>
+          <pre class="approval-pre">{_e(approval["args_pretty"])}</pre>
+          <div class="approval-actions">
+            <form method="post" action="/admin/approvals/{_e(aid)}/approve">
+              <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+              <button type="submit" class="approve-btn">Approve</button>
+            </form>
+            <form method="post" action="/admin/approvals/{_e(aid)}/deny">
+              <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+              <button type="submit" class="deny-btn">Deny</button>
+            </form>
+          </div>
+        </div>
+        """
+    else:
+        args_section = """
+        <div class="card">
+          <h2>Arguments</h2>
+          <p class="muted">Encrypted arguments have been purged after decision or expiration.</p>
+        </div>
+        """
+
+    body = f"""
+    <p style="margin:0 0 0.75rem;"><a class="btn secondary sm" href="/admin/approvals">&larr; All Approvals</a></p>
+    <h1>Approve Tool Call</h1>
+    {banners}
+    <div class="card">
+      <div class="meta-grid">
+        <div class="meta-item"><div class="label">Status</div><div class="val">{_approval_status_badge(approval["status"])}</div></div>
+        <div class="meta-item"><div class="label">Client</div><div class="val"><strong>{_e(approval["client_name"])}</strong></div></div>
+        <div class="meta-item"><div class="label">Tool</div><div class="val"><code>{_e(approval["tool"])}</code></div></div>
+        <div class="meta-item"><div class="label">Requested</div><div class="val mono">{_e(_fmt_ts(approval["created_at"]))}</div></div>
+        <div class="meta-item"><div class="label">Expires</div><div class="val mono">{_e(_fmt_ts(approval["expires_at"]))}</div></div>
+        <div class="meta-item"><div class="label">Args SHA-256</div><div class="val mono">{_e(approval.get("args_digest_hex", "")[:24])}…</div></div>
+      </div>
+    </div>
+    {args_section}
+    """
+    return _layout(
+        title=f"Approval — {approval['tool']}",
+        active="approvals",
+        csrf_token=csrf_token,
+        body=body,
+        pending_approvals=pending_approvals,
+    )
