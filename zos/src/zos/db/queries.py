@@ -16,6 +16,7 @@ V0_TIER_SEEDS: dict[str, str] = {
     "zos_status": "read",
     "memory_get": "read",
     "memory_search": "read",
+    "memory_list": "read",
     "memory_put": "write",
     "memory_delete": "write",
     "mac_messages_search": "read",
