@@ -171,8 +171,28 @@ When ready to expose ZOS at `https://zos.<your-domain>` (e.g. so ChatGPT connect
 | **M4 — Google Upstream** | Vault AES-GCM + concurrent refresh lock + `respx`-mocked `/connect/google`, Calendar REST fallback (`backend=api`), Gmail bounded metadata search/read/MIME threading, 429 backoff, 401 refresh, `gmail_send` elicitation, and revocation all pass. | Google Cloud Web OAuth client setup, live `/connect/google` consent, and live Calendar/Gmail/`gmail_send` elicitation smoke. |
 | **M5 — Upstream MCP Proxy (`gcal`)** | Generic `McpUpstreamProvider` verified against in-process Streamable HTTP fake upstream: prefixing, verbatim call + `structuredContent`/`isError` passthrough, upstream→downstream `list_changed`, upstream form elicitation passthrough + decline + audit, 401→refresh→retry & reconnect error, upstream down→offline, unknown preview tool→`external`. Live `/healthz` reports `gcal` with `backend: mcp`. | Live smoke against Google's `calendarmcp.googleapis.com/mcp/v1` (counts/shapes only) after Zubin connects Google. |
 | **M6 — Owner Admin Dashboard (`/admin`)** | Shared `AdminService` layer backs both CLI and `/admin`; auth (Argon2 login, signed HttpOnly `SameSite=Strict` 12h cookie, `Secure` on HTTPS, expiry, rate limiting, CSRF 403, security headers), all 4 pages (Overview, Clients, Tools & Policy matrix, cursor-paginated Activity with digests only), and CLI audit parity all tested; live `/admin` login verified on OrbStack. | None — ready to use at `http://localhost:8787/admin`. |
-| **M7 — Pre-Public Hardening** | Shared global passphrase limiter (5/min, 20/hr, backoff) + `auth.failed` audit across `/admin/login`, `/oauth/authorize`, `/connect/google`; `ZOS_ALLOWED_REDIRECT_HOSTS` loopback-only default + `chatgpt.com` allowlist + prominent redirect host on approve page; DCR 10/hr limit + 50 OAuth client cap + `/admin/clients` pruning; public `https://` base URL test; declarative `deploy/cloudflared/config.yml.example` + `com.zos.cloudflared.plist`. | Cloudflare named tunnel creation, DNS/Access setup, and ChatGPT connector live smoke (Opus + Zubin). |
+| **M7 — Pre-Public Hardening** | Shared global passphrase limiter (5/min, 20/hr, backoff) + `auth.failed` audit across `/admin/login`, `/oauth/authorize`, `/connect/google`; `ZOS_ALLOWED_REDIRECT_HOSTS` loopback-only default + `chatgpt.com` allowlist + prominent redirect host on approve page; DCR 10/hr limit + 50 OAuth client cap + `/admin/clients` pruning; public `https://` base URL test; `PublicSchemeMiddleware` HTTPS trailing-slash redirects; declarative `deploy/cloudflared/config.yml.example` + `com.zos.cloudflared.plist`. | Cloudflare named tunnel live at `https://zos.aysola.org`. |
+| **M8 — Context Layer & Baseline** | `zos memory import` (`claude-code` & `codex` importers, JSONL stdin host wrapper `deploy/scripts/import-memories.sh`, shared `MemoryService`, idempotent & audited); MCP `InitializeResult.instructions` (+ `ZOS_INSTRUCTIONS_FILE` override); `gcal` REST parity (`get_event`, `list_calendars`, `search_events`, `freebusy`, `respond_to_event` + `gcal_freebusy` read tier); `memory_list` (cursor-paginated, no content) + `author`/`created_at`/`updated_at` on `memory_get`/`search`; actuator AddressBook contact names & name-to-handle lookup in `mac_messages_search`; nightly encrypted `pg_dump` backup (`deploy/backup/{backup,restore}.sh`, `com.zos.backup.plist`, `/admin` Overview last-backup status, verified live restore into `zos-pg-test`). | Re-enable iCloud Drive on macOS if `~/Library/Mobile Documents/com~apple~CloudDocs/zos-backups/` should sync off-device automatically (directory created locally). |
 | **Definition of Done (V0)** | Every call audited in `events`; `DECISIONS.md` current; zero `later/` scope built; all Docker ports bound strictly to `127.0.0.1`. | End-to-end human session with both Claude Code and Codex signed in via OAuth using shared memory + FDA Messages + live Google. |
+
+---
+
+## 4. M8 Context & Operations Quick Commands
+
+- **Import host agent memories into ZOS (idempotent, prints counts only):**
+  ```bash
+  cd /Users/zubinaysola/Documents/personal/lowercaseLabs/zos
+  ./deploy/scripts/import-memories.sh
+  ```
+- **Run an encrypted backup manually:**
+  ```bash
+  ./deploy/backup/backup.sh
+  ```
+  Encrypted dumps are written to `~/Library/Mobile Documents/com~apple~CloudDocs/zos-backups/` (retaining the 14 newest) and recorded for `/admin` Overview.
+- **Restore a backup into a target Postgres container:**
+  ```bash
+  ./deploy/backup/restore.sh ~/Library/Mobile\ Documents/com~apple~CloudDocs/zos-backups/zos-backup-<ts>.dump.enc --container zos-pg-test --db zos_restore_test --user postgres
+  ```
 
 ---
 

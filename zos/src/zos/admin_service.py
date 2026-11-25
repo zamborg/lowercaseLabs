@@ -346,6 +346,41 @@ class AdminService:
         )
         return res
 
+    async def record_backup(
+        self,
+        *,
+        filename: str,
+        size_bytes: int,
+        completed_at: str | None = None,
+        retained_count: int | None = None,
+        principal_slug: str | None = None,
+    ) -> dict[str, Any]:
+        clean_name = filename.strip()
+        if not clean_name:
+            raise ValueError("filename must be non-empty")
+        if size_bytes < 0:
+            raise ValueError("size_bytes must be non-negative")
+
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        payload: dict[str, Any] = {
+            "filename": clean_name,
+            "size_bytes": int(size_bytes),
+        }
+        if completed_at:
+            payload["completed_at"] = completed_at.strip()
+        if retained_count is not None:
+            payload["retained_count"] = int(retained_count)
+
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            event_type="backup.completed",
+            outcome="ok",
+            payload=payload,
+        )
+        return payload
+
     # ── Read Queries (for /admin pages) ───────────────────────────────────
 
     async def get_overview(
@@ -373,6 +408,17 @@ class AdminService:
                 """
             )
             cred_row = await cur.fetchone()
+
+            cur = await conn.execute(
+                """
+                SELECT created_at, payload
+                FROM events
+                WHERE type = 'backup.completed' AND outcome = 'ok'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            )
+            backup_row = await cur.fetchone()
 
         providers: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -414,10 +460,21 @@ class AdminService:
                 "updated_at": cred_row["updated_at"],
             }
 
+        last_backup = None
+        if backup_row is not None:
+            bpay = backup_row["payload"] if isinstance(backup_row["payload"], dict) else {}
+            last_backup = {
+                "filename": bpay.get("filename"),
+                "size_bytes": int(bpay["size_bytes"]) if bpay.get("size_bytes") is not None else None,
+                "completed_at": bpay.get("completed_at") or backup_row["created_at"],
+                "retained_count": bpay.get("retained_count"),
+            }
+
         return {
             "active_sessions": sessions.count,
             "providers": providers,
             "google_credential": google_credential,
+            "last_backup": last_backup,
         }
 
     async def list_clients(self) -> list[dict[str, Any]]:

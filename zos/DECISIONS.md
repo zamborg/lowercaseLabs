@@ -60,6 +60,16 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Behind `cloudflared`, all proxied traffic shares one local peer IP so per-IP bucketing fails; single-owner ZOS benefits from global lockout and shared auditing across all passphrase forms. OpenAI's official ChatGPT MCP connector redirect URIs (`https://chatgpt.com/connector_platform_oauth_redirect` and `https://chatgpt.com/connector/oauth/<id>`) live on `chatgpt.com`, so `ZOS_ALLOWED_REDIRECT_HOSTS=chatgpt.com` tightly scopes external DCR while keeping loopback CLI clients working out of the box.
 - **Impact:** Localhost deployments work unchanged with loopback-only defaults; promoting to `https://zos.<domain>` requires setting `ZOS_BASE_URL`, `ZOS_ALLOWED_REDIRECT_HOSTS=chatgpt.com`, adding the HTTPS Google callback URI, and re-pointing Claude Code/Codex to the public `/mcp` URL while keeping the local Mac actuator on `ws://127.0.0.1:8787/actuator`.
 
+## 2026-11-24 — Context layer, memory import transport, and encrypted backups (M8)
+
+- **Decision:**
+  1. **Memory import transport:** Split host discovery (`zos memory export <claude-code|codex>`) from DB ingestion (`zos memory import -` reading JSONL over stdin), wrapped by `deploy/scripts/import-memories.sh` piping into `docker compose exec -T zos`. Both `memory_put` and `zos memory import` share `src/zos/memory_service.py` (`MemoryService.put_memory`), attributing imports to a dedicated `memory-import` client and auditing creates/updates as `memory.imported` (digests only, never raw content).
+  2. **MCP server `instructions`:** Provide spec-native `InitializeResult.instructions` (<1200 chars, client-agnostic) via `src/zos/instructions.py`, overridable via `ZOS_INSTRUCTIONS_FILE`.
+  3. **Tier seed migrations:** Ship additive idempotent SQL migrations (`0002_m8_gcal_freebusy_tier.sql`, `0003_m8_memory_list_tier.sql`) alongside `V0_TIER_SEEDS` so existing live Postgres databases receive new read-tier seeds automatically on startup.
+  4. **Encrypted backups & `/admin` Overview status:** Pin `/usr/bin/openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:ZOS_BACKUP_KEY` (verified on macOS LibreSSL 3.3.6) so backup and restore always use identical PBKDF2 defaults without exposing keys in `ps`. Record backup metadata via `zos backup record` into `events` (`backup.completed`) so the containerized `/admin` Overview displays last backup time & size with no extra host bind-mounts.
+- **Why:** Keeps container filesystem isolation intact (the container never mounts `~/.claude` or iCloud), guarantees backup/restore compatibility across macOS LibreSSL vs Homebrew OpenSSL, and avoids manual DB edits for new tool tier seeds.
+- **Impact:** Running `./deploy/scripts/import-memories.sh` and `./deploy/backup/backup.sh` works cleanly on the host against the live OrbStack stack; `~/Library/Mobile Documents/com~apple~CloudDocs/zos-backups/` was created locally (enable macOS iCloud Drive if off-device sync is desired).
+
 
 
 

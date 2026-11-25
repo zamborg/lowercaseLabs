@@ -28,6 +28,7 @@ policy_app = typer.Typer(help="Manage per-client and default tool policies.")
 actuator_app = typer.Typer(help="Manage dial-out actuators.")
 provider_app = typer.Typer(help="Manage upstream providers.")
 memory_app = typer.Typer(help="Import and export agent memories.")
+backup_app = typer.Typer(help="Record encrypted backup status.")
 
 app.add_typer(client_app, name="client")
 app.add_typer(token_app, name="token")
@@ -35,6 +36,7 @@ app.add_typer(policy_app, name="policy")
 app.add_typer(actuator_app, name="actuator")
 app.add_typer(provider_app, name="provider")
 app.add_typer(memory_app, name="memory")
+app.add_typer(backup_app, name="backup")
 
 
 def _settings() -> Settings:
@@ -346,6 +348,31 @@ def memory_import_cmd(
         f"updated={summary.updated} "
         f"unchanged={summary.unchanged}"
     )
+
+
+@backup_app.command("record")
+def backup_record_cmd(
+    filename: Annotated[str, typer.Option("--filename", help="Encrypted backup filename")],
+    size_bytes: Annotated[int, typer.Option("--size-bytes", help="Backup size in bytes")],
+    completed_at: Annotated[str | None, typer.Option("--completed-at", help="ISO 8601 UTC timestamp")] = None,
+    retained: Annotated[int | None, typer.Option("--retained", help="Number of retained backup files")] = None,
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Record a completed encrypted backup in the audit log for /admin Overview."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).record_backup(
+                filename=filename,
+                size_bytes=size_bytes,
+                completed_at=completed_at,
+                retained_count=retained,
+                principal_slug=principal,
+            )
+
+    res = asyncio.run(_run())
+    typer.echo(f"Recorded backup filename={res['filename']} size_bytes={res['size_bytes']}")
 
 
 @app.command("hash-password")

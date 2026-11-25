@@ -134,6 +134,17 @@ def render_admin_login_page(*, error: str | None = None) -> str:
 """
 
 
+def _fmt_bytes(size: int | None) -> str:
+    if size is None:
+        return "—"
+    val = float(size)
+    for unit in ("B", "KB", "MB", "GB"):
+        if val < 1024.0 or unit == "GB":
+            return f"{int(val)} B" if unit == "B" else f"{val:.1f} {unit}"
+        val /= 1024.0
+    return f"{size} B"
+
+
 def render_overview_page(
     *,
     overview: dict[str, Any],
@@ -198,12 +209,21 @@ def render_overview_page(
         <a class="btn" href="/connect/google">Connect Google</a>
         """
 
+    last_backup = overview.get("last_backup")
+    if last_backup:
+        backup_ts = _fmt_ts(last_backup.get("completed_at"))
+        backup_size = _fmt_bytes(last_backup.get("size_bytes"))
+        backup_val = f'{_e(backup_size)}<div class="muted" style="font-size:0.78rem;font-weight:400;margin-top:0.2rem;">{_e(backup_ts)}</div>'
+    else:
+        backup_val = '<span class="muted" style="font-size:1rem;">Never</span>'
+
     body = f"""
     <h1>Overview</h1>
     {banners}
     <div class="stats">
       <div class="stat"><div class="label">Active MCP Sessions</div><div class="value">{int(overview['active_sessions'])}</div></div>
       <div class="stat"><div class="label">Online Providers</div><div class="value">{online_count} / {len(providers)}</div></div>
+      <div class="stat"><div class="label">Last Backup</div><div class="value">{backup_val}</div></div>
     </div>
     <div class="card">
       <h2>Providers</h2>
