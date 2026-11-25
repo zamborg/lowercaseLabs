@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -38,6 +38,9 @@ from zos.instructions import load_mcp_instructions
 from zos.policy import (
     ApprovalManager,
     DatabasePolicyEvaluator,
+    EngineChain,
+    PolicyEngine,
+    load_policy_engines,
     request_tool_confirmation,
     session_supports_elicitation,
 )
@@ -144,6 +147,7 @@ def create_app(
     gcal_http_client_factory: HttpClientFactory | None = None,
     upstream_http_client_factory: HttpClientFactory | None = None,
     upstream_connect_timeout_s: float = 15.0,
+    policy_engines: Sequence[PolicyEngine] | None = None,
 ) -> Starlette:
     """Create the ZOS Starlette ASGI application."""
     cfg = settings or Settings.from_env()
@@ -151,6 +155,15 @@ def create_app(
     registry = ProviderRegistry()
     sessions = SessionTracker()
     policy_evaluator = DatabasePolicyEvaluator(pool)
+    configured_engines = (
+        list(policy_engines)
+        if policy_engines is not None
+        else load_policy_engines(cfg.policy_engines)
+    )
+    policy_chain = EngineChain(
+        configured_engines,
+        timeout_s=cfg.policy_engine_timeout_seconds,
+    )
     audit_recorder = DatabaseAuditRecorder(pool)
     approval_manager = ApprovalManager(
         pool,
@@ -177,6 +190,7 @@ def create_app(
         registry,
         sessions,
         load_policy_snapshot=policy_evaluator.load_snapshot,
+        policy_chain=policy_chain,
         confirm_call=confirm_tool_call,
         record_audit=audit_recorder.record_tool_call,
     )

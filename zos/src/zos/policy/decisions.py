@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
+import mcp_types as types
 from psycopg import AsyncConnection
 from psycopg.rows import DictRow
 from psycopg_pool import AsyncConnectionPool
@@ -13,9 +14,15 @@ from psycopg_pool import AsyncConnectionPool
 from zos.auth.context import CallContext, TrustCeiling
 from zos.policy.annotations import build_tool_annotations
 from zos.policy.tiers import Tier, match_best_pattern, resolve_tier
-from zos.router.routing import PolicyEvaluation
 
 Decision = Literal["allow", "deny", "require_approval"]
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyEvaluation:
+    tier: Tier
+    decision: Decision
+    annotations: types.ToolAnnotations
 
 TIER_DEFAULT_DECISION: dict[Tier, Decision] = {
     "read": "allow",

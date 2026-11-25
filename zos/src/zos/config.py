@@ -39,6 +39,20 @@ def _parse_host_list(raw: str) -> tuple[str, ...]:
     return tuple(h.strip().lower().rstrip(".") for h in raw.split(",") if h.strip())
 
 
+def _parse_csv_list(raw: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
+def _parse_positive_float(raw: str, default: float) -> float:
+    val = raw.strip()
+    if not val:
+        return default
+    parsed = float(val)
+    if parsed <= 0:
+        raise ValueError(f"Expected positive number, got {val!r}")
+    return parsed
+
+
 def _parse_positive_int(raw: str, default: int) -> int:
     val = raw.strip()
     if not val:
@@ -74,6 +88,8 @@ class Settings:
     max_oauth_clients: int = 50
     approval_wait_seconds: float = 45.0
     approval_ttl_seconds: int = 600
+    policy_engines: tuple[str, ...] = ()
+    policy_engine_timeout_seconds: float = 10.0
     instructions_file: str = ""
     migrations_dir: Path = field(default_factory=_default_migrations_dir)
     catalog_dir: Path = field(default_factory=_default_catalog_dir)
@@ -107,6 +123,10 @@ class Settings:
             ),
             approval_ttl_seconds=_parse_positive_int(
                 os.environ.get("ZOS_APPROVAL_TTL_S", ""), 600
+            ),
+            policy_engines=_parse_csv_list(os.environ.get("ZOS_POLICY_ENGINES", "")),
+            policy_engine_timeout_seconds=_parse_positive_float(
+                os.environ.get("ZOS_POLICY_ENGINE_TIMEOUT_S", ""), 10.0
             ),
             instructions_file=os.environ.get("ZOS_INSTRUCTIONS_FILE", "").strip(),
             migrations_dir=Path(mig_override) if mig_override else _default_migrations_dir(),

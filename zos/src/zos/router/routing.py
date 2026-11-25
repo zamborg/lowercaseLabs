@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -12,6 +11,16 @@ import mcp_types as types
 from mcp.server.session import ServerSession
 
 from zos.auth.context import CallContext
+from zos.policy.decisions import PolicyEvaluation, PolicySnapshot
+from zos.policy.engine import (
+    EngineChain,
+    PolicyClient,
+    PolicyInput,
+    PolicyTool,
+    TableEngine,
+    visible,
+)
+from zos.policy.tiers import Tier
 from zos.providers.base import (
     DownstreamMCPContext,
     ProviderTool,
@@ -26,18 +35,11 @@ from zos.router.status import ZOS_STATUS_TOOL_NAME, render_status_result, zos_st
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True, slots=True)
-class PolicyEvaluation:
-    tier: str
-    decision: str
-    annotations: types.ToolAnnotations
-
-
 PolicyEvaluator = Callable[
     [CallContext, str, bool | None, bool | None],
     Awaitable[PolicyEvaluation],
 ]
-PolicySnapshotLoader = Callable[[CallContext], Awaitable[Any]]
+PolicySnapshotLoader = Callable[[CallContext], Awaitable[PolicySnapshot]]
 ConfirmationHandler = Callable[
     [ServerSession | None, Any, CallContext, str, dict[str, Any]],
     Awaitable[tuple[bool, str | None]],
@@ -58,6 +60,7 @@ class ToolRouter:
         *,
         evaluate_policy: PolicyEvaluator | None = None,
         load_policy_snapshot: PolicySnapshotLoader | None = None,
+        policy_chain: EngineChain | None = None,
         confirm_call: ConfirmationHandler | None = None,
         record_audit: AuditRecorder | None = None,
     ) -> None:
@@ -65,8 +68,14 @@ class ToolRouter:
         self.sessions = sessions or SessionTracker()
         self._evaluate_policy = evaluate_policy
         self._load_policy_snapshot = load_policy_snapshot
+        self._policy_chain = policy_chain or EngineChain()
         self._confirm_call = confirm_call
         self._record_audit = record_audit
+
+    async def _load_snapshot(self, ctx: CallContext) -> PolicySnapshot | None:
+        if self._load_policy_snapshot is None:
+            return None
+        return await self._load_policy_snapshot(ctx)
 
     async def _eval_policy(
         self,
@@ -75,7 +84,7 @@ class ToolRouter:
         *,
         destructive_hint: bool | None = None,
         idempotent_hint: bool | None = None,
-        snapshot: Any = None,
+        snapshot: PolicySnapshot | None = None,
     ) -> PolicyEvaluation:
         if snapshot is not None:
             return snapshot.evaluate(
@@ -106,6 +115,84 @@ class ToolRouter:
                 open_world_hint=not is_read,
             ),
         )
+
+    async def _check_visibility(
+        self,
+        snapshot: PolicySnapshot | None,
+        ctx: CallContext,
+        exposed_name: str,
+        *,
+        destructive_hint: bool | None = None,
+        idempotent_hint: bool | None = None,
+    ) -> tuple[bool, PolicyEvaluation]:
+        """Layer 1: static, per-client, argument-free visibility check."""
+        if snapshot is not None:
+            is_visible = visible(snapshot, ctx, exposed_name)
+            ev = snapshot.evaluate(
+                exposed_name,
+                trust_ceiling=ctx.trust_ceiling,
+                destructive_hint=destructive_hint,
+                idempotent_hint=idempotent_hint,
+            )
+            return is_visible, ev
+        ev = await self._eval_policy(
+            ctx,
+            exposed_name,
+            destructive_hint=destructive_hint,
+            idempotent_hint=idempotent_hint,
+        )
+        return ev.decision != "deny", ev
+
+    async def _evaluate_allowance(
+        self,
+        snapshot: PolicySnapshot | None,
+        ctx: CallContext,
+        exposed_name: str,
+        *,
+        tier: Tier,
+        args: dict[str, Any],
+        destructive_hint: bool | None = None,
+        idempotent_hint: bool | None = None,
+        fallback_eval: PolicyEvaluation,
+    ) -> tuple[str, str, str | None]:
+        """Layer 2: per-call allowance evaluation via `EngineChain`."""
+        if snapshot is None:
+            return fallback_eval.decision, "table", None
+        policy_input = PolicyInput(
+            principal_id=ctx.principal_id,
+            client=PolicyClient(
+                id=ctx.client_id,
+                name=ctx.client_name,
+                trust_ceiling=ctx.trust_ceiling,
+            ),
+            tool=PolicyTool(
+                exposed_name=exposed_name,
+                tier=tier,
+                destructive_hint=destructive_hint,
+                idempotent_hint=idempotent_hint,
+            ),
+            args=args,
+        )
+        chain_decision = await self._policy_chain.evaluate(
+            policy_input,
+            table_engine=TableEngine(snapshot),
+        )
+        return chain_decision.decision, chain_decision.engine, chain_decision.error
+
+    @staticmethod
+    def _audit_payload(
+        *,
+        tier: str,
+        engine: str,
+        engine_error: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"tier": tier, "engine": engine}
+        if engine_error is not None:
+            payload["engine_error"] = engine_error
+        if extra:
+            payload.update(extra)
+        return payload
 
     async def _audit(
         self,
@@ -145,28 +232,26 @@ class ToolRouter:
 
     async def list_tools(self, ctx: CallContext) -> list[types.Tool]:
         tools: list[types.Tool] = []
-        snapshot = (
-            await self._load_policy_snapshot(ctx) if self._load_policy_snapshot is not None else None
-        )
+        snapshot = await self._load_snapshot(ctx)
 
-        # Always-on zos_status (unless explicitly denied by policy)
-        status_eval = await self._eval_policy(
-            ctx, ZOS_STATUS_TOOL_NAME, destructive_hint=False, snapshot=snapshot
+        # Layer 1 (Visibility): always-on zos_status unless hidden by policy
+        status_visible, status_eval = await self._check_visibility(
+            snapshot, ctx, ZOS_STATUS_TOOL_NAME, destructive_hint=False
         )
-        if status_eval.decision != "deny":
+        if status_visible:
             tools.append(zos_status_tool(annotations=status_eval.annotations))
 
         tool_map = await self._build_tool_map()
         for exposed_name in sorted(tool_map):
             _provider, ptool = tool_map[exposed_name]
-            ev = await self._eval_policy(
+            is_visible, ev = await self._check_visibility(
+                snapshot,
                 ctx,
                 exposed_name,
                 destructive_hint=ptool.destructive_hint,
                 idempotent_hint=ptool.idempotent_hint,
-                snapshot=snapshot,
             )
-            if ev.decision == "deny":
+            if not is_visible:
                 continue
             tools.append(
                 types.Tool(
@@ -177,6 +262,69 @@ class ToolRouter:
                 )
             )
         return tools
+
+    async def _enforce_confirmation(
+        self,
+        *,
+        ctx: CallContext,
+        provider_id: UUID | None,
+        exposed_name: str,
+        decision: str,
+        tier: str,
+        engine_name: str,
+        engine_error: str | None,
+        call_args: dict[str, Any],
+        server_session: ServerSession | None,
+        request_id: Any,
+    ) -> types.CallToolResult | None:
+        """Run human confirmation flow for `require_approval`; return error result if not approved."""
+        if self._confirm_call is None:
+            msg = (
+                f"Approval required for '{exposed_name}', but confirmation is unavailable. "
+                f"To override, run: zos policy set --client {ctx.client_name} {exposed_name} allow"
+            )
+            await self._audit(
+                ctx,
+                provider_id,
+                exposed_name,
+                decision,
+                "denied",
+                call_args,
+                self._audit_payload(
+                    tier=tier,
+                    engine=engine_name,
+                    engine_error=engine_error,
+                    extra={"reason": "no_confirmation_handler"},
+                ),
+            )
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text=msg)],
+                is_error=True,
+            )
+
+        approved, reason = await self._confirm_call(
+            server_session, request_id, ctx, exposed_name, call_args
+        )
+        if not approved:
+            await self._audit(
+                ctx,
+                provider_id,
+                exposed_name,
+                decision,
+                "denied",
+                call_args,
+                self._audit_payload(
+                    tier=tier,
+                    engine=engine_name,
+                    engine_error=engine_error,
+                    extra={"reason": reason or "user_declined"},
+                ),
+            )
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text=reason or f"Call to '{exposed_name}' was not approved.")],
+                is_error=True,
+            )
+        return None
 
     async def call_tool(
         self,
@@ -191,15 +339,85 @@ class ToolRouter:
 
         # Router-owned zos_status
         if exposed_name == ZOS_STATUS_TOOL_NAME:
-            ev = await self._eval_policy(ctx, ZOS_STATUS_TOOL_NAME, destructive_hint=False)
-            if ev.decision == "deny":
-                await self._audit(ctx, None, exposed_name, ev.decision, "denied", call_args, {"reason": "policy_deny"})
+            snapshot = await self._load_snapshot(ctx)
+            is_visible, vis_eval = await self._check_visibility(
+                snapshot, ctx, ZOS_STATUS_TOOL_NAME, destructive_hint=False
+            )
+            if not is_visible:
+                await self._audit(
+                    ctx,
+                    None,
+                    exposed_name,
+                    "deny",
+                    "denied",
+                    call_args,
+                    self._audit_payload(
+                        tier=vis_eval.tier,
+                        engine="visibility",
+                        extra={"reason": "policy_deny"},
+                    ),
+                )
                 return types.CallToolResult(
                     content=[types.TextContent(type="text", text=f"Permission denied for tool {exposed_name}.")],
                     is_error=True,
                 )
+            decision, engine_name, engine_error = await self._evaluate_allowance(
+                snapshot,
+                ctx,
+                ZOS_STATUS_TOOL_NAME,
+                tier=vis_eval.tier,
+                args=call_args,
+                destructive_hint=False,
+                fallback_eval=vis_eval,
+            )
+            if decision == "deny":
+                await self._audit(
+                    ctx,
+                    None,
+                    exposed_name,
+                    decision,
+                    "denied",
+                    call_args,
+                    self._audit_payload(
+                        tier=vis_eval.tier,
+                        engine=engine_name,
+                        engine_error=engine_error,
+                        extra={"reason": "policy_deny"},
+                    ),
+                )
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text=f"Permission denied for tool {exposed_name}.")],
+                    is_error=True,
+                )
+            if decision == "require_approval":
+                denied = await self._enforce_confirmation(
+                    ctx=ctx,
+                    provider_id=None,
+                    exposed_name=exposed_name,
+                    decision=decision,
+                    tier=vis_eval.tier,
+                    engine_name=engine_name,
+                    engine_error=engine_error,
+                    call_args=call_args,
+                    server_session=server_session,
+                    request_id=request_id,
+                )
+                if denied is not None:
+                    return denied
             result = render_status_result(self.registry)
-            await self._audit(ctx, None, exposed_name, ev.decision, "ok", call_args, None)
+            await self._audit(
+                ctx,
+                None,
+                exposed_name,
+                decision,
+                "ok",
+                call_args,
+                self._audit_payload(
+                    tier=vis_eval.tier,
+                    engine=engine_name,
+                    engine_error=engine_error,
+                ),
+            )
             return result
 
         # Check offline provider before declaring unknown
@@ -241,22 +459,29 @@ class ToolRouter:
             )
 
         provider, ptool = tool_map[exposed_name]
-        ev = await self._eval_policy(
+        snapshot = await self._load_snapshot(ctx)
+
+        # Layer 1 (Visibility): reject hidden tools before any allowance engine runs
+        is_visible, vis_eval = await self._check_visibility(
+            snapshot,
             ctx,
             exposed_name,
             destructive_hint=ptool.destructive_hint,
             idempotent_hint=ptool.idempotent_hint,
         )
-
-        if ev.decision == "deny":
+        if not is_visible:
             await self._audit(
                 ctx,
                 provider.provider_id,
                 exposed_name,
-                ev.decision,
+                "deny",
                 "denied",
                 call_args,
-                {"reason": "policy_deny", "tier": ev.tier},
+                self._audit_payload(
+                    tier=vis_eval.tier,
+                    engine="visibility",
+                    extra={"reason": "policy_deny"},
+                ),
             )
             return types.CallToolResult(
                 content=[
@@ -271,43 +496,61 @@ class ToolRouter:
                 is_error=True,
             )
 
-        if ev.decision == "require_approval":
-            if self._confirm_call is None:
-                msg = (
-                    f"Approval required for '{exposed_name}', but confirmation is unavailable. "
-                    f"To override, run: zos policy set --client {ctx.client_name} {exposed_name} allow"
-                )
-                await self._audit(
-                    ctx,
-                    provider.provider_id,
-                    exposed_name,
-                    ev.decision,
-                    "denied",
-                    call_args,
-                    {"reason": "no_confirmation_handler", "tier": ev.tier},
-                )
-                return types.CallToolResult(
-                    content=[types.TextContent(type="text", text=msg)],
-                    is_error=True,
-                )
+        # Layer 2 (Allowance): evaluate configured policy engines + TableEngine
+        decision, engine_name, engine_error = await self._evaluate_allowance(
+            snapshot,
+            ctx,
+            exposed_name,
+            tier=vis_eval.tier,
+            args=call_args,
+            destructive_hint=ptool.destructive_hint,
+            idempotent_hint=ptool.idempotent_hint,
+            fallback_eval=vis_eval,
+        )
 
-            approved, reason = await self._confirm_call(
-                server_session, request_id, ctx, exposed_name, call_args
+        if decision == "deny":
+            await self._audit(
+                ctx,
+                provider.provider_id,
+                exposed_name,
+                decision,
+                "denied",
+                call_args,
+                self._audit_payload(
+                    tier=vis_eval.tier,
+                    engine=engine_name,
+                    engine_error=engine_error,
+                    extra={"reason": "policy_deny"},
+                ),
             )
-            if not approved:
-                await self._audit(
-                    ctx,
-                    provider.provider_id,
-                    exposed_name,
-                    ev.decision,
-                    "denied",
-                    call_args,
-                    {"reason": reason or "user_declined", "tier": ev.tier},
-                )
-                return types.CallToolResult(
-                    content=[types.TextContent(type="text", text=reason or f"Call to '{exposed_name}' was not approved.")],
-                    is_error=True,
-                )
+            return types.CallToolResult(
+                content=[
+                    types.TextContent(
+                        type="text",
+                        text=(
+                            f"Permission denied for tool '{exposed_name}'. "
+                            f"To allow, run: zos policy set --client {ctx.client_name} {exposed_name} allow"
+                        ),
+                    )
+                ],
+                is_error=True,
+            )
+
+        if decision == "require_approval":
+            denied = await self._enforce_confirmation(
+                ctx=ctx,
+                provider_id=provider.provider_id,
+                exposed_name=exposed_name,
+                decision=decision,
+                tier=vis_eval.tier,
+                engine_name=engine_name,
+                engine_error=engine_error,
+                call_args=call_args,
+                server_session=server_session,
+                request_id=request_id,
+            )
+            if denied is not None:
+                return denied
 
         # Execute tool on provider (exposing downstream MCP session via ContextVar for elicitation passthrough)
         downstream_token = current_downstream_mcp.set(
@@ -326,10 +569,15 @@ class ToolRouter:
                 ctx,
                 provider.provider_id,
                 exposed_name,
-                ev.decision,
+                decision,
                 "error",
                 call_args,
-                {"exception": type(exc).__name__},
+                self._audit_payload(
+                    tier=vis_eval.tier,
+                    engine=engine_name,
+                    engine_error=engine_error,
+                    extra={"exception": type(exc).__name__},
+                ),
             )
             return types.CallToolResult(
                 content=[types.TextContent(type="text", text=f"Tool execution failed: {exc}")],
@@ -343,9 +591,13 @@ class ToolRouter:
             ctx,
             provider.provider_id,
             exposed_name,
-            ev.decision,
+            decision,
             outcome,
             call_args,
-            {"tier": ev.tier},
+            self._audit_payload(
+                tier=vis_eval.tier,
+                engine=engine_name,
+                engine_error=engine_error,
+            ),
         )
         return result
