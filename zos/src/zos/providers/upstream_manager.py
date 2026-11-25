@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import html
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -908,7 +909,7 @@ class UpstreamManager:
             row = await get_remote_upstream(self.pool, slug=slug)
             if row is None:
                 return HTMLResponse(
-                    f"<h1>Unknown MCP upstream '{slug}'</h1>",
+                    f"<h1>Unknown MCP upstream '{html.escape(slug)}'</h1>",
                     status_code=404,
                     headers=_HTML_HEADERS,
                 )
@@ -917,7 +918,7 @@ class UpstreamManager:
             url = str(cfg.get("url") or "")
             if auth_mode != "oauth":
                 return HTMLResponse(
-                    f"<h1>Upstream '{slug}' uses auth_mode='{auth_mode}', not OAuth.</h1>",
+                    f"<h1>Upstream '{html.escape(slug)}' uses auth_mode='{html.escape(auth_mode)}', not OAuth.</h1>",
                     status_code=400,
                     headers=_HTML_HEADERS,
                 )
@@ -1004,7 +1005,7 @@ class UpstreamManager:
             row = await get_remote_upstream(self.pool, slug=slug)
             if row is None:
                 return HTMLResponse(
-                    f"<h1>Unknown MCP upstream '{slug}'</h1>",
+                    f"<h1>Unknown MCP upstream '{html.escape(slug)}'</h1>",
                     status_code=404,
                     headers=_HTML_HEADERS,
                 )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import html
 import logging
 import secrets
 import time
@@ -480,7 +481,7 @@ class GoogleServiceHub:
         async def connect_google_callback(request: Request) -> Response:
             error = request.query_params.get("error")
             if error:
-                return HTMLResponse(f"<h1>Google authorization failed: {error}</h1>", status_code=400)
+                return HTMLResponse(f"<h1>Google authorization failed: {html.escape(error)}</h1>", status_code=400)
 
             state = request.query_params.get("state", "")
             code = request.query_params.get("code", "")
