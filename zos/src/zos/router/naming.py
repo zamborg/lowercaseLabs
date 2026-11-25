@@ -7,8 +7,33 @@ import re
 
 MAX_TOOL_NAME_LENGTH = 48
 RESERVED_PREFIXES = frozenset({"zos"})
+BUILTIN_PROVIDER_SLUGS = frozenset({"zos", "memory", "gcal", "gmail", "mac"})
 _PREFIX_RE = re.compile(r"^[a-zA-Z0-9-]+$")
+_UPSTREAM_SLUG_RE = re.compile(r"^[a-z][a-z0-9]{1,15}$")
 _TOOL_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+_NON_TOOL_CHARS_RE = re.compile(r"[^a-zA-Z0-9_-]+")
+_MULTI_UNDERSCORE_RE = re.compile(r"_{2,}")
+
+
+def validate_upstream_slug(slug: str) -> str:
+    """Validate a user-registered remote MCP server slug (`^[a-z][a-z0-9]{1,15}$`, not `zos`)."""
+    cleaned = slug.strip()
+    if not _UPSTREAM_SLUG_RE.fullmatch(cleaned):
+        raise ValueError(
+            f"Invalid upstream slug {slug!r}: must match ^[a-z][a-z0-9]{{1,15}}$"
+        )
+    if cleaned in RESERVED_PREFIXES:
+        raise ValueError(f"Slug {cleaned!r} is reserved for router-owned tools")
+    return cleaned
+
+
+def sanitize_upstream_tool_name(raw_name: str) -> str:
+    """Sanitize an upstream MCP tool name to valid `[a-zA-Z0-9_-]+` characters."""
+    cleaned = _NON_TOOL_CHARS_RE.sub("_", raw_name.strip())
+    cleaned = _MULTI_UNDERSCORE_RE.sub("_", cleaned).strip("_")
+    if not cleaned:
+        raise ValueError(f"Upstream tool name {raw_name!r} has no valid characters after sanitization")
+    return cleaned
 
 
 def validate_prefix(prefix: str, *, allow_reserved: bool = False) -> str:

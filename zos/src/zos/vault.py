@@ -132,13 +132,33 @@ class CredentialStore:
         refresh_token: str,
         expires_in: int,
     ) -> UUID:
-        blob = self.vault.encrypt(
-            {"access_token": access_token, "refresh_token": refresh_token},
+        expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
+        return await self.save_credential(
             principal_id=principal_id,
             issuer="google",
             account=account,
+            payload={"access_token": access_token, "refresh_token": refresh_token},
+            scopes=scopes,
+            access_expires_at=expires_at,
         )
-        expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
+
+    async def save_credential(
+        self,
+        *,
+        principal_id: UUID,
+        issuer: str,
+        account: str,
+        payload: dict[str, Any],
+        scopes: list[str] | None = None,
+        access_expires_at: datetime | None = None,
+    ) -> UUID:
+        """Encrypt and upsert a generic credential payload in `credentials` (AES-256-GCM)."""
+        blob = self.vault.encrypt(
+            payload,
+            principal_id=principal_id,
+            issuer=issuer,
+            account=account,
+        )
         async with self.pool.connection() as conn:
             cur = await conn.execute(
                 """
@@ -146,7 +166,7 @@ class CredentialStore:
                     principal_id, issuer, account, scopes,
                     ciphertext, nonce, key_version, access_expires_at, updated_at
                 )
-                VALUES (%s, 'google', %s, %s, %s, %s, %s, %s, now())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
                 ON CONFLICT (principal_id, issuer, account) DO UPDATE
                 SET scopes = EXCLUDED.scopes,
                     ciphertext = EXCLUDED.ciphertext,
@@ -158,18 +178,108 @@ class CredentialStore:
                 """,
                 (
                     principal_id,
+                    issuer,
                     account,
-                    scopes,
+                    list(scopes or []),
                     blob.ciphertext,
                     blob.nonce,
                     blob.key_version,
-                    expires_at,
+                    access_expires_at,
                 ),
             )
             row = await cur.fetchone()
             await conn.commit()
         assert row is not None
         return row["id"]
+
+    async def load_credential(self, credential_id: UUID) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """Load and decrypt a credential by ID, returning `(row_metadata, decrypted_payload)`."""
+        row = await self._fetch_row(credential_id)
+        if row is None:
+            return None
+        decrypted = self.vault.decrypt(
+            ciphertext=row["ciphertext"],
+            nonce=row["nonce"],
+            key_version=row["key_version"],
+            principal_id=row["principal_id"],
+            issuer=row["issuer"],
+            account=row["account"],
+        )
+        return row, decrypted
+
+    async def find_credential(
+        self,
+        *,
+        principal_id: UUID,
+        issuer: str,
+        account: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """Find and decrypt a credential by `(principal_id, issuer, account)`."""
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                """
+                SELECT id, principal_id, issuer, account, scopes,
+                       ciphertext, nonce, key_version, access_expires_at
+                FROM credentials
+                WHERE principal_id = %s AND issuer = %s AND account = %s
+                """,
+                (principal_id, issuer, account),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        row_dict = dict(row)
+        decrypted = self.vault.decrypt(
+            ciphertext=row_dict["ciphertext"],
+            nonce=row_dict["nonce"],
+            key_version=row_dict["key_version"],
+            principal_id=row_dict["principal_id"],
+            issuer=row_dict["issuer"],
+            account=row_dict["account"],
+        )
+        return row_dict, decrypted
+
+    async def update_credential_payload(
+        self,
+        credential_id: UUID,
+        payload: dict[str, Any],
+        *,
+        scopes: list[str] | None = None,
+        access_expires_at: datetime | None = None,
+    ) -> None:
+        """Re-encrypt and update an existing credential row in place."""
+        row = await self._fetch_row(credential_id)
+        if row is None:
+            raise CredentialRevokedError(f"Credential {credential_id} not found")
+        new_blob = self.vault.encrypt(
+            payload,
+            principal_id=row["principal_id"],
+            issuer=row["issuer"],
+            account=row["account"],
+        )
+        effective_scopes = list(scopes) if scopes is not None else list(row["scopes"] or [])
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                """
+                UPDATE credentials
+                SET scopes = %s,
+                    ciphertext = %s,
+                    nonce = %s,
+                    key_version = %s,
+                    access_expires_at = %s,
+                    updated_at = now()
+                WHERE id = %s
+                """,
+                (
+                    effective_scopes,
+                    new_blob.ciphertext,
+                    new_blob.nonce,
+                    new_blob.key_version,
+                    access_expires_at,
+                    credential_id,
+                ),
+            )
+            await conn.commit()
 
     async def get_valid_access_token(
         self,

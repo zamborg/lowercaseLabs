@@ -30,6 +30,7 @@ from zos.providers.base import (
     UpstreamTokenSource,
     current_downstream_mcp,
 )
+from zos.router.naming import format_tool_name, sanitize_upstream_tool_name
 from zos.router.sessions import SessionTracker
 from zos.vault import CredentialRevokedError
 
@@ -42,11 +43,15 @@ ElicitationAuditFn = Callable[
     [CallContext, UUID | None, str, str, str, dict[str, Any]],
     Awaitable[None],
 ]
-HttpClientFactory = Callable[[httpx2.Auth], httpx2.AsyncClient]
+HttpClientFactory = Callable[[httpx2.Auth | None], httpx2.AsyncClient]
 
 
 class UpstreamAuthFailedError(Exception):
     """Raised when upstream still returns 401 after refreshing the credential once."""
+
+
+class ToolNameCollisionError(ValueError):
+    """Raised when two upstream tools sanitize or truncate to the same exposed ZOS tool name."""
 
 
 class _UpstreamBearerAuth(httpx2.Auth):
@@ -91,16 +96,33 @@ class _UpstreamBearerAuth(httpx2.Auth):
                 )
 
 
-def _convert_upstream_tools(mcp_tools: list[types.Tool]) -> list[ProviderTool]:
-    """Convert upstream MCP Tool definitions to ProviderTool.
+def _convert_upstream_tools(
+    mcp_tools: list[types.Tool],
+    *,
+    namespace: str | None = None,
+) -> tuple[list[ProviderTool], dict[str, str]]:
+    """Convert upstream MCP Tool definitions to ProviderTool + sanitized->raw name mapping.
 
+    Sanitizes upstream tool names to `[a-zA-Z0-9_-]+` and rejects any exposed-name collision.
     Note: Upstream annotations are hints, not policy facts. Tier & readOnlyHint/openWorldHint
     always come from ZOS `tool_tiers` + `client_policies`. Omitting `destructive_hint` preserves
     `None` so `build_tool_annotations` applies the MCP spec default (`True` for write/external,
     `False` for read) unless upstream explicitly asserts `False`.
     """
     converted: list[ProviderTool] = []
+    local_to_raw: dict[str, str] = {}
+    seen_exposed: dict[str, str] = {}
     for tool in mcp_tools:
+        sanitized = sanitize_upstream_tool_name(tool.name)
+        exposed = format_tool_name(namespace, sanitized) if namespace else sanitized
+        if exposed in seen_exposed:
+            raise ToolNameCollisionError(
+                f"Tool name collision in provider '{namespace or ''}': "
+                f"{seen_exposed[exposed]!r} and {tool.name!r} both map to {exposed!r}"
+            )
+        seen_exposed[exposed] = tool.name
+        local_to_raw[sanitized] = tool.name
+
         destructive: bool | None = None
         idempotent: bool | None = None
         if tool.annotations is not None:
@@ -109,14 +131,14 @@ def _convert_upstream_tools(mcp_tools: list[types.Tool]) -> list[ProviderTool]:
             idempotent = tool.annotations.idempotent_hint
         converted.append(
             ProviderTool(
-                name=tool.name,
+                name=sanitized,
                 description=tool.description or "",
                 input_schema=dict(tool.input_schema or {"type": "object", "properties": {}}),
                 destructive_hint=destructive,
                 idempotent_hint=idempotent,
             )
         )
-    return converted
+    return converted, local_to_raw
 
 
 class McpUpstreamProvider:
@@ -127,30 +149,36 @@ class McpUpstreamProvider:
         *,
         namespace: str,
         url: str,
-        token_source: UpstreamTokenSource,
+        token_source: UpstreamTokenSource | None,
         sessions: SessionTracker,
         provider_id_getter: Callable[[], UUID | None] | None = None,
         audit_elicitation: ElicitationAuditFn | None = None,
         http_client_factory: HttpClientFactory | None = None,
         connect_timeout_s: float = DEFAULT_CONNECT_TIMEOUT_S,
         transport: str = "mcp",
+        auth_mode: str = "oauth",
+        on_auth_failed: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self._namespace = namespace
         self.url = url
         self.transport = transport
         self.backend = "mcp"
+        self.auth_mode = auth_mode
         self.token_source = token_source
         self.sessions = sessions
         self._provider_id_getter = provider_id_getter
         self._audit_elicitation = audit_elicitation
         self._http_client_factory = http_client_factory
         self._connect_timeout_s = connect_timeout_s
+        self._on_auth_failed = on_auth_failed
 
         self._session: ClientSession | None = None
         self._auth: _UpstreamBearerAuth | None = None
         self._tools: list[ProviderTool] = []
+        self._local_to_raw: dict[str, str] = {}
         self._last_connect_ok = False
         self._last_error: str | None = None
+        self._needs_reconnect = False
 
         self._session_task: asyncio.Task[None] | None = None
         self._stop_event: asyncio.Event | None = None
@@ -172,15 +200,53 @@ class McpUpstreamProvider:
     def provider_id(self) -> UUID | None:
         return self._provider_id_getter() if self._provider_id_getter is not None else None
 
+    @property
+    def tool_count(self) -> int:
+        return len(self._tools)
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    @property
+    def needs_reconnect(self) -> bool:
+        ts_flag = bool(getattr(self.token_source, "needs_reconnect", False))
+        return self._needs_reconnect or ts_flag
+
+    @property
+    def status(self) -> str:
+        if self.is_online():
+            return "online"
+        if self.needs_reconnect:
+            return "needs_reconnect"
+        if self.token_source is not None and not self.token_source.has_credential():
+            return "not_configured"
+        return "offline"
+
+    def clear_needs_reconnect(self) -> None:
+        self._needs_reconnect = False
+        self._last_error = None
+        if self.token_source is not None and hasattr(self.token_source, "clear_needs_reconnect"):
+            self.token_source.clear_needs_reconnect()
+
+    def _has_auth_ready(self) -> bool:
+        return self.token_source is None or self.token_source.has_credential()
+
+    def _reconnect_hint(self) -> str:
+        if self.token_source is not None:
+            return self.token_source.reconnect_hint
+        return f"Check upstream '{self._namespace}' connectivity."
+
     def is_online(self) -> bool:
-        """Online iff credential is present and the last connect/list succeeded."""
+        """Online iff auth is ready (or none) and the last connect/list succeeded."""
         return (
-            self.token_source.has_credential()
+            self._has_auth_ready()
+            and not self.needs_reconnect
             and self._last_connect_ok
             and self._session is not None
         )
 
-    def _build_http_client(self, auth: httpx2.Auth) -> httpx2.AsyncClient:
+    def _build_http_client(self, auth: httpx2.Auth | None) -> httpx2.AsyncClient:
         if self._http_client_factory is not None:
             return self._http_client_factory(auth)
         return httpx2.AsyncClient(
@@ -190,7 +256,7 @@ class McpUpstreamProvider:
 
     async def ensure_connected(self, *, broadcast_on_change: bool = True) -> bool:
         """Lazily open (or verify) the long-lived upstream MCP ClientSession."""
-        if not self.token_source.has_credential():
+        if not self._has_auth_ready():
             await self.disconnect(broadcast_on_change=broadcast_on_change)
             return False
 
@@ -236,6 +302,7 @@ class McpUpstreamProvider:
             was_online = self._last_connect_ok
             await self._teardown_session_locked()
             self._tools = []
+            self._local_to_raw = {}
             self._last_connect_ok = False
         if broadcast_on_change and was_online:
             await self.sessions.broadcast_tools_changed()
@@ -267,7 +334,7 @@ class McpUpstreamProvider:
         stop_event: asyncio.Event,
         ready_event: asyncio.Event,
     ) -> None:
-        auth = _UpstreamBearerAuth(self.token_source)
+        auth = _UpstreamBearerAuth(self.token_source) if self.token_source is not None else None
         self._auth = auth
         http_client = self._build_http_client(auth)
 
@@ -284,9 +351,13 @@ class McpUpstreamProvider:
             ):
                 await session.initialize()
                 tools_res = await session.list_tools()
-                self._tools = _convert_upstream_tools(list(tools_res.tools))
+                self._tools, self._local_to_raw = _convert_upstream_tools(
+                    list(tools_res.tools),
+                    namespace=self._namespace,
+                )
                 self._session = session
                 self._last_connect_ok = True
+                self._needs_reconnect = False
                 self._last_error = None
                 logger.info(
                     "Upstream MCP '%s' connected (%s) with %d tool(s)",
@@ -299,8 +370,15 @@ class McpUpstreamProvider:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            err_msg = auth.auth_failed_error or str(exc)
+            err_msg = (auth.auth_failed_error if auth is not None else None) or str(exc)
             self._last_error = err_msg
+            if (auth is not None and auth.auth_failed_error) or isinstance(
+                exc, (UpstreamAuthFailedError, CredentialRevokedError)
+            ):
+                self._needs_reconnect = True
+                if self._on_auth_failed is not None:
+                    with contextlib.suppress(Exception):
+                        await self._on_auth_failed(err_msg)
             logger.warning("Upstream MCP '%s' connection error: %s", self._namespace, err_msg)
         finally:
             was_ready = ready_event.is_set()
@@ -327,7 +405,10 @@ class McpUpstreamProvider:
             return
         try:
             tools_res = await session.list_tools()
-            self._tools = _convert_upstream_tools(list(tools_res.tools))
+            self._tools, self._local_to_raw = _convert_upstream_tools(
+                list(tools_res.tools),
+                namespace=self._namespace,
+            )
             await self.sessions.broadcast_tools_changed()
         except Exception as exc:
             logger.warning("Failed refreshing tool list from upstream '%s': %s", self._namespace, exc)
@@ -385,7 +466,7 @@ class McpUpstreamProvider:
         return result
 
     async def list_tools(self) -> list[ProviderTool]:
-        if not self.token_source.has_credential():
+        if not self._has_auth_ready() or self.needs_reconnect:
             return []
         if not self.is_online():
             ok = await self.ensure_connected(broadcast_on_change=False)
@@ -399,12 +480,22 @@ class McpUpstreamProvider:
         args: dict[str, Any],
         ctx: CallContext,
     ) -> types.CallToolResult:
-        if not self.token_source.has_credential():
+        if self.needs_reconnect:
             return types.CallToolResult(
                 content=[
                     types.TextContent(
                         type="text",
-                        text=f"UPSTREAM_OFFLINE: '{self._namespace}' has no credential. {self.token_source.reconnect_hint}",
+                        text=f"UPSTREAM_NEEDS_RECONNECT: '{self._namespace}' requires reconnection. {self._reconnect_hint()}",
+                    )
+                ],
+                is_error=True,
+            )
+        if not self._has_auth_ready():
+            return types.CallToolResult(
+                content=[
+                    types.TextContent(
+                        type="text",
+                        text=f"UPSTREAM_OFFLINE: '{self._namespace}' has no credential. {self._reconnect_hint()}",
                     )
                 ],
                 is_error=True,
@@ -431,12 +522,12 @@ class McpUpstreamProvider:
                 connected = await self.ensure_connected(broadcast_on_change=True)
                 if not connected:
                     err = self._last_error or f"upstream '{self._namespace}' is unreachable"
-                    if "401" in err or "revoked" in err.lower() or "reconnect" in err.lower():
+                    if self.needs_reconnect or "401" in err or "revoked" in err.lower() or "reconnect" in err.lower():
                         return types.CallToolResult(
                             content=[
                                 types.TextContent(
                                     type="text",
-                                    text=f"UPSTREAM_AUTH_FAILED: {err}",
+                                    text=f"UPSTREAM_AUTH_FAILED: {err} {self._reconnect_hint()}",
                                 )
                             ],
                             is_error=True,
@@ -454,8 +545,9 @@ class McpUpstreamProvider:
             session = self._session
             auth = self._auth
             assert session is not None
+            raw_name = self._local_to_raw.get(name, name)
             try:
-                result = await session.call_tool(name, args)
+                result = await session.call_tool(raw_name, args)
                 if isinstance(result, types.CallToolResult):
                     return types.CallToolResult(
                         content=list(result.content),
@@ -472,10 +564,16 @@ class McpUpstreamProvider:
                 ):
                     msg = (
                         (auth.auth_failed_error if auth and auth.auth_failed_error else str(exc))
-                        or f"Upstream authentication failed (401). {self.token_source.reconnect_hint}"
+                        or f"Upstream authentication failed (401). {self._reconnect_hint()}"
                     )
-                    if self.token_source.reconnect_hint not in msg:
-                        msg = f"{msg} {self.token_source.reconnect_hint}"
+                    hint = self._reconnect_hint()
+                    if hint not in msg:
+                        msg = f"{msg} {hint}"
+                    self._needs_reconnect = True
+                    self._last_error = msg
+                    if self._on_auth_failed is not None:
+                        with contextlib.suppress(Exception):
+                            await self._on_auth_failed(msg)
                     await self.disconnect(broadcast_on_change=True)
                     return types.CallToolResult(
                         content=[types.TextContent(type="text", text=f"UPSTREAM_AUTH_FAILED: {msg}")],

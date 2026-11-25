@@ -132,6 +132,14 @@ class ToolRouter:
                 continue
             for ptool in provider_tools:
                 exposed = format_tool_name(provider.namespace, ptool.name)
+                if exposed in mapping:
+                    logger.warning(
+                        "Rejecting colliding tool %r from provider %s (already registered by %s)",
+                        exposed,
+                        provider.namespace,
+                        mapping[exposed][0].namespace,
+                    )
+                    continue
                 mapping[exposed] = (provider, ptool)
         return mapping
 
@@ -202,8 +210,17 @@ class ToolRouter:
                 prefix, _ = split
                 provider = self.registry.get(prefix)
                 if provider is not None and not provider.is_online():
-                    code = "ACTUATOR_OFFLINE" if provider.kind == "actuator" else "PROVIDER_OFFLINE"
-                    msg = f"{code}: provider '{prefix}' is currently offline."
+                    if getattr(provider, "needs_reconnect", False):
+                        hint = (
+                            provider._reconnect_hint()
+                            if hasattr(provider, "_reconnect_hint")
+                            else f"Reconnect provider '{prefix}'."
+                        )
+                        code = "UPSTREAM_NEEDS_RECONNECT"
+                        msg = f"{code}: provider '{prefix}' requires reconnection. {hint}"
+                    else:
+                        code = "ACTUATOR_OFFLINE" if provider.kind == "actuator" else "PROVIDER_OFFLINE"
+                        msg = f"{code}: provider '{prefix}' is currently offline."
                     await self._audit(
                         ctx,
                         provider.provider_id,
