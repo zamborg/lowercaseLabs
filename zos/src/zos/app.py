@@ -9,6 +9,7 @@ import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 import mcp_types as types
 import uvicorn
@@ -21,9 +22,11 @@ from psycopg import AsyncConnection
 from psycopg.rows import DictRow
 from psycopg_pool import AsyncConnectionPool
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import BaseRoute, Route
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from zos.audit import DatabaseAuditRecorder
 from zos.auth import BearerAuthASGIMiddleware, CallContext, current_call_context
@@ -46,6 +49,37 @@ from zos.router import ProviderRegistry, SessionTracker, ToolRouter
 from zos.web.admin import create_admin_routes
 
 logger = logging.getLogger(__name__)
+
+
+class PublicSchemeMiddleware:
+    """Derive HTTP scope scheme from `ZOS_BASE_URL` for requests targeting the public host.
+
+    Behind a TLS-terminating tunnel (e.g. cloudflared), upstream HTTP requests arrive on
+    plain HTTP with the public `Host` header preserved. Rewriting `scope["scheme"]` to
+    `"https"` when `ZOS_BASE_URL` is HTTPS and `Host` matches ensures Starlette-generated
+    URLs (such as 307 trailing-slash redirects on `/admin/` or `/mcp/`) emit `https://`
+    without trusting arbitrary `X-Forwarded-Proto` headers or hardcoding gateway IPs.
+    """
+
+    def __init__(self, app: ASGIApp, *, base_url: str) -> None:
+        self.app = app
+        parsed = urlparse(base_url.strip())
+        self.public_scheme = parsed.scheme.lower()
+        self.public_host = (parsed.hostname or "").lower()
+        self.public_netloc = parsed.netloc.lower()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and self.public_scheme == "https" and self.public_host:
+            req_host = ""
+            for k, v in scope.get("headers", []):
+                if k.lower() == b"host":
+                    req_host = v.decode("latin-1").strip().lower()
+                    break
+            req_host_norm = req_host[:-4] if req_host.endswith(":443") else req_host
+            if req_host_norm in (self.public_netloc, self.public_host):
+                scope = dict(scope)
+                scope["scheme"] = "https"
+        await self.app(scope, receive, send)
 
 
 class ZosMCPServer(Server[Any]):
@@ -341,7 +375,11 @@ def create_app(
     if extra_routes_factory is not None:
         routes.extend(extra_routes_factory(runtime))
 
-    starlette_app = Starlette(routes=routes, lifespan=lifespan)
+    starlette_app = Starlette(
+        routes=routes,
+        middleware=[Middleware(PublicSchemeMiddleware, base_url=cfg.zos_base_url)],
+        lifespan=lifespan,
+    )
     starlette_app.state.zos = runtime
     return starlette_app
 

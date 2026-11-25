@@ -511,3 +511,35 @@ async def test_m7_public_https_base_url_readiness(db_pool) -> None:
         assert r_g.status_code == 302
         g_qs = parse_qs(urlparse(r_g.headers["location"]).query)
         assert g_qs["redirect_uri"] == [f"{public_base}/connect/google/callback"]
+
+        # 6. Behind TLS-terminating tunnel (plain HTTP into app with public Host header),
+        #    Starlette trailing-slash 307 redirects emit https:// (while loopback stays http://)
+        async with (
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://zos.example.com",
+                follow_redirects=False,
+            ) as tunnel_client,
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://127.0.0.1:8787",
+                follow_redirects=False,
+            ) as local_client,
+        ):
+            r_admin_slash = await tunnel_client.get("/admin/")
+            assert r_admin_slash.status_code == 307
+            assert r_admin_slash.headers["location"] == "https://zos.example.com/admin"
+
+            r_mcp_slash = await tunnel_client.get("/mcp/")
+            assert r_mcp_slash.status_code == 307
+            assert r_mcp_slash.headers["location"] == "https://zos.example.com/mcp"
+
+            # Default :443 port on Host header also resolves to https://
+            r_443 = await tunnel_client.get("/admin/", headers={"Host": "zos.example.com:443"})
+            assert r_443.status_code == 307
+            assert r_443.headers["location"].startswith("https://zos.example.com")
+
+            # Direct local loopback request stays http://
+            r_local = await local_client.get("/admin/")
+            assert r_local.status_code == 307
+            assert r_local.headers["location"] == "http://127.0.0.1:8787/admin"
