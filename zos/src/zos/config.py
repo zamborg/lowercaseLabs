@@ -50,6 +50,7 @@ class Settings:
     allowed_redirect_hosts: tuple[str, ...] = ()
     dcr_max_per_hour: int = 10
     max_oauth_clients: int = 50
+    instructions_file: str = ""
     migrations_dir: Path = field(default_factory=_default_migrations_dir)
 
     @classmethod
@@ -75,5 +76,6 @@ class Settings:
             ),
             dcr_max_per_hour=_parse_positive_int(os.environ.get("ZOS_DCR_MAX_PER_HOUR", ""), 10),
             max_oauth_clients=_parse_positive_int(os.environ.get("ZOS_MAX_OAUTH_CLIENTS", ""), 50),
+            instructions_file=os.environ.get("ZOS_INSTRUCTIONS_FILE", "").strip(),
             migrations_dir=Path(mig_override) if mig_override else _default_migrations_dir(),
         )

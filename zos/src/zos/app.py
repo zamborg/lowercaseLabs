@@ -34,6 +34,7 @@ from zos.auth.oauth import create_oauth_routes
 from zos.auth.rate_limit import GlobalPassphraseRateLimiter, GlobalSlidingWindowLimiter
 from zos.config import Settings
 from zos.db import create_pool, run_migrations
+from zos.instructions import load_mcp_instructions
 from zos.policy import DatabasePolicyEvaluator, request_tool_confirmation
 from zos.providers.actuator import ActuatorManager
 from zos.providers.base import ToolProvider
@@ -172,6 +173,7 @@ def create_app(
     mcp_server = ZosMCPServer(
         "zos",
         version="0.1.0",
+        instructions=load_mcp_instructions(cfg.instructions_file),
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,
     )
