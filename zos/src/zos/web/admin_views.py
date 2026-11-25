@@ -71,6 +71,7 @@ button.sm { padding: 0.2rem 0.45rem; font-size: 0.76rem; }
 def _layout(*, title: str, active: str, csrf_token: str, body: str) -> str:
     nav_items = [
         ("overview", "/admin", "Overview"),
+        ("upstreams", "/admin/upstreams", "MCP Servers"),
         ("clients", "/admin/clients", "Clients"),
         ("policy", "/admin/policy", "Tools &amp; Policy"),
         ("activity", "/admin/activity", "Activity"),
@@ -240,6 +241,127 @@ def render_overview_page(
     </div>
     """
     return _layout(title="Overview", active="overview", csrf_token=csrf_token, body=body)
+
+
+def render_upstreams_page(
+    *,
+    upstreams: list[dict[str, Any]],
+    csrf_token: str,
+    notice: str | None = None,
+    error: str | None = None,
+) -> str:
+    banners = ""
+    if error:
+        banners += f'<div class="notice notice-err">{_e(error)}</div>'
+    if notice:
+        banners += f'<div class="notice notice-ok">{_e(notice)}</div>'
+
+    status_badges = {
+        "online": '<span class="badge badge-ok">online</span>',
+        "needs_reconnect": '<span class="badge badge-err">needs_reconnect</span>',
+        "not_configured": '<span class="badge badge-warn">not_configured</span>',
+        "offline": '<span class="badge badge-muted">offline</span>',
+    }
+
+    rows = []
+    for u in upstreams:
+        slug = str(u["slug"])
+        status = str(u["status"])
+        badge = status_badges.get(status, f'<span class="badge badge-muted">{_e(status)}</span>')
+        err_note = (
+            f'<div class="muted" style="color:var(--err);max-width:260px;word-break:break-word;">{_e(u["last_error"])}</div>'
+            if u.get("last_error")
+            else ""
+        )
+        actions: list[str] = []
+        if u["auth_mode"] == "bearer":
+            actions.append(
+                f'<form class="inline" method="post" action="/admin/upstreams/token">'
+                f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+                f'<input type="hidden" name="slug" value="{_e(slug)}">'
+                f'<input type="password" name="token" placeholder="Paste token" autocomplete="new-password" required style="width:140px;">'
+                f'<button type="submit" class="secondary sm">Set Token</button></form>'
+            )
+            if u.get("has_credential"):
+                actions.append(
+                    f'<form class="inline" method="post" action="/admin/upstreams/disconnect">'
+                    f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+                    f'<input type="hidden" name="slug" value="{_e(slug)}">'
+                    f'<button type="submit" class="secondary sm">Disconnect</button></form>'
+                )
+        elif u["auth_mode"] == "oauth":
+            label = "Reconnect" if status == "needs_reconnect" else "Connect"
+            actions.append(f'<a class="btn sm" href="/connect/{_e(slug)}">{label}</a>')
+            if u.get("has_credential") or u.get("online"):
+                actions.append(
+                    f'<form class="inline" method="post" action="/admin/upstreams/disconnect">'
+                    f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+                    f'<input type="hidden" name="slug" value="{_e(slug)}">'
+                    f'<button type="submit" class="secondary sm">Disconnect</button></form>'
+                )
+        actions.append(
+            f'<form class="inline" method="post" action="/admin/upstreams/remove">'
+            f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+            f'<input type="hidden" name="slug" value="{_e(slug)}">'
+            f'<button type="submit" class="danger sm">Remove</button></form>'
+        )
+        rows.append(
+            f"<tr>"
+            f'<td><code>{_e(slug)}</code><div class="muted mono">{_e(u["url"])}</div></td>'
+            f'<td><code>{_e(u["auth_mode"])}</code></td>'
+            f'<td><code>{_e(u["default_tier"])}</code></td>'
+            f"<td>{badge}{err_note}</td>"
+            f"<td>{int(u['tool_count'])}</td>"
+            f'<td><div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;">{"".join(actions)}</div></td>'
+            f"</tr>"
+        )
+
+    body = f"""
+    <h1>MCP Servers</h1>
+    {banners}
+    <div class="card">
+      <h2>Add Remote MCP Server</h2>
+      <p class="muted">Tools are exposed as <code>&lt;slug&gt;_&lt;tool&gt;</code>. Default tier is <code>external</code> (approval required) unless opted down; override individual tools on <a href="/admin/policy">Tools &amp; Policy</a>.</p>
+      <form class="form-row" method="post" action="/admin/upstreams/add">
+        <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+        <label class="field">
+          Slug (prefix)
+          <input type="text" name="slug" placeholder="e.g. github" pattern="[a-z][a-z0-9]{{1,15}}" required>
+        </label>
+        <label class="field" style="flex:1;min-width:240px;">
+          Remote MCP URL
+          <input type="text" name="url" placeholder="https://api.githubcopilot.com/mcp/" required style="width:100%;">
+        </label>
+        <label class="field">
+          Auth mode
+          <select name="auth_mode">
+            <option value="oauth">oauth</option>
+            <option value="bearer">bearer</option>
+            <option value="none">none</option>
+          </select>
+        </label>
+        <label class="field">
+          Default tier
+          <select name="default_tier">
+            <option value="external" selected>external</option>
+            <option value="write">write</option>
+            <option value="read">read</option>
+          </select>
+        </label>
+        <button type="submit">Add Server</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Registered Remote MCP Servers</h2>
+      <div class="scroll-x">
+        <table>
+          <thead><tr><th>Server</th><th>Auth</th><th>Default Tier</th><th>Status</th><th>Tools</th><th>Actions</th></tr></thead>
+          <tbody>{''.join(rows) or '<tr><td colspan="6" class="muted">No remote MCP servers registered yet.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+    """
+    return _layout(title="MCP Servers", active="upstreams", csrf_token=csrf_token, body=body)
 
 
 def render_clients_page(

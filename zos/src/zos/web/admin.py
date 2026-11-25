@@ -17,6 +17,7 @@ from zos.admin_service import AdminService
 from zos.auth.oauth import verify_owner_passphrase
 from zos.auth.rate_limit import GlobalPassphraseRateLimiter, record_auth_failure
 from zos.config import Settings
+from zos.providers.upstream_manager import UpstreamManager
 from zos.router import ProviderRegistry, SessionTracker
 from zos.web.admin_auth import (
     ADMIN_SECURITY_HEADERS,
@@ -30,6 +31,7 @@ from zos.web.admin_views import (
     render_clients_page,
     render_overview_page,
     render_policy_page,
+    render_upstreams_page,
 )
 
 
@@ -62,6 +64,7 @@ def create_admin_routes(
     session_manager: AdminSessionManager | None = None,
     passphrase_limiter: GlobalPassphraseRateLimiter | None = None,
     switch_provider_backend: Callable[[str, str], Awaitable[Any]] | None = None,
+    upstream_manager: UpstreamManager | None = None,
 ) -> list[Route]:
     """Create passphrase-gated, CSRF-protected /admin dashboard routes."""
     service = AdminService(pool)
@@ -403,6 +406,142 @@ def create_admin_routes(
             )
         )
 
+    async def upstreams_page(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        upstreams = await service.list_remote_upstreams(upstream_manager=upstream_manager)
+        return _html(render_upstreams_page(upstreams=upstreams, csrf_token=session.csrf_token))
+
+    async def upstreams_add(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        slug = data.get("slug", "").strip()
+        url = data.get("url", "").strip()
+        auth_mode = data.get("auth_mode", "none").strip()
+        default_tier = data.get("default_tier", "external").strip()
+        notice = None
+        error = None
+        try:
+            row = await service.add_remote_upstream(
+                slug=slug,
+                url=url,
+                auth_mode=auth_mode,
+                default_tier=default_tier,
+                upstream_manager=upstream_manager,
+            )
+            notice = f"Added MCP server '{row['slug']}'."
+        except Exception as exc:
+            error = str(exc)
+
+        upstreams = await service.list_remote_upstreams(upstream_manager=upstream_manager)
+        return _html(
+            render_upstreams_page(
+                upstreams=upstreams,
+                csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+            )
+        )
+
+    async def upstreams_set_token(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        slug = data.get("slug", "").strip()
+        token = data.get("token", "")
+        notice = None
+        error = None
+        try:
+            await service.set_upstream_bearer_token(
+                slug=slug,
+                token=token,
+                secret_key=settings.zos_secret_key,
+                upstream_manager=upstream_manager,
+            )
+            notice = f"Updated bearer token for '{slug}'."
+        except Exception as exc:
+            error = str(exc)
+
+        upstreams = await service.list_remote_upstreams(upstream_manager=upstream_manager)
+        return _html(
+            render_upstreams_page(
+                upstreams=upstreams,
+                csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+            )
+        )
+
+    async def upstreams_disconnect(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        slug = data.get("slug", "").strip()
+        notice = None
+        error = None
+        try:
+            await service.disconnect_remote_upstream(
+                slug=slug,
+                upstream_manager=upstream_manager,
+            )
+            notice = f"Disconnected '{slug}'."
+        except Exception as exc:
+            error = str(exc)
+
+        upstreams = await service.list_remote_upstreams(upstream_manager=upstream_manager)
+        return _html(
+            render_upstreams_page(
+                upstreams=upstreams,
+                csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+            )
+        )
+
+    async def upstreams_remove(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        slug = data.get("slug", "").strip()
+        notice = None
+        error = None
+        try:
+            await service.remove_remote_upstream(
+                slug=slug,
+                upstream_manager=upstream_manager,
+            )
+            notice = f"Removed MCP server '{slug}'."
+        except Exception as exc:
+            error = str(exc)
+
+        upstreams = await service.list_remote_upstreams(upstream_manager=upstream_manager)
+        return _html(
+            render_upstreams_page(
+                upstreams=upstreams,
+                csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+            )
+        )
+
     async def activity_page(request: Request) -> Response:
         session = _require_session(request)
         if session is None:
@@ -448,5 +587,10 @@ def create_admin_routes(
         Route("/admin/policy/set", policy_set, methods=["POST"]),
         Route("/admin/policy/clear", policy_clear, methods=["POST"]),
         Route("/admin/policy/tier", policy_set_tier, methods=["POST"]),
+        Route("/admin/upstreams", upstreams_page, methods=["GET"]),
+        Route("/admin/upstreams/add", upstreams_add, methods=["POST"]),
+        Route("/admin/upstreams/token", upstreams_set_token, methods=["POST"]),
+        Route("/admin/upstreams/disconnect", upstreams_disconnect, methods=["POST"]),
+        Route("/admin/upstreams/remove", upstreams_remove, methods=["POST"]),
         Route("/admin/activity", activity_page, methods=["GET"]),
     ]

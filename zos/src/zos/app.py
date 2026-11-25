@@ -357,6 +357,10 @@ def create_app(
             }
             if hasattr(p, "backend"):
                 entry["backend"] = p.backend
+            if upstream_manager.get_managed(p.namespace) is not None:
+                entry["status"] = getattr(p, "status", "online" if p.is_online() else "offline")
+                entry["tool_count"] = int(getattr(p, "tool_count", 0))
+                entry["auth_mode"] = getattr(p, "auth_mode", "none")
             providers_health.append(entry)
         return JSONResponse(
             {
@@ -391,6 +395,7 @@ def create_app(
             sessions,
             passphrase_limiter=passphrase_limiter,
             switch_provider_backend=switch_provider_backend,
+            upstream_manager=upstream_manager,
         ),
     ]
     if extra_routes_factory is not None:

@@ -7,10 +7,12 @@ so CLI and `/admin` share identical behavior and audit events.
 from __future__ import annotations
 
 import asyncio
+import getpass
 import sys
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 import typer
 from argon2 import PasswordHasher
 
@@ -27,6 +29,7 @@ token_app = typer.Typer(help="Manage bearer and OAuth tokens.")
 policy_app = typer.Typer(help="Manage per-client and default tool policies.")
 actuator_app = typer.Typer(help="Manage dial-out actuators.")
 provider_app = typer.Typer(help="Manage upstream providers.")
+upstream_app = typer.Typer(help="Manage routed remote MCP servers.")
 memory_app = typer.Typer(help="Import and export agent memories.")
 backup_app = typer.Typer(help="Record encrypted backup status.")
 
@@ -35,6 +38,7 @@ app.add_typer(token_app, name="token")
 app.add_typer(policy_app, name="policy")
 app.add_typer(actuator_app, name="actuator")
 app.add_typer(provider_app, name="provider")
+app.add_typer(upstream_app, name="upstream")
 app.add_typer(memory_app, name="memory")
 app.add_typer(backup_app, name="backup")
 
@@ -282,6 +286,164 @@ def provider_set_backend_cmd(
         raise typer.Exit(code=2) from exc
     prev = res.get("previous_backend") or "default"
     typer.echo(f"Provider backend set: slug={res['slug']} from={prev} to={res['backend']}")
+
+
+@upstream_app.command("add")
+def upstream_add_cmd(
+    slug: Annotated[str, typer.Argument(help="Unique tool prefix (^[a-z][a-z0-9]{1,15}$, not 'zos')")],
+    url: Annotated[str, typer.Option("--url", help="Remote Streamable HTTP MCP server URL")],
+    auth: Annotated[str, typer.Option("--auth", help="Auth mode: none | bearer | oauth")] = "none",
+    default_tier: Annotated[
+        str,
+        typer.Option("--default-tier", help="Default tier for tools from this server: read | write | external"),
+    ] = "external",
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Register a remote MCP server (`runtime: remote`)."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).add_remote_upstream(
+                slug=slug,
+                url=url,
+                auth_mode=auth,
+                default_tier=default_tier,
+                principal_slug=principal,
+            )
+
+    try:
+        row = asyncio.run(_run())
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    cfg = row["config"]
+    typer.echo(
+        f"Added upstream slug={row['slug']} url={cfg['url']} "
+        f"auth={cfg['auth_mode']} default_tier={cfg['default_tier']}"
+    )
+
+
+@upstream_app.command("set-token")
+def upstream_set_token_cmd(
+    slug: Annotated[str, typer.Argument(help="Remote MCP upstream slug (auth_mode=bearer)")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Read a bearer token/PAT strictly from stdin and store it encrypted in the vault."""
+    if sys.stdin.isatty():
+        token = getpass.getpass(f"Bearer token for '{slug}': ").strip()
+    else:
+        token = sys.stdin.read().strip()
+    if not token:
+        typer.echo("Error: empty token provided on stdin.", err=True)
+        raise typer.Exit(code=2)
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).set_upstream_bearer_token(
+                slug=slug,
+                token=token,
+                secret_key=s.zos_secret_key,
+                principal_slug=principal,
+            )
+
+    try:
+        res = asyncio.run(_run())
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Stored encrypted bearer token for slug={res['slug']}")
+
+
+@upstream_app.command("connect")
+def upstream_connect_cmd(
+    slug: Annotated[str, typer.Argument(help="Remote MCP upstream slug (auth_mode=oauth)")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Print the owner-gated browser /connect/<slug> URL for an OAuth remote MCP server."""
+
+    async def _run() -> tuple[str, dict | None]:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            items = await AdminService(pool).list_remote_upstreams(principal_slug=principal)
+        match = next((i for i in items if i["slug"] == slug.strip().lower()), None)
+        return s.zos_base_url.rstrip("/"), match
+
+    base_url, match = asyncio.run(_run())
+    if match is None:
+        typer.echo(f"Error: remote MCP upstream not found: {slug}", err=True)
+        raise typer.Exit(code=2)
+    if match["auth_mode"] != "oauth":
+        typer.echo(
+            f"Error: upstream '{match['slug']}' uses auth_mode='{match['auth_mode']}', not 'oauth'.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    typer.echo(f"{base_url}/connect/{match['slug']}")
+
+
+@upstream_app.command("list")
+def upstream_list_cmd(
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """List registered remote MCP servers with status and tool count."""
+
+    async def _run() -> list[dict]:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            items = await AdminService(pool).list_remote_upstreams(principal_slug=principal)
+        # Best-effort merge of live status & tool_count from local running ZOS /healthz
+        live_by_ns: dict[str, dict] = {}
+        for probe_url in ("http://127.0.0.1:8080/healthz", f"{s.zos_base_url.rstrip('/')}/healthz"):
+            try:
+                async with httpx.AsyncClient(timeout=1.5) as c:
+                    r = await c.get(probe_url)
+                    if r.status_code == 200:
+                        for p in r.json().get("providers", []):
+                            live_by_ns[str(p["namespace"])] = p
+                        break
+            except Exception:
+                continue
+        for item in items:
+            lp = live_by_ns.get(item["slug"])
+            if lp is not None:
+                item["status"] = lp.get("status", "online" if lp.get("online") else item["status"])
+                item["tool_count"] = int(lp.get("tool_count", item["tool_count"]))
+        return items
+
+    items = asyncio.run(_run())
+    if not items:
+        typer.echo("No remote MCP servers registered.")
+        return
+    for u in items:
+        typer.echo(
+            f"{u['slug']}\tstatus={u['status']}\ttools={u['tool_count']}\t"
+            f"auth={u['auth_mode']}\ttier={u['default_tier']}\turl={u['url']}"
+        )
+
+
+@upstream_app.command("remove")
+def upstream_remove_cmd(
+    slug: Annotated[str, typer.Argument(help="Remote MCP upstream slug to remove")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Remove a remote MCP server, its vault credential, and its default tier."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).remove_remote_upstream(
+                slug=slug,
+                principal_slug=principal,
+            )
+
+    try:
+        res = asyncio.run(_run())
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Removed upstream slug={res['slug']}")
 
 
 @memory_app.command("export")
