@@ -135,11 +135,31 @@ async def test_inbox_mcp_tools_auth_privacy_and_general_read_state(inbox_store: 
             msg_gen = json.loads(r_gen.content[0].text)["message"]
             assert msg_gen["from"] == "alpha"
 
-            # Private message to alpha only (from owner)
-            send_pa_args = {"to": ["alpha"], "subject": "Private to alpha", "body": "Top secret for alpha"}
-            r_pa = await session.call_tool("send", send_pa_args, meta=meta_for("owner", "send", send_pa_args))
-            assert not r_pa.is_error
-            msg_pa = json.loads(r_pa.content[0].text)["message"]
+            # Private message to alpha only (sent by owner via UI/store, not MCP)
+            msg_pa = await inbox_store.send_message(
+                sender="owner",
+                to=["alpha"],
+                subject="Private to alpha",
+                body="Top secret for alpha",
+            )
+
+            # Reserved MCP caller names ('owner', 'general', any case/whitespace) MUST be refused
+            for reserved_name in ("owner", "Owner ", "general", "GENERAL"):
+                r_res_send = await session.call_tool(
+                    "send",
+                    {"to": ["alpha"], "subject": "Spoof", "body": "Nope"},
+                    meta=meta_for(reserved_name, "send", {"to": ["alpha"], "subject": "Spoof", "body": "Nope"}),
+                )
+                assert r_res_send.is_error
+                assert "CALLER_RESERVED" in r_res_send.content[0].text
+
+                r_res_list = await session.call_tool(
+                    "list",
+                    {},
+                    meta=meta_for(reserved_name, "list", {}),
+                )
+                assert r_res_list.is_error
+                assert "CALLER_RESERVED" in r_res_list.content[0].text
 
             # 3. Beta lists its own mailbox -> sees Direct note
             r_blist = await session.call_tool("list", {}, meta=meta_for("beta", "list", {}))

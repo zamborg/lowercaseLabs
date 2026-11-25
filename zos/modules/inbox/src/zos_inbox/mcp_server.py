@@ -19,6 +19,8 @@ from starlette.routing import Route
 from zos_inbox.caller import CallerVerificationError, verify_mcp_caller
 from zos_inbox.store import InboxStore
 
+RESERVED_MCP_CALLERS = frozenset({"owner", "general"})
+
 INBOX_TOOLS: list[types.Tool] = [
     types.Tool(
         name="send",
@@ -164,6 +166,12 @@ def create_mcp_app(
             )
         except CallerVerificationError as exc:
             return _err(f"CALLER_VERIFICATION_FAILED: {exc}")
+
+        if caller is not None and caller.client_name.strip().lower() in RESERVED_MCP_CALLERS:
+            return _err(
+                f"CALLER_RESERVED: MCP client name '{caller.client_name.strip()}' is reserved; "
+                "only the owner HTTP UI may act as 'owner'."
+            )
 
         if name == "directory":
             entries = await store.directory(
