@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
 
+from zos.web.theme import CSS as _CSS
+
 
 def _e(value: Any) -> str:
     return html.escape("" if value is None else str(value), quote=True)
@@ -18,68 +20,6 @@ def _fmt_ts(value: Any) -> str:
     if isinstance(value, datetime):
         return value.strftime("%Y-%m-%d %H:%M:%S UTC")
     return str(value)
-
-
-_CSS = """
-:root { --bg:#fafafa; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --card:#ffffff;
-        --accent:#111827; --ok:#15803d; --warn:#b45309; --err:#b91c1c; --ok-bg:#dcfce7;
-        --warn-bg:#fef3c7; --err-bg:#fee2e2; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
-* { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.45; }
-header { background: var(--card); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-header .brand { font-weight: 700; font-size: 1rem; letter-spacing: 0.02em; }
-nav { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-nav a { text-decoration: none; color: var(--fg); padding: 0.35rem 0.7rem; border-radius: 6px; font-size: 0.9rem; }
-nav a.active { background: var(--accent); color: #fff; }
-nav a:hover:not(.active) { background: #f3f4f6; }
-main { max-width: 1180px; margin: 1.5rem auto; padding: 0 1.25rem 3rem; }
-.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.15rem 1.25rem; margin-bottom: 1.25rem; }
-h1 { font-size: 1.35rem; margin: 0 0 1rem; }
-h2 { font-size: 1.05rem; margin: 0 0 0.75rem; }
-.stats { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
-.stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem 1.1rem; min-width: 170px; }
-.stat .label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.stat .value { font-size: 1.45rem; font-weight: 700; margin-top: 0.2rem; }
-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
-th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); background: #f9fafb; }
-code, .mono { font-family: var(--mono); font-size: 0.82rem; }
-.badge { display: inline-block; padding: 0.15rem 0.45rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-.badge-ok { background: var(--ok-bg); color: var(--ok); }
-.badge-warn { background: var(--warn-bg); color: var(--warn); }
-.badge-err { background: var(--err-bg); color: var(--err); }
-.badge-muted { background: #f3f4f6; color: #374151; }
-.notice { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; border: 1px solid; font-size: 0.9rem; }
-.notice-ok { background: var(--ok-bg); border-color: #86efac; color: #14532d; }
-.notice-err { background: var(--err-bg); border-color: #fca5a5; color: #7f1d1d; }
-.notice-token { background: #fefce8; border-color: #fde047; color: #713f12; }
-.token-box { margin-top: 0.5rem; padding: 0.55rem 0.75rem; background: #fff; border: 1px solid #eab308; border-radius: 4px; font-family: var(--mono); word-break: break-all; font-size: 0.85rem; }
-form.inline { display: inline-flex; gap: 0.35rem; align-items: center; margin: 0; }
-.form-row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: flex-end; }
-label.field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.82rem; font-weight: 600; }
-input[type=text], input[type=password], select { padding: 0.4rem 0.55rem; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.88rem; background: #fff; }
-button, a.btn { display: inline-block; text-decoration: none; padding: 0.38rem 0.75rem; border-radius: 5px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font-size: 0.84rem; cursor: pointer; }
-button.secondary, a.btn.secondary { background: #fff; color: var(--fg); border-color: #d1d5db; }
-button.danger { background: #fff; color: var(--err); border-color: #fca5a5; }
-button.sm { padding: 0.2rem 0.45rem; font-size: 0.76rem; }
-.scroll-x { overflow-x: auto; }
-.muted { color: var(--muted); font-size: 0.84rem; }
-.cell-controls { display: flex; flex-direction: column; gap: 0.3rem; }
-.approval-pre { background: #111827; color: #f9fafb; padding: 0.9rem 1rem; border-radius: 6px; font-family: var(--mono); font-size: 0.84rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; overflow-x: auto; margin: 0.5rem 0 0; }
-.approval-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1.1rem; }
-.approval-actions form { flex: 1; min-width: 140px; }
-.approval-actions button { width: 100%; padding: 0.75rem 1rem; font-size: 1rem; font-weight: 600; border-radius: 7px; }
-button.approve-btn { background: var(--ok); border-color: var(--ok); color: #fff; }
-button.deny-btn { background: var(--err); border-color: var(--err); color: #fff; }
-.meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
-.meta-item .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.meta-item .val { font-size: 0.95rem; margin-top: 0.15rem; word-break: break-word; }
-@media (max-width: 640px) {
-  header { padding: 0.65rem 0.9rem; }
-  main { margin: 1rem auto; padding: 0 0.75rem 2.5rem; }
-  .card { padding: 0.95rem 0.95rem; }
-}
-"""
 
 
 def _layout(
@@ -105,8 +45,9 @@ def _layout(
         ("policy", "/admin/policy", "Tools &amp; Policy"),
         ("activity", "/admin/activity", "Activity"),
     ]
+    active_attrs = ' class="active" aria-current="page"'
     nav_html = "".join(
-        f'<a href="{href}" class="{"active" if active == key else ""}">{label}</a>'
+        f'<a href="{href}"{active_attrs if active == key else ""}>{label}</a>'
         for key, href, label in nav_items
     )
     if ui_modules:
@@ -119,21 +60,23 @@ def _layout(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>ZOS Admin — {_e(title)}</title>
   <style>{_CSS}</style>
 </head>
 <body>
-  <header>
-    <div class="brand">ZOS Control Panel</div>
-    <nav>
-      {nav_html}
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-in">
+      <a class="brand" href="/admin">ZOS</a>
       <form class="inline" method="post" action="/admin/logout">
         <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
-        <button type="submit" class="secondary">Sign out</button>
+        <button type="submit" class="secondary sm">Sign out</button>
       </form>
-    </nav>
+    </div>
+    <nav class="main-nav" aria-label="Admin">{nav_html}</nav>
   </header>
-  <main>{body}</main>
+  <main id="main">{body}</main>
 </body>
 </html>
 """
@@ -149,27 +92,26 @@ def render_admin_login_page(*, error: str | None = None, next_url: str | None = 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>ZOS Admin — Sign In</title>
-  <style>{_CSS}
-    .login-wrap {{ max-width: 420px; margin: 4rem auto; padding: 0 1rem; }}
-  </style>
+  <style>{_CSS}</style>
 </head>
 <body>
-  <div class="login-wrap">
+  <main class="narrow">
     <div class="card">
       <h1>ZOS Owner Admin</h1>
       <p class="muted">Enter your owner passphrase to open the control panel.</p>
       {err_html}
-      <form method="post" action="/admin/login">
+      <form class="auth-form" method="post" action="/admin/login">
         {next_input}
-        <label class="field" style="margin-bottom:0.85rem;">
+        <label class="field">
           Owner passphrase
           <input name="passphrase" type="password" autocomplete="current-password" required autofocus>
         </label>
-        <button type="submit">Sign in</button>
+        <button type="submit" class="block">Sign in</button>
       </form>
     </div>
-  </div>
+  </main>
 </body>
 </html>
 """
@@ -218,20 +160,20 @@ def render_overview_page(
                 if target == cur_backend:
                     continue
                 toggles.append(
-                    f'<form class="inline" method="post" action="/admin/providers/backend" style="margin-left:0.5rem;">'
+                    f'<form class="inline" method="post" action="/admin/providers/backend">'
                     f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
                     f'<input type="hidden" name="slug" value="{_e(p["namespace"])}">'
                     f'<input type="hidden" name="backend" value="{_e(target)}">'
                     f'<button type="submit" class="secondary sm">Switch to {_e(target)}</button></form>'
                 )
-            backend_cell += "".join(toggles)
+            backend_cell = f'<div class="row"><span>{backend_cell}</span>{"".join(toggles)}</div>'
         prov_rows.append(
             f"<tr>"
-            f"<td><code>{_e(p['namespace'])}</code></td>"
-            f"<td>{_e(p['kind'])}</td>"
-            f"<td>{backend_cell}</td>"
-            f"<td>{badge}</td>"
-            f"<td>{_e(_fmt_ts(p['last_seen_at']))}</td>"
+            f"<td data-label=\"Namespace\"><code>{_e(p['namespace'])}</code></td>"
+            f"<td data-label=\"Kind\">{_e(p['kind'])}</td>"
+            f"<td data-label=\"Backend\" class=\"cell-wide\">{backend_cell}</td>"
+            f"<td data-label=\"Status\">{badge}</td>"
+            f"<td data-label=\"Last seen\" class=\"mono nowrap\">{_e(_fmt_ts(p['last_seen_at']))}</td>"
             f"</tr>"
         )
 
@@ -239,9 +181,9 @@ def render_overview_page(
     if cred:
         scopes_html = " ".join(f'<span class="badge badge-muted">{_e(s.rsplit("/", 1)[-1])}</span>' for s in cred["scopes"])
         cred_html = f"""
-        <p><span class="badge badge-ok">connected</span> &nbsp; <strong>{_e(cred['account'])}</strong></p>
+        <p><span class="badge badge-ok">connected</span> <strong>{_e(cred['account'])}</strong></p>
         <p class="muted">Access token expires: <code>{_e(_fmt_ts(cred['access_expires_at']))}</code> &middot; Updated: <code>{_e(_fmt_ts(cred['updated_at']))}</code></p>
-        <p style="margin:0.5rem 0 1rem;">{scopes_html}</p>
+        <p class="row">{scopes_html}</p>
         <a class="btn secondary" href="/connect/google">Reconnect Google</a>
         """
     else:
@@ -255,15 +197,15 @@ def render_overview_page(
     if last_backup:
         backup_ts = _fmt_ts(last_backup.get("completed_at"))
         backup_size = _fmt_bytes(last_backup.get("size_bytes"))
-        backup_val = f'{_e(backup_size)}<div class="muted" style="font-size:0.78rem;font-weight:400;margin-top:0.2rem;">{_e(backup_ts)}</div>'
+        backup_val = f'{_e(backup_size)}<span class="sub">{_e(backup_ts)}</span>'
     else:
-        backup_val = '<span class="muted" style="font-size:1rem;">Never</span>'
+        backup_val = '<span class="muted">Never</span>'
 
     pending_count = int(overview.get("pending_approvals_count", 0))
     pending_badge = (
-        f'<span class="badge badge-warn" style="font-size:0.9rem;">{pending_count} pending</span>'
+        f'<span class="badge badge-warn">{pending_count} pending</span>'
         if pending_count > 0
-        else '<span class="badge badge-muted" style="font-size:0.9rem;">0 pending</span>'
+        else '<span class="badge badge-muted">0 pending</span>'
     )
 
     module_ui_card = ""
@@ -275,7 +217,7 @@ def render_overview_page(
         module_ui_card = f"""
     <div class="card">
       <h2>Module UIs</h2>
-      <p style="display:flex;gap:0.6rem;flex-wrap:wrap;margin:0;">{mod_links}</p>
+      <p class="row">{mod_links}</p>
     </div>
     """
 
@@ -285,16 +227,16 @@ def render_overview_page(
     <div class="stats">
       <div class="stat"><div class="label">Active MCP Sessions</div><div class="value">{int(overview['active_sessions'])}</div></div>
       <div class="stat"><div class="label">Online Providers</div><div class="value">{online_count} / {len(providers)}</div></div>
-      <div class="stat"><div class="label">Pending Approvals</div><div class="value"><a href="/admin/approvals" style="text-decoration:none;">{pending_badge}</a></div></div>
+      <div class="stat"><div class="label">Pending Approvals</div><div class="value"><a href="/admin/approvals">{pending_badge}</a></div></div>
       <div class="stat"><div class="label">Last Backup</div><div class="value">{backup_val}</div></div>
     </div>
     {module_ui_card}
     <div class="card">
       <h2>Providers</h2>
       <div class="scroll-x">
-        <table>
+        <table class="stack">
           <thead><tr><th>Namespace</th><th>Kind</th><th>Backend</th><th>Status</th><th>Last Seen</th></tr></thead>
-          <tbody>{''.join(prov_rows) or '<tr><td colspan="5" class="muted">No providers registered.</td></tr>'}</tbody>
+          <tbody>{''.join(prov_rows) or '<tr><td colspan="5" class="empty">No providers registered.</td></tr>'}</tbody>
         </table>
       </div>
     </div>
@@ -343,15 +285,15 @@ def render_upstreams_page(
         status = str(u["status"])
         badge = status_badges.get(status, f'<span class="badge badge-muted">{_e(status)}</span>')
         err_note = (
-            f'<div class="muted" style="color:var(--err);max-width:260px;word-break:break-word;">{_e(u["last_error"])}</div>'
+            f'<div class="muted err-text">{_e(u["last_error"])}</div>'
             if u.get("last_error")
             else ""
         )
         help_note = ""
         if u["auth_mode"] == "bearer" and u.get("token_help") and not u.get("has_credential"):
-            help_note = f'<div class="muted" style="max-width:300px;margin-top:0.25rem;">{_e(u["token_help"])}</div>'
+            help_note = f'<div class="muted">{_e(u["token_help"])}</div>'
         elif u["auth_mode"] == "oauth" and u.get("requires_client_registration") and u.get("client_help"):
-            help_note = f'<div class="muted" style="max-width:300px;margin-top:0.25rem;">{_e(u["client_help"])}</div>'
+            help_note = f'<div class="muted">{_e(u["client_help"])}</div>'
 
         actions: list[str] = []
         if u["auth_mode"] == "bearer":
@@ -359,7 +301,7 @@ def render_upstreams_page(
                 f'<form class="inline" method="post" action="/admin/upstreams/token">'
                 f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
                 f'<input type="hidden" name="slug" value="{_e(slug)}">'
-                f'<input type="password" name="token" placeholder="Paste token" autocomplete="new-password" required style="width:140px;">'
+                f'<input type="password" name="token" placeholder="Paste token" autocomplete="new-password" required aria-label="Bearer token">'
                 f'<button type="submit" class="secondary sm">Set Token</button></form>'
             )
             if u.get("has_credential"):
@@ -375,8 +317,8 @@ def render_upstreams_page(
                     f'<form class="inline" method="post" action="/admin/upstreams/oauth-client">'
                     f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
                     f'<input type="hidden" name="slug" value="{_e(slug)}">'
-                    f'<input type="text" name="client_id" placeholder="Client ID" required style="width:100px;">'
-                    f'<input type="password" name="client_secret" placeholder="Client Secret" autocomplete="new-password" required style="width:110px;">'
+                    f'<input type="text" name="client_id" placeholder="Client ID" required aria-label="Client ID">'
+                    f'<input type="password" name="client_secret" placeholder="Client Secret" autocomplete="new-password" required aria-label="Client secret">'
                     f'<button type="submit" class="secondary sm">Set Client</button></form>'
                 )
             label = "Reconnect" if status == "needs_reconnect" else "Connect"
@@ -396,12 +338,12 @@ def render_upstreams_page(
         )
         rows.append(
             f"<tr>"
-            f'<td><code>{_e(slug)}</code><div class="muted mono">{_e(u["url"])}</div>{help_note}</td>'
-            f'<td><code>{_e(u["auth_mode"])}</code></td>'
-            f'<td><code>{_e(u["default_tier"])}</code></td>'
-            f"<td>{badge}{err_note}</td>"
-            f"<td>{int(u['tool_count'])}</td>"
-            f'<td><div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;">{"".join(actions)}</div></td>'
+            f'<td data-label="Server" class="cell-wide"><code>{_e(slug)}</code><div class="muted mono">{_e(u["url"])}</div>{help_note}</td>'
+            f'<td data-label="Auth"><code>{_e(u["auth_mode"])}</code></td>'
+            f'<td data-label="Default tier"><code>{_e(u["default_tier"])}</code></td>'
+            f'<td data-label="Status">{badge}{err_note}</td>'
+            f'<td data-label="Tools">{int(u["tool_count"])}</td>'
+            f'<td data-label="Actions" class="cell-wide"><div class="row">{"".join(actions)}</div></td>'
             f"</tr>"
         )
 
@@ -415,16 +357,16 @@ def render_upstreams_page(
             f'<form class="inline" method="post" action="/admin/upstreams/install">'
             f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
             f'<input type="hidden" name="catalog_slug" value="{_e(c_slug)}">'
-            f'<input type="text" name="as_slug" placeholder="alias (optional)" pattern="[a-z][a-z0-9]{{1,15}}" style="width:115px;">'
+            f'<input type="text" name="as_slug" placeholder="alias (optional)" pattern="[a-z][a-z0-9]{{1,15}}" aria-label="Alias">'
             f'<button type="submit" class="{"secondary" if is_installed else ""} sm">{"Install another" if is_installed else "Install"}</button></form>'
         )
         cat_rows.append(
             f"<tr>"
-            f'<td><strong>{_e(c["name"])}</strong>{inst_badge} <code class="muted">{_e(c_slug)}</code>'
+            f'<td data-label="Connector" class="cell-wide"><strong>{_e(c["name"])}</strong>{inst_badge} <code class="muted">{_e(c_slug)}</code>'
             f'<div class="muted">{_e(c["description"])}</div></td>'
-            f'<td><code>{_e(auth_label)}</code></td>'
-            f'<td><a href="{_e(c["docs_url"])}" target="_blank" rel="noopener noreferrer">Docs</a></td>'
-            f"<td>{action_form}</td>"
+            f'<td data-label="Auth"><code>{_e(auth_label)}</code></td>'
+            f'<td data-label="Docs"><a href="{_e(c["docs_url"])}" target="_blank" rel="noopener noreferrer">Docs</a></td>'
+            f'<td data-label="Install" class="cell-wide">{action_form}</td>'
             f"</tr>"
         )
 
@@ -434,9 +376,9 @@ def render_upstreams_page(
     <div class="card">
       <h2>Registered Remote MCP Servers</h2>
       <div class="scroll-x">
-        <table>
+        <table class="stack">
           <thead><tr><th>Server</th><th>Auth</th><th>Default Tier</th><th>Status</th><th>Tools</th><th>Actions</th></tr></thead>
-          <tbody>{''.join(rows) or '<tr><td colspan="6" class="muted">No remote MCP servers registered yet. Install one from the catalog below or add a custom URL.</td></tr>'}</tbody>
+          <tbody>{''.join(rows) or '<tr><td colspan="6" class="empty">No remote MCP servers registered yet. Install one from the catalog below or add a custom URL.</td></tr>'}</tbody>
         </table>
       </div>
     </div>
@@ -444,9 +386,9 @@ def render_upstreams_page(
       <h2>Available Connectors</h2>
       <p class="muted">Verified official remote MCP servers. Nothing is installed by default; click <strong>Install</strong> to register with manifest tier rules, then connect.</p>
       <div class="scroll-x">
-        <table>
+        <table class="stack">
           <thead><tr><th>Connector</th><th>Auth</th><th>Docs</th><th>Install</th></tr></thead>
-          <tbody>{''.join(cat_rows) or '<tr><td colspan="4" class="muted">No catalog manifests found.</td></tr>'}</tbody>
+          <tbody>{''.join(cat_rows) or '<tr><td colspan="4" class="empty">No catalog manifests found.</td></tr>'}</tbody>
         </table>
       </div>
     </div>
@@ -459,9 +401,9 @@ def render_upstreams_page(
           Slug (prefix)
           <input type="text" name="slug" placeholder="e.g. github" pattern="[a-z][a-z0-9]{{1,15}}" required>
         </label>
-        <label class="field" style="flex:1;min-width:240px;">
+        <label class="field grow">
           Remote MCP URL
-          <input type="text" name="url" placeholder="https://api.githubcopilot.com/mcp/" required style="width:100%;">
+          <input type="text" name="url" placeholder="https://api.githubcopilot.com/mcp/" required>
         </label>
         <label class="field">
           Auth mode
@@ -547,12 +489,12 @@ def render_clients_page(
             )
         rows.append(
             f"<tr>"
-            f"<td><strong>{_e(c['name'])}</strong><div class=\"muted mono\">{_e(c['oauth_client_id'] or cid)}</div></td>"
-            f"<td><code>{_e(c['kind'])}</code></td>"
-            f"<td>{ceiling_badge}</td>"
-            f"<td>{int(c['active_token_count'])}</td>"
-            f"<td>{_e(_fmt_ts(c['last_seen_at']))}</td>"
-            f"<td>{' '.join(actions)}</td>"
+            f"<td data-label=\"Client\" class=\"cell-wide\"><strong>{_e(c['name'])}</strong><div class=\"muted mono\">{_e(c['oauth_client_id'] or cid)}</div></td>"
+            f"<td data-label=\"Kind\"><code>{_e(c['kind'])}</code></td>"
+            f"<td data-label=\"Trust ceiling\">{ceiling_badge}</td>"
+            f"<td data-label=\"Active tokens\">{int(c['active_token_count'])}</td>"
+            f"<td data-label=\"Last seen\" class=\"mono nowrap\">{_e(_fmt_ts(c['last_seen_at']))}</td>"
+            f"<td data-label=\"Actions\" class=\"cell-wide\"><div class=\"row\">{''.join(actions)}</div></td>"
             f"</tr>"
         )
 
@@ -580,9 +522,9 @@ def render_clients_page(
     <div class="card">
       <h2>Registered Clients <span class="badge badge-muted">OAuth: {oauth_count} / {int(max_oauth_clients)}</span></h2>
       <div class="scroll-x">
-        <table>
+        <table class="stack">
           <thead><tr><th>Client</th><th>Kind</th><th>Trust Ceiling</th><th>Active Tokens</th><th>Last Seen</th><th>Actions</th></tr></thead>
-          <tbody>{''.join(rows) or '<tr><td colspan="6" class="muted">No clients yet.</td></tr>'}</tbody>
+          <tbody>{''.join(rows) or '<tr><td colspan="6" class="empty">No clients yet.</td></tr>'}</tbody>
         </table>
       </div>
     </div>
@@ -727,10 +669,10 @@ def render_policy_page(
         )
         custom_rows.append(
             f"<tr>"
-            f"<td>{_e(r['client_name'])}</td>"
-            f"<td><code>{_e(r['pattern'])}</code></td>"
-            f"<td>{_decision_badge(r['decision'])}</td>"
-            f"<td>"
+            f"<td data-label=\"Client\">{_e(r['client_name'])}</td>"
+            f"<td data-label=\"Pattern\"><code>{_e(r['pattern'])}</code></td>"
+            f"<td data-label=\"Decision\">{_decision_badge(r['decision'])}</td>"
+            f"<td data-label=\"Action\">"
             f'<form class="inline" method="post" action="/admin/policy/clear">'
             f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
             f"{cid_input}"
@@ -744,7 +686,7 @@ def render_policy_page(
         custom_section = f"""
         <div class="card">
           <h2>Custom Pattern Overrides</h2>
-          <table>
+          <table class="stack">
             <thead><tr><th>Client</th><th>Pattern</th><th>Decision</th><th>Action</th></tr></thead>
             <tbody>{''.join(custom_rows)}</tbody>
           </table>
@@ -832,19 +774,19 @@ def render_activity_page(
 
         digest_hex = ev["args_digest_hex"]
         digest_cell = (
-            f'<code title="{_e(digest_hex)}">{_e(digest_hex[:16])}…</code>' if digest_hex else "—"
+            f'<code class="digest" title="{_e(digest_hex)}">{_e(digest_hex[:16])}…</code>' if digest_hex else "—"
         )
         rows.append(
             f"<tr>"
-            f"<td class=\"mono\">{int(ev['id'])}</td>"
-            f"<td class=\"mono\">{_e(_fmt_ts(ev['created_at']))}</td>"
-            f"<td><code>{_e(ev['type'])}</code></td>"
-            f"<td>{_e(ev['client_name'] or '—')}</td>"
-            f"<td><code>{_e(ev['provider_slug'] or '—')}</code></td>"
-            f"<td><code>{_e(ev['tool'] or '—')}</code></td>"
-            f"<td>{_e(ev['decision'] or '—')}</td>"
-            f"<td>{outcome_badge}</td>"
-            f"<td>{digest_cell}</td>"
+            f"<td data-label=\"ID\" class=\"mono\">{int(ev['id'])}</td>"
+            f"<td data-label=\"Time\" class=\"mono nowrap\">{_e(_fmt_ts(ev['created_at']))}</td>"
+            f"<td data-label=\"Type\"><code>{_e(ev['type'])}</code></td>"
+            f"<td data-label=\"Client\">{_e(ev['client_name'] or '—')}</td>"
+            f"<td data-label=\"Provider\"><code>{_e(ev['provider_slug'] or '—')}</code></td>"
+            f"<td data-label=\"Tool\"><code>{_e(ev['tool'] or '—')}</code></td>"
+            f"<td data-label=\"Decision\">{_e(ev['decision'] or '—')}</td>"
+            f"<td data-label=\"Outcome\">{outcome_badge}</td>"
+            f"<td data-label=\"Args digest\">{digest_cell}</td>"
             f"</tr>"
         )
 
@@ -852,7 +794,7 @@ def render_activity_page(
     if data["next_before_id"] is not None:
         qp = {k: v for k, v in filters.items() if v}
         qp["before_id"] = str(data["next_before_id"])
-        pager = f'<p style="margin-top:1rem;"><a class="btn secondary" href="/admin/activity?{urlencode(qp)}">Older events &rarr;</a></p>'
+        pager = f'<p class="pager"><a class="btn secondary" href="/admin/activity?{urlencode(qp)}">Older events &rarr;</a></p>'
 
     body = f"""
     <h1>Activity Audit Trail</h1>
@@ -869,11 +811,11 @@ def render_activity_page(
     <div class="card">
       <p class="muted">Append-only audit log. Only SHA-256 argument digests are recorded and displayed; raw arguments are never stored or shown.</p>
       <div class="scroll-x">
-        <table>
+        <table class="stack">
           <thead>
             <tr><th>ID</th><th>Time</th><th>Type</th><th>Client</th><th>Provider</th><th>Tool</th><th>Decision</th><th>Outcome</th><th>Args Digest</th></tr>
           </thead>
-          <tbody>{''.join(rows) or '<tr><td colspan="9" class="muted">No matching events.</td></tr>'}</tbody>
+          <tbody>{''.join(rows) or '<tr><td colspan="9" class="empty">No matching events.</td></tr>'}</tbody>
         </table>
       </div>
       {pager}
@@ -913,15 +855,15 @@ def render_approvals_page(
     for item in pending:
         aid = item["id"]
         digest_hex = item.get("args_digest_hex") or ""
-        digest_cell = f'<code title="{_e(digest_hex)}">{_e(digest_hex[:12])}…</code>' if digest_hex else "—"
+        digest_cell = f'<code class="digest" title="{_e(digest_hex)}">{_e(digest_hex[:12])}…</code>' if digest_hex else "—"
         pending_rows.append(
             f"<tr>"
-            f"<td><strong>{_e(item['client_name'])}</strong></td>"
-            f"<td><code>{_e(item['tool'])}</code></td>"
-            f"<td>{digest_cell}</td>"
-            f'<td class="mono">{_e(_fmt_ts(item["created_at"]))}</td>'
-            f'<td class="mono">{_e(_fmt_ts(item["expires_at"]))}</td>'
-            f'<td><a class="btn sm" href="/admin/approvals/{_e(aid)}">Review</a></td>'
+            f'<td data-label="Client"><strong>{_e(item["client_name"])}</strong></td>'
+            f'<td data-label="Tool"><code>{_e(item["tool"])}</code></td>'
+            f'<td data-label="Args digest">{digest_cell}</td>'
+            f'<td data-label="Requested" class="mono nowrap">{_e(_fmt_ts(item["created_at"]))}</td>'
+            f'<td data-label="Expires" class="mono nowrap">{_e(_fmt_ts(item["expires_at"]))}</td>'
+            f'<td data-label="Action"><a class="btn sm" href="/admin/approvals/{_e(aid)}">Review</a></td>'
             f"</tr>"
         )
 
@@ -929,16 +871,16 @@ def render_approvals_page(
     for item in recent:
         aid = item["id"]
         digest_hex = item.get("args_digest_hex") or ""
-        digest_cell = f'<code title="{_e(digest_hex)}">{_e(digest_hex[:12])}…</code>' if digest_hex else "—"
+        digest_cell = f'<code class="digest" title="{_e(digest_hex)}">{_e(digest_hex[:12])}…</code>' if digest_hex else "—"
         recent_rows.append(
             f"<tr>"
-            f"<td>{_approval_status_badge(item['status'])}</td>"
-            f"<td>{_e(item['client_name'])}</td>"
-            f"<td><code>{_e(item['tool'])}</code></td>"
-            f"<td>{digest_cell}</td>"
-            f'<td class="mono">{_e(_fmt_ts(item["created_at"]))}</td>'
-            f'<td class="mono">{_e(_fmt_ts(item["decided_at"] or item["expires_at"]))}</td>'
-            f'<td><a class="btn secondary sm" href="/admin/approvals/{_e(aid)}">View</a></td>'
+            f'<td data-label="Status">{_approval_status_badge(item["status"])}</td>'
+            f'<td data-label="Client">{_e(item["client_name"])}</td>'
+            f'<td data-label="Tool"><code>{_e(item["tool"])}</code></td>'
+            f'<td data-label="Args digest">{digest_cell}</td>'
+            f'<td data-label="Requested" class="mono nowrap">{_e(_fmt_ts(item["created_at"]))}</td>'
+            f'<td data-label="Decided / expired" class="mono nowrap">{_e(_fmt_ts(item["decided_at"] or item["expires_at"]))}</td>'
+            f'<td data-label="Details"><a class="btn secondary sm" href="/admin/approvals/{_e(aid)}">View</a></td>'
             f"</tr>"
         )
 
@@ -949,18 +891,18 @@ def render_approvals_page(
       <h2>Pending Approvals ({len(pending)})</h2>
       <p class="muted">Requests from clients without MCP elicitation. Open a request to inspect its exact arguments and approve or deny.</p>
       <div class="scroll-x">
-        <table>
+        <table class="stack">
           <thead><tr><th>Client</th><th>Tool</th><th>Args Digest</th><th>Requested</th><th>Expires</th><th>Action</th></tr></thead>
-          <tbody>{''.join(pending_rows) or '<tr><td colspan="6" class="muted">No pending approvals.</td></tr>'}</tbody>
+          <tbody>{''.join(pending_rows) or '<tr><td colspan="6" class="empty">Nothing waiting on you.</td></tr>'}</tbody>
         </table>
       </div>
     </div>
     <div class="card">
       <h2>Recent Approvals</h2>
       <div class="scroll-x">
-        <table>
+        <table class="stack">
           <thead><tr><th>Status</th><th>Client</th><th>Tool</th><th>Args Digest</th><th>Requested</th><th>Decided / Expired</th><th>Details</th></tr></thead>
-          <tbody>{''.join(recent_rows) or '<tr><td colspan="7" class="muted">No recent approvals yet.</td></tr>'}</tbody>
+          <tbody>{''.join(recent_rows) or '<tr><td colspan="7" class="empty">No recent approvals yet.</td></tr>'}</tbody>
         </table>
       </div>
     </div>
@@ -1033,7 +975,7 @@ def render_approval_detail_page(
         """
 
     body = f"""
-    <p style="margin:0 0 0.75rem;"><a class="btn secondary sm" href="/admin/approvals">&larr; All Approvals</a></p>
+    <p class="back"><a class="btn secondary sm" href="/admin/approvals">&larr; All Approvals</a></p>
     <h1>Approve Tool Call</h1>
     {banners}
     <div class="card">
@@ -1043,7 +985,7 @@ def render_approval_detail_page(
         <div class="meta-item"><div class="label">Tool</div><div class="val"><code>{_e(approval["tool"])}</code></div></div>
         <div class="meta-item"><div class="label">Requested</div><div class="val mono">{_e(_fmt_ts(approval["created_at"]))}</div></div>
         <div class="meta-item"><div class="label">Expires</div><div class="val mono">{_e(_fmt_ts(approval["expires_at"]))}</div></div>
-        <div class="meta-item"><div class="label">Args SHA-256</div><div class="val mono">{_e(approval.get("args_digest_hex", "")[:24])}…</div></div>
+        <div class="meta-item"><div class="label">Args SHA-256</div><div class="val digest">{_e(approval.get("args_digest_hex", "")[:24])}…</div></div>
       </div>
     </div>
     {args_section}
@@ -1131,30 +1073,30 @@ def render_modules_page(
         attach_form = ""
         if status == "pending_attach":
             attach_form = (
-                f'<form class="inline" method="post" action="/admin/modules/attach" style="margin-top:0.35rem;">'
+                f'<form class="inline" method="post" action="/admin/modules/attach">'
                 f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
                 f'<input type="hidden" name="slug" value="{_e(slug)}">'
-                f'<input type="text" name="mcp_url" placeholder="http://127.0.0.1:8081/mcp" required>'
-                f'<input type="text" name="ui_url" placeholder="UI URL (optional)">'
+                f'<input type="text" name="mcp_url" placeholder="http://127.0.0.1:8081/mcp" aria-label="MCP URL" required>'
+                f'<input type="text" name="ui_url" placeholder="UI URL (optional)" aria-label="UI URL">'
                 f'<button type="submit" class="sm">Attach</button></form>'
             )
 
         inst_rows.append(
             f"<tr>"
-            f"<td><code>{_e(slug)}</code></td>"
-            f"<td><code>v{_e(m.get('version', ''))}</code></td>"
-            f"<td><code>{_e(m.get('host', ''))}</code></td>"
-            f"<td>{badge}</td>"
-            f"<td><div class=\"cell-controls\"><div>{ui_link}{toggle_btn} {uninstall_btn}</div>{attach_form}</div></td>"
+            f"<td data-label=\"Module\"><code>{_e(slug)}</code></td>"
+            f"<td data-label=\"Version\"><code>v{_e(m.get('version', ''))}</code></td>"
+            f"<td data-label=\"Host\"><code>{_e(m.get('host', ''))}</code></td>"
+            f"<td data-label=\"Status\">{badge}</td>"
+            f"<td data-label=\"Actions\" class=\"cell-wide\"><div class=\"cell-controls\"><div class=\"row\">{ui_link}{toggle_btn} {uninstall_btn}</div>{attach_form}</div></td>"
             f"</tr>"
         )
 
     installed_table = (
-        f'<div class="scroll-x"><table><thead><tr>'
+        f'<div class="scroll-x"><table class="stack"><thead><tr>'
         f'<th>Module</th><th>Version</th><th>Host</th><th>Status</th><th>Actions</th>'
         f'</tr></thead><tbody>{"".join(inst_rows)}</tbody></table></div>'
         if inst_rows
-        else '<p class="muted">No modules installed yet. Install one from the catalog below.</p>'
+        else '<p class="empty">No modules installed yet. Install one from the catalog below.</p>'
     )
 
     cat_rows = []
@@ -1189,19 +1131,19 @@ def render_modules_page(
             )
         cat_rows.append(
             f"<tr>"
-            f"<td><strong>{_e(entry.name)}</strong><br><code>{_e(entry.slug)}</code> "
+            f"<td data-label=\"Module\" class=\"cell-wide\"><strong>{_e(entry.name)}</strong><br><code>{_e(entry.slug)}</code> "
             f"<span class=\"muted\">v{_e(entry.version)}</span></td>"
-            f"<td>{_e(entry.description)}<br>{' '.join(badges)}</td>"
-            f"<td>{action_html}</td>"
+            f"<td data-label=\"Description\" class=\"cell-wide\">{_e(entry.description)}<div class=\"row\">{' '.join(badges)}</div></td>"
+            f"<td data-label=\"Action\" class=\"cell-wide\">{action_html}</td>"
             f"</tr>"
         )
 
     catalog_table = (
-        f'<div class="scroll-x"><table><thead><tr>'
+        f'<div class="scroll-x"><table class="stack"><thead><tr>'
         f'<th>Module</th><th>Description</th><th>Action</th>'
         f'</tr></thead><tbody>{"".join(cat_rows)}</tbody></table></div>'
         if cat_rows
-        else '<p class="muted">No container module manifests found in <code>catalog/modules/</code>.</p>'
+        else '<p class="empty">No container module manifests found in <code>catalog/modules/</code>.</p>'
     )
 
     body = f"""
