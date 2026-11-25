@@ -76,6 +76,16 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Reuses `McpUpstreamProvider`, `CredentialVault`, `tool_tiers`, and the Access-gated `/connect/` path without inventing parallel auth or policy machinery, while directly matching `V2.md`'s future remote-module manifest shape.
 - **Impact:** Any Streamable HTTP remote MCP server (`none`, `bearer`, or `oauth`) can be added, configured, connected from a phone, tiered per tool, disconnected, and removed live with zero restarts via `zos upstream ...` or `/admin/upstreams`.
 
+## 2026-11-24 — Remote MCP connector catalog & V1 manifest format (M9b)
+
+- **Decision:** Check in 20 empirically verified remote connector manifests under `catalog/connectors/<slug>.toml` (`manifest_version = 1`, `runtime.kind = "remote"`, validated by Pydantic in `src/zos/catalog.py`; malformed entries are logged and skipped without breaking startup). Nothing is installed by default. On install (`zos catalog install <slug> [--as <alias>]` or `/admin/upstreams/install`), persist `manifest_tiers` and `managed_tier_patterns` in `providers.config` and resolve glob/exact patterns into `tool_tiers` on initial connect and on `notifications/tools/list_changed` without ever overwriting owner-edited tiers; remove manifest-managed tiers on uninstall.
+- **Servers without Dynamic Client Registration (DCR) verified 2026-11-24:**
+  - **GitHub (`https://api.githubcopilot.com/mcp/`):** `https://github.com/login/oauth` does not advertise `registration_endpoint` (no DCR). Modeled as `auth.mode = "bearer"` with `token_help` explaining fine-grained PAT minting and minimum scopes.
+  - **Slack (`https://mcp.slack.com/mcp`):** `https://mcp.slack.com` PRM/AS metadata has no `registration_endpoint` (no DCR). Modeled as `auth.mode = "oauth"` with `requires_client_registration = true` and `/admin/upstreams/oauth-client` fields to store a pre-registered `client_id` + `client_secret` in the AEAD vault before clicking Connect.
+  - **Asana (`https://mcp.asana.com/v2/mcp`; legacy `/sse` returns 410 Gone):** `https://app.asana.com` has no `registration_endpoint` (no DCR). Modeled identically as `auth.mode = "oauth"` with `requires_client_registration = true`.
+- **Why:** Matches `V2.md`'s future module manifest (`runtime: remote`) while honoring real-world OAuth server capabilities empirically verified against live PRM/ASM metadata, and keeps owner hand-tuned tool tiers safe across upstream tool list changes.
+- **Impact:** All 20 verified connectors appear in `/admin/upstreams` ("Available Connectors") and `zos catalog list`, support multi-instance installs via `--as`, and remain uninstalled until explicitly added by the owner.
+
 
 
 

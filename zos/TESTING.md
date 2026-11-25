@@ -174,11 +174,41 @@ When ready to expose ZOS at `https://zos.<your-domain>` (e.g. so ChatGPT connect
 | **M7 — Pre-Public Hardening** | Shared global passphrase limiter (5/min, 20/hr, backoff) + `auth.failed` audit across `/admin/login`, `/oauth/authorize`, `/connect/google`; `ZOS_ALLOWED_REDIRECT_HOSTS` loopback-only default + `chatgpt.com` allowlist + prominent redirect host on approve page; DCR 10/hr limit + 50 OAuth client cap + `/admin/clients` pruning; public `https://` base URL test; `PublicSchemeMiddleware` HTTPS trailing-slash redirects; declarative `deploy/cloudflared/config.yml.example` + `com.zos.cloudflared.plist`. | Cloudflare named tunnel live at `https://zos.aysola.org`. |
 | **M8 — Context Layer & Baseline** | `zos memory import` (`claude-code` & `codex` importers, JSONL stdin host wrapper `deploy/scripts/import-memories.sh`, shared `MemoryService`, idempotent & audited); MCP `InitializeResult.instructions` (+ `ZOS_INSTRUCTIONS_FILE` override); `gcal` REST parity (`get_event`, `list_calendars`, `search_events`, `freebusy`, `respond_to_event` + `gcal_freebusy` read tier); `memory_list` (cursor-paginated, no content) + `author`/`created_at`/`updated_at` on `memory_get`/`search`; actuator AddressBook contact names & name-to-handle lookup in `mac_messages_search`; nightly encrypted `pg_dump` backup (`deploy/backup/{backup,restore}.sh`, `com.zos.backup.plist`, `/admin` Overview last-backup status, verified live restore into `zos-pg-test`). | Re-enable iCloud Drive on macOS if `~/Library/Mobile Documents/com~apple~CloudDocs/zos-backups/` should sync off-device automatically (directory created locally). |
 | **M9a — Routed Remote MCP Servers** | Generic remote MCP registrations (`runtime: remote`) via `zos upstream add/set-token/connect/list/remove` and `/admin/upstreams` ("MCP Servers"); `none`, `bearer` (stdin/password → AEAD vault), and `oauth` (`mcp.client.auth.OAuthClientProvider` PRM/DCR/PKCE at phone-friendly `/connect/<slug>`, refresh & revoke → `needs_reconnect`); strict slug validation, tool name sanitization & collision rejection, `--default-tier` + per-tool tier editor on `/admin/policy`, hot add/remove `list_changed`, and isolated offline startup. | Connect real remote MCP servers (e.g. GitHub, Linear, Cloudflare, Notion) via `/admin/upstreams` or `zos upstream` (Opus + Zubin). |
+| **M9b — Connector Catalog** | 20 verified remote connector manifests under `catalog/connectors/*.toml` (`manifest_version = 1`, Pydantic validated, bad entries skipped); `/admin/upstreams` "Available Connectors" + `zos catalog list/install [--as]`; manifest tier patterns applied on connect & `list_changed` without overwriting owner-set tiers; uninstall drops manifest-managed tiers; pre-registered OAuth client support for non-DCR servers (Slack, Asana); nothing installed live by default. | Owner installs & connects desired connectors from `/admin/upstreams`. |
 | **Definition of Done (V0)** | Every call audited in `events`; `DECISIONS.md` current; zero `later/` scope built; all Docker ports bound strictly to `127.0.0.1`. | End-to-end human session with both Claude Code and Codex signed in via OAuth using shared memory + FDA Messages + live Google. |
 
 ---
 
-## 4. M8 & M9a Context & Operations Quick Commands
+## 4. M9b Connector Catalog Verification Log (2026-11-24)
+
+All 20 entries were probed with unauthenticated HTTP requests only (`POST` initialize + PRM + AS metadata):
+
+| Slug | Endpoint URL | Verified Date | HTTP Status | Auth Mode | DCR (`registration_endpoint`) | Notes |
+|---|---|---|---|---|---|---|
+| `github` | `https://api.githubcopilot.com/mcp/` | 2026-11-24 | 401 + PRM | `bearer` | No (`github.com/login/oauth`) | Uses fine-grained PAT (`token_help` included) |
+| `linear` | `https://mcp.linear.app/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`mcp.linear.app/register`) | Ready for 1-click OAuth connect |
+| `notion` | `https://mcp.notion.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`mcp.notion.com/register`) | Ready for 1-click OAuth connect |
+| `cloudflare` | `https://mcp.cloudflare.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`mcp.cloudflare.com/register`) | Unified Cloudflare API MCP |
+| `cfdocs` | `https://docs.mcp.cloudflare.com/mcp` | 2026-11-24 | 200 OK | `none` | N/A | Public read-only docs |
+| `cfbindings` | `https://bindings.mcp.cloudflare.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`bindings.mcp.cloudflare.com/register`) | Workers Bindings |
+| `cfbuilds` | `https://builds.mcp.cloudflare.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`builds.mcp.cloudflare.com/register`) | Workers Builds |
+| `cfobs` | `https://observability.mcp.cloudflare.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`observability.mcp.cloudflare.com/register`) | Workers Observability |
+| `cfradar` | `https://radar.mcp.cloudflare.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`radar.mcp.cloudflare.com/register`) | Cloudflare Radar (`default=read`) |
+| `cfdns` | `https://dns-analytics.mcp.cloudflare.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`dns-analytics.mcp.cloudflare.com/register`) | DNS Analytics (`default=read`) |
+| `cfaudit` | `https://auditlogs.mcp.cloudflare.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`auditlogs.mcp.cloudflare.com/register`) | Audit Logs (`default=read`) |
+| `atlassian` | `https://mcp.atlassian.com/v2/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`auth.atlassian.com/.../dcr/register`) | Jira & Confluence Rovo MCP v2 |
+| `sentry` | `https://mcp.sentry.dev/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`mcp.sentry.dev/oauth/register`) | Ready for 1-click OAuth connect |
+| `stripe` | `https://mcp.stripe.com/` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`access.stripe.com/mcp/oauth2/register`) | Ready for 1-click OAuth connect |
+| `vercel` | `https://mcp.vercel.com/` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`api.vercel.com/login/oauth/register`) | Ready for 1-click OAuth connect |
+| `figma` | `https://mcp.figma.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`api.figma.com/v1/oauth/mcp/register`) | Ready for 1-click OAuth connect |
+| `supabase` | `https://mcp.supabase.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` | Yes (`api.supabase.com/platform/oauth/apps/register`) | Ready for 1-click OAuth connect |
+| `context7` | `https://mcp.context7.com/mcp` | 2026-11-24 | 200 OK | `none` | N/A | Public read-only library docs |
+| `slack` | `https://mcp.slack.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` (pre-reg) | No (`mcp.slack.com`) | `requires_client_registration = true` |
+| `asana` | `https://mcp.asana.com/v2/mcp` | 2026-11-24 | 401 + PRM | `oauth` (pre-reg) | No (`app.asana.com`) | `requires_client_registration = true` (legacy `/sse` is 410) |
+
+---
+
+## 5. M8 & M9 Context & Operations Quick Commands
 
 - **Manage routed remote MCP servers (CLI or `/admin/upstreams`):**
   ```bash
