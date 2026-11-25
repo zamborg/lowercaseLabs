@@ -1,138 +1,87 @@
-# ZOS — plan (V0)
+# ZOS — Plan (V1)
 
-Status: **design final** (reviews 05–06, 2026-11-23). Execution plan: `BUILD.md`.
-Schema: `SCHEMA.md`. The earlier runtime-shaped design is parked in `later/`.
+Status: **V1 shipped** (2026-11-25). Architecture direction for V2+ (installable modules, files, chat, skills): [V2.md](V2.md). Schema: [SCHEMA.md](SCHEMA.md). Operations & testing runbook: [TESTING.md](TESTING.md). Decision log: [DECISIONS.md](DECISIONS.md). Earlier runtime-shaped notes are archived in `later/`.
 
 ## What ZOS is
 
-The "Zubin layer" for every agent he uses: a self-deployable **context and
-routing engine for MCP calls**. Any MCP client (Claude Code, Codex, a chat
-app, a local LLM UI) connects to one ZOS MCP endpoint. Behind it, ZOS hosts
-memory and routes tool calls to upstream services and to actuators like his
-Mac daemon, enforcing permissions and logging every call.
+A personal, self-hostable **context and routing engine for MCP calls**. Any MCP client (Claude Code, Codex, ChatGPT, phone apps, local LLM UIs) connects to one ZOS MCP endpoint. Behind it, ZOS hosts shared memory and routes tool calls to upstream services (Google, any remote MCP server) and local actuators (such as a Mac daemon), enforcing permissions, approvals, and an append-only audit trail on every call.
 
 Agents run outside ZOS. ZOS never runs an agent.
 
-**The boundary.** ZOS is everything behind the MCP interface and nothing in
-front of it. Which harness, model, or UI the agent runs in, and how it's
-configured (CLAUDE.md, AGENTS.md, skills, its own prompts), is the agent's
-business. ZOS owes any MCP client exactly one thing: a correct,
-spec-compliant MCP server. We design and test against the MCP spec, never
-against one client's quirks.
+**The boundary.** ZOS is everything behind the MCP interface and nothing in front of it. Which harness, model, or UI the agent runs in, and how it is configured (`CLAUDE.md`, `AGENTS.md`, skills, prompts), is the agent's business. ZOS owes every MCP client one thing: a correct, spec-compliant MCP server. We design and test against the MCP spec, never against one client's quirks.
 
-Marquee problem: memories and MCPs diverged between Claude Code and Codex.
-With ZOS both point at the same endpoint and see the same things.
+Marquee problem: memories, credentials, and MCP servers diverge across Claude Code, Codex, ChatGPT, and phone apps. With ZOS, every client points at one endpoint and shares the same layer.
 
 ## Schematic
 
 ```
-   any MCP client (Claude Code · Codex · …)
-                  │  OAuth 2.1 · Streamable-HTTP MCP
-      ┌───────────┴────────────┐
-      │       ZOS router       │  auth · policy · namespacing · audit
-      └──┬─────────┬────────┬──┘
-   hosted│ upstream│ actuator│
-   memory   Google   Mac daemon (dials out over WSS, speaks MCP)
-           (Calendar,
-            Gmail; encrypted token vault)
-                  │
-            Postgres (Neon for Zubin; any Postgres for self-deploy)
+   any MCP client (Claude Code · Codex · ChatGPT · Phone · …)
+                  │  OAuth 2.1 (PKCE + DCR) · Streamable-HTTP MCP
+       ┌──────────┴───────────┐
+       │      ZOS router      │  auth · policy · approvals · namespacing · audit
+       │   (/mcp  ·  /admin)  │
+       └──┬────────┬────────┬─┴──────────────┐
+    hosted│        │        │                │
+    memory  built-in Google │           routed remote MCPs
+            (gcal MCP/REST, │           (20-connector catalog
+             gmail REST)    │            + custom none/bearer/oauth)
+                            │
+                     Mac actuator (dials out over WS, speaks MCP;
+                     Messages search + contact names, tmux shell)
+                            │
+             Postgres 17 (self-hosted via Docker Compose)
 ```
 
-## Components
+## Components (V1)
 
-- **MCP edge + auth.** Streamable-HTTP MCP. Clients sign in via MCP OAuth
-  2.1 (PKCE + dynamic client registration) against ZOS's own single-user
-  authorization server. Bearer tokens (`zos token create`) as fallback for
-  headless clients and for actuators. Minimal web pages to approve client
-  sign-ins and connect Google.
-- **Owner admin dashboard** (`/admin`, Zubin 2026-11-24). Server-rendered and
-  passphrase-gated. Shows providers, clients and tokens, tool tiers, the
-  per-client policy matrix, and the audit trail. Mutations share one service
-  layer with the CLI and are audited. It's ZOS's control panel, not an agent
-  or chat UI.
-- **Router.** Merges tools from all online providers, namespaces them,
-  filters by policy, routes calls, writes one audit event per call.
-  Always-on `zos_status` tool lists which providers are live.
+- **MCP edge + auth.** Streamable-HTTP MCP at `/mcp` with spec-native `InitializeResult.instructions`. Clients sign in via MCP OAuth 2.1 (PKCE + dynamic client registration with redirect host allowlist, hourly rate limit, and client cap) against ZOS's single-user authorization server. Static bearer tokens (`zos client add <name> --bearer`) serve headless clients and actuators. Global passphrase rate limiting protects `/admin/login`, `/oauth/authorize`, `/connect/google`, and `/connect/<slug>`.
+- **Owner admin dashboard (`/admin`).** Server-rendered, passphrase-gated, CSRF-protected control panel with mobile-friendly pages:
+  - **Overview:** live provider status, Google connection, `gcal` `api|mcp` hot backend toggle, pending approvals badge, last encrypted backup status.
+  - **Approvals (`/admin/approvals`, `/admin/approvals/<id>`):** review decrypted arguments and approve or deny calls from clients without MCP elicitation.
+  - **MCP Servers (`/admin/upstreams`):** install from the 20-connector catalog, register custom remote MCPs (`none`, `bearer`, or `oauth`), manage credentials, disconnect, or remove live without restart.
+  - **Clients (`/admin/clients`):** mint bearer tokens, revoke tokens, disable retired clients (preserving audit and memory history), and prune OAuth clients.
+  - **Tools & Policy (`/admin/policy`):** per-tool tier editor (`read | write | external`) and per-client decision matrix (`allow | require_approval | deny`).
+  - **Activity (`/admin/activity`):** cursor-paginated append-only audit trail (SHA-256 argument digests only; raw arguments are never stored in `events`).
+  Mutations share one service layer (`AdminService`) with the `zos` CLI and are audited.
+- **Router.** Merges tools from all online providers, namespaces them, filters by policy, routes calls, and writes one audit event per call. Always-on `zos_status` reports live provider health.
 - **Providers — the one seam behind the router:**
   `ToolProvider { namespace, is_online(), list_tools(), call_tool(name, args, ctx) }`
-  — `namespace` = provider slug = tool prefix (`memory_*`, `gcal_*`, …).
-  - *hosted* — in-process, Postgres-backed (memory).
-  - *upstream* — our own adapters over a remote API (Google), using
-    credentials from the encrypted vault; tokens never exposed to agents.
-    (Proxying a third-party remote MCP server is the same kind, later.)
-  - *actuator* — user-run daemon dials out over WSS and speaks MCP as a
-    server; ZOS is the MCP client on that socket.
-- **Visibility.** Actuator tools are listed **only while connected**; ZOS
-  emits `notifications/tools/list_changed` on connect/disconnect. Stale
-  calls get `ACTUATOR_OFFLINE`; a socket lost mid-call returns
-  `ACTUATOR_DISCONNECTED_MID_CALL` (the command may have run — don't retry blindly).
+  — `namespace` = provider slug = tool prefix (`memory_*`, `gcal_*`, `gmail_*`, `mac_*`, `<slug>_*`).
+  - *hosted* — in-process, Postgres-backed (`memory`).
+  - *upstream* — both first-party adapters (`gmail` REST, `gcal` MCP proxy with REST fallback, sharing one encrypted Google credential) and generic routed remote MCP servers (`McpUpstreamProvider` over Streamable HTTP with `none`, `bearer`, or `oauth` auth via `OAuthClientProvider`, plus checked-in `catalog/connectors/*.toml` manifests). Tokens live in the AEAD vault and are never exposed to agents.
+  - *actuator* — user-run daemon dials out over WebSocket to `/actuator` and speaks MCP as a server; ZOS is the MCP client on that socket.
+- **Visibility.** Actuator and remote MCP tools are listed **only while connected**; ZOS emits `notifications/tools/list_changed` on connect, disconnect, hot add/remove, or upstream tool list changes. Stale actuator calls return `ACTUATOR_OFFLINE`; a socket lost mid-call returns `ACTUATOR_DISCONNECTED_MID_CALL` (do not retry blindly).
 - **Policy — tool facts vs client decisions, kept separate.**
-  - *Tier* is a global fact about a tool: `read | write | external`
-    (unknown → external). It drives MCP tool annotations and the default
-    decision. Never downgraded to grant access.
-  - *Decision* per client: `allow | deny | require_approval`. Default from
-    tier (read → allow, write → allow, external → require_approval);
-    per-client overrides by tool pattern.
-- **Confirmation.** `require_approval` is enforced by ZOS: it asks via MCP
-  elicitation (showing the exact, untruncated call) when the client
-  declares that capability; otherwise the call is denied with a reason that
-  names the override to set. Annotations (`readOnlyHint`, `destructiveHint`,
-  `openWorldHint`) are published as facts; what clients do with them is
-  their business.
-- **Hosted memory.** `memory_put / get / search / delete` (Postgres
-  full-text + trigram). What agents store is up to them.
-- **Audit.** Append-only `events`; args stored as digests by default.
+  - *Tier* is a global fact about a tool: `read | write | external` (unknown → `external`). It drives MCP tool annotations and default decisions. Never downgraded merely to grant one client access.
+  - *Decision* per client: `allow | deny | require_approval`. Default from tier (`read` → `allow`, `write` → `allow`, `external` → `require_approval`); per-client and all-client overrides by tool pattern. `trust_ceiling = 'untrusted'` downgrades `require_approval` → `deny`.
+- **Confirmation (`require_approval`).** Enforced server-side by ZOS using two strategies behind the same decision:
+  - When a client declares MCP elicitation capability: asks via `elicitation/create` showing the exact untruncated tool call.
+  - When a client lacks elicitation (e.g., phone Claude or ChatGPT): creates a `pending_approvals` row with AEAD-encrypted arguments, holds the call up to `ZOS_APPROVAL_WAIT_S` (default 45s) for an in-window approve/deny on `/admin/approvals/<id>`, or returns the approval link so the owner can approve and the assistant can retry once within the 10-minute TTL. Encrypted arguments are purged immediately on decision, consumption, or expiration.
+- **Hosted memory.** `memory_put`, `memory_get`, `memory_search`, `memory_list`, `memory_delete` (Postgres full-text + trigram, with `author` attribution and timestamps), plus host memory import (`zos memory export` / `zos memory import`).
+- **Audit & Backups.** Append-only `events` table (digests only, no raw arguments). Encrypted nightly `pg_dump` backups via `deploy/backup/backup.sh` and verified restore via `deploy/backup/restore.sh`.
 
-## V0 providers — one per kind (Zubin, 2026-11-23)
+## V1 built-in providers & catalog
 
-- **hosted `memory`.**
-- **upstream `gcal` + `gmail`** — two providers sharing one Google
-  credential (one sign-in). No other services. They deliberately exercise
-  the two upstream shapes (Zubin, 2026-11-24):
-  - `gcal` — **MCP proxy**: ZOS is an MCP client to Google's remote
-    Calendar MCP (`calendarmcp.googleapis.com/mcp/v1`) and re-exposes its
-    tools namespaced, under ZOS policy and audit. Our REST adapter stays as a
-    config-selected fallback while Google's server is in preview.
-  - `gmail` — **API adapter**: our own tools over the Gmail REST API
-    (Google's Gmail MCP has no send).
-- **actuator `mac`** — exactly two tools:
-  - `mac_messages_search` — read-only search over `~/Library/Messages/chat.db`.
-  - `mac_shell_run` — run a command in a persistent local tmux session.
+- **hosted `memory`:** shared personal memory store (`memory_put/get/search/list/delete`).
+- **upstream `gcal` + `gmail`:** share one Google OAuth credential (`/connect/google`).
+  - `gcal` supports hot-switching between Google's Calendar MCP (`mcp`) and our Calendar REST adapter (`api`) with zero restart.
+  - `gmail` uses our Gmail REST adapter (bounded metadata search, read, MIME-threaded send).
+- **actuator `mac`:** standalone macOS daemon installed with a dedicated Python 3.12 copy (`~/.zos-actuator/python/bin/python3.12`) exposing:
+  - `mac_messages_search` — read-only FTS5 search over `~/Library/Messages/chat.db` with AddressBook contact name resolution.
+  - `mac_shell_run` — run commands in an isolated persistent local tmux session (`tmux -L zos`).
+- **routed remote MCPs + connector catalog:** add any Streamable HTTP remote MCP server (`none`, `bearer`, `oauth`) or install from 20 empirically verified manifests in `catalog/connectors/*.toml` (nothing installed by default; multi-instance via `--as`).
 
 ## Tool naming
 
-`<prefix>_<tool>`, charset `[a-zA-Z0-9_-]`, prefixes contain no `_`, total
-≤ 48 chars (deterministic truncate + 6-char hash on overflow). The portable
-subset any MCP client and model API accepts. E.g. `memory_search`,
-`gcal_list_events`, `gmail_search`, `mac_shell_run`, `zos_status`. Prefix
-`zos` is reserved for router-owned tools.
+`<prefix>_<tool>`, charset `[a-zA-Z0-9_-]`, prefixes match `^[a-z][a-z0-9]{1,15}$` (no `_`), total ≤ 48 chars (deterministic truncate + 6-char hash on overflow). Upstream tool names are sanitized to `[a-zA-Z0-9_-]+` while forwarding raw names upstream, and exposed-name collisions are rejected. Prefix `zos` is reserved for router-owned tools (`zos_status`).
 
-## V1 seams (why V0 won't need rework)
+## Hosting & stack
 
-The core never knows about agents. Anything later is either a **provider**
-(behind the router) or a **client** (in front of it):
-- Channels-as-buffer (spike later) → a provider with `messages_*` tools.
-- A ZOS-hosted runtime / proactive agents → a separate service that is just
-  another OAuth client.
-- Async approvals for headless clients → a new strategy behind the existing
-  `require_approval` decision.
+- Python 3.12, `uv`, Starlette, official `mcp` Python SDK (`mcp.server.lowlevel.Server`), `psycopg` 3, plain numbered SQL migrations. One container + Postgres 17.
+- **Self-host today:** Docker Compose (`deploy/docker-compose.yml`, bound strictly to `127.0.0.1`) on a laptop or home server + Cloudflare Named Tunnel + Cloudflare Access on browser-only owner paths (`/admin*`, `/oauth/authorize`, `/connect/*`). `/actuator` and `/healthz` stay local-only.
+- **Vault:** AEAD (AES-256-GCM) with key from `ZOS_SECRET_KEY`, never stored in Postgres; `key_version` for rotation; per-credential async refresh lock.
+- **Spaces:** V1 uses one default space per principal; every client binds to it.
 
-Seams kept in V0: `clients.trust_ceiling` (`owner | untrusted`), monotonic
-`events.id` (future stream cursor), three-valued decision, `ToolProvider`.
+## Direction (V2+)
 
-## Decided
-
-- Python 3.12, uv, FastAPI/Starlette, official `mcp` Python SDK, psycopg 3,
-  plain SQL migrations. One service + Postgres.
-- Self-deploy = one container + any Postgres. Zubin: Fly + Neon.
-- Upstream credentials: AEAD (AES-GCM) with key from env/Fly secret, never
-  in DB; `key_version` for rotation; per-credential refresh lock.
-- V0 has one space per principal; every client binds to it.
-
-## Deferred
-
-Everything in `later/`. Plus: MCP prompts/resources, third-party MCP
-proxying, contact-name resolution for Messages, multi-user, vector search.
-(Third-party MCP proxying shipped in M5; contact names in M8. V2 direction —
-modules, files, bus, skills — is drafted in `V2.md`.)
+See [V2.md](V2.md) for the next phase: turning built-in providers and new services (chat, whiteboard, app hosting, skills, files) into installable modules behind the same MCP core plane, plus eventual push notifications and vector search.

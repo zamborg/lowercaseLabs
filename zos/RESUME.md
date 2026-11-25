@@ -1,53 +1,31 @@
-# Resume notes (for the next Claude session)
+# ZOS — Current Status & Handoff
 
-Read `PLAN.md` first — it's the current design. This file is how to pick
-the conversation back up.
+Read [README.md](README.md) for the user-facing overview and [PLAN.md](PLAN.md) for architecture details.
 
-## Roles
+## What exists now (V1 shipped)
 
-- **Zubin owns the vision.** Bring him only high-level / vision-alignment
-  questions. He trusts us with every technical decision.
-- **Opus (Claude Code) leads** and is Zubin's single point of contact.
-- **Design partner:** Gemini 4 Neon in Antigravity CLI, running in Shepherd
-  pane `27359a` (workstream ZOS). Talk to it with `shepherd send 27359a "..."`
-  (single line; ask it to reply with a single sentinel word), read its pane
-  with `shepherd peek`. Shepherd rules: `~/.shepherd/AGENTS.md`.
-- **Shared files:** ZOS workstream artifact dir
-  `~/.shepherd/workstreams/32eee62d-e739-4ce7-a2cf-2a1d4c79b65e/`
-  (`notes.md`, `review-NN-*.md`).
+ZOS V1 is complete, running self-hosted on Docker Compose + Postgres 17 behind a Cloudflare Named Tunnel, and verified end-to-end across desktop CLI clients, ChatGPT, and mobile Claude:
 
-## Review protocol
+- **Core MCP server & OAuth 2.1 AS:** Streamable-HTTP MCP at `/mcp`, PKCE + DCR (with redirect allowlist, hourly rate limit, and client cap), bearer token fallback, client soft-disable (`zos client disable`), and spec-native `InitializeResult.instructions`.
+- **Hosted memory:** `memory_put`, `memory_get`, `memory_search`, `memory_list`, `memory_delete` with author attribution and host memory import (`deploy/scripts/import-memories.sh`).
+- **Google upstream:** Shared encrypted Google credential backing `gcal` (hot-switchable `api | mcp`) and `gmail` (REST search/read/MIME-threaded send).
+- **Mac actuator (`actuator/`):** Standalone daemon running on a dedicated Python 3.12 copy (`~/.zos-actuator/python/bin/python3.12`) exposing `mac_messages_search` (with AddressBook contact resolution) and `mac_shell_run` (isolated `tmux -L zos`).
+- **Routed remote MCPs & connector catalog (`catalog/`):** Register any Streamable-HTTP remote MCP (`none`, `bearer`, `oauth`) or install from 20 empirically verified manifests in `catalog/connectors/*.toml` (nothing installed by default).
+- **Policy & async approvals:** Tool tiers (`read | write | external`), per-client overrides, MCP elicitation when supported, and AEAD-encrypted async approvals (`/admin/approvals/<id>`) for non-elicitation clients (phones, ChatGPT).
+- **Owner admin dashboard (`/admin`):** Overview, Approvals, MCP Servers, Clients, Tools & Policy, and Activity audit log.
+- **Encrypted nightly backups:** `deploy/backup/backup.sh` and `deploy/backup/restore.sh` with LaunchAgent template and Overview status card.
 
-Brief → both write independent takes (no anchoring) → Opus reconciles →
-partner responds → Opus folds decisions into PLAN.md.
+## How to run, onboard, and operate
 
-## History
+1. **Deploy / start locally:** copy `.env.example` → `.env`, fill secrets, run `docker compose --env-file .env -f deploy/docker-compose.yml up -d --build`, then `zos init`. See [README.md](README.md) for the quickstart and [TESTING.md](TESTING.md) for the full operations runbook.
+2. **Mac actuator:** run `./deploy/launchd/install.sh`, grant Full Disk Access to `~/.zos-actuator/python/bin/python3.12`, set the token from `zos actuator add mac`, and load the LaunchAgents. See [actuator/README.md](actuator/README.md).
+3. **Public exposure:** configure Cloudflare Named Tunnel (`deploy/cloudflared/config.yml.example`) and Cloudflare Access on `/admin*`, `/oauth/authorize`, and `/connect/*`.
+4. **Tests & lint:**
+   ```bash
+   uv run ruff check && uv run pytest
+   (cd actuator && uv run ruff check && uv run pytest)
+   ```
 
-1. Reviewed `../zass` prototype; Zubin shared a Gemini "first-principles"
-   design; we kept the event log, server-enforced tiers, thin interfaces,
-   artifacts, principal/space columns; deferred mesh etc.
-2. Fresh start as ZOS on Neon Postgres. Schematic v1: channels, bridges,
-   gateway/policy, stores.
-3. **Review 01 (2026-11-23):** dispatcher, approvals, connectors, hosting,
-   provenance, runtime — all decided; see PLAN.md.
-4. Reviews 02–04 designed context assembly, schema, build order for a
-   runtime-owning core.
-5. **Zubin's audit: scope creep.** V0 is only an MCP context-routing layer;
-   agents (native Claude Code / Codex) run outside. Runtime docs moved to
-   `later/`.
-6. **Review 05 (re-scope):** new PLAN.md, SCHEMA.md, BUILD.md.
-7. Zubin locked the boundary (ZOS = behind the MCP interface only) and the
-   V0 providers (memory; gcal + gmail; Mac messages search + tmux shell).
-8. **Review 06:** final executor-eye audit; fixes applied. **Design final.**
-   BUILD.md is the executor handbook; Zubin spawns the executor.
+## Next direction
 
-## Status
-
-Design final. Next: executor agent works BUILD.md from M0. Don't re-expand
-scope: no runtime, channels, or Telegram in V0.
-
-## Working with Zubin
-
-- High-level, concise, lead with the recommendation.
-- He talks by voice — transcripts are rough; confirm ambiguous terms briefly.
-- Don't build until the design for that piece is agreed.
+[V2.md](V2.md) outlines the unscheduled V2 direction (repackaging services as installable modules, chat, whiteboard, app hosting, skills, and files). Do not expand scope without an explicit decision recorded in [DECISIONS.md](DECISIONS.md).

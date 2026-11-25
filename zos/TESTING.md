@@ -1,188 +1,208 @@
-# ZOS V0 — Testing & Morning Setup Guide
+# ZOS V1 — Operations & Testing Runbook
 
-ZOS V0 is **running live in OrbStack** right now at `http://localhost:8787` with the macOS actuator connected.
-
-## What's running right now
-
-- **ZOS + Postgres 17 (OrbStack Docker Compose):** `deploy/docker-compose.yml`
-  - Bound to `127.0.0.1:8787` only (`restart: unless-stopped`, persistent volume `deploy_zos_pgdata`).
-  - Principal `zubin`, space `main`, hosted `memory` provider, and all 14 V0 `tool_tiers` are initialized.
-- **Mac actuator (LaunchAgents):**
-  - `com.zos.tmux` (`tmux -L zos` isolated from actuator permissions)
-  - `com.zos.actuator` (`~/.zos-actuator/venv`, dialed into `ws://127.0.0.1:8787/actuator`)
-- **Quick health check:**
-  ```bash
-  curl -s http://127.0.0.1:8787/healthz | python3 -m json.tool
-  ```
-  Expect `memory` (`online: true`), `mac` (`online: true`), and `gcal`/`gmail` (`online: false` until you connect Google below).
-- **Owner admin dashboard:** open **`http://localhost:8787/admin`** and sign in with the passphrase in `zos/.owner-passphrase`.
-  Use **Overview** for live provider status and Google connect, **Clients** to mint or revoke bearer/OAuth tokens, **Tools & Policy** to set or clear per-client tool overrides (replacing `zos policy set`), and **Activity** to inspect the cursor-paginated audit trail.
-
-## Local secrets (gitignored, mode `0600`)
-
-- `zos/.env` — Postgres password, `ZOS_SECRET_KEY`, and single-quoted `ZOS_OWNER_PASSWORD_HASH`.
-- `zos/.owner-passphrase` — generated owner passphrase for `/oauth/authorize` and `/connect/google`. Read with `cat zos/.owner-passphrase` (you can delete it once stored in your password manager, or rotate by putting a new single-quoted hash from `uv run zos hash-password` into `zos/.env`).
-- `~/.zos-actuator/config.toml` — actuator WebSocket URL and token.
+Complete runbook for deploying, configuring, operating, backing up, and testing ZOS V1.
+For a conceptual overview and quickstart, start with [README.md](README.md).
 
 ---
 
-## 1. Connect Claude Code and Codex
+## 1. Initial Setup (Docker Compose + Postgres 17)
 
-### Option A — OAuth 2.1 (browser login)
+From the `zos/` directory:
 
-Point both clients at **`http://localhost:8787/mcp`**:
+1. **Create `.env`** from `.env.example` (keep permissions `0600`; `.env` is gitignored):
+   ```bash
+   cp .env.example .env
+   chmod 600 .env
+   ```
+   Fill in:
+   - `POSTGRES_PASSWORD`: strong random password
+   - `ZOS_SECRET_KEY`: 32-byte urlsafe base64 key:
+     ```bash
+     python3 -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+     ```
+   - `ZOS_OWNER_PASSWORD_HASH`: Argon2id hash generated via `uv run zos hash-password` — **wrap in single quotes** in `.env` so Docker Compose does not interpolate `$` characters.
+   - `ZOS_BACKUP_KEY`: separate random passphrase for nightly encrypted `pg_dump` backups.
+   - `ZOS_BASE_URL`: `http://localhost:8787` for local-only, or `https://zos.<your-domain>` when behind a Cloudflare Named Tunnel.
 
-- **Claude Code:**
-  ```bash
-  claude mcp add --transport http zos http://localhost:8787/mcp
-  ```
-  When prompted to sign in, your browser opens `http://localhost:8787/oauth/authorize` — enter the passphrase from `zos/.owner-passphrase` and click **Approve**.
-- **Codex:**
-  ```bash
-  codex mcp add zos --url http://localhost:8787/mcp
-  ```
-  (Or configure `[mcp_servers.zos]` with `url = "http://localhost:8787/mcp"` in `~/.codex/config.toml` and complete the OAuth login.)
+2. **Start the stack** (bound strictly to `127.0.0.1:8787`):
+   ```bash
+   docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+   ```
 
-### Option B — Bearer token fallback
-
-If either client prefers a static bearer header over browser OAuth:
-
-```bash
-cd /Users/zubinaysola/Documents/personal/lowercaseLabs/zos
-docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos client add claude-code --bearer
-docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos client add codex --bearer
-```
-
-Pass `Authorization: Bearer <token>` to `http://localhost:8787/mcp`.
-
-### Smoke tests to try
-
-1. **Shared memory (marquee problem):** Ask Claude Code to store a memory (`memory_put`), then ask Codex to retrieve or search it (`memory_get` / `memory_search`).
-2. **Status & Mac shell:** Call `zos_status`, then `mac_shell_run` (external tier — clients with MCP elicitation prompt for approval; clients without elicitation receive the exact `zos policy set` override command).
-3. **Granting an override (if needed):**
+3. **Initialize principal, space, memory provider, and default tool tiers:**
    ```bash
    docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
-     uv run --no-sync zos policy set --client <client-name-or-id> mac_shell_run allow
+     uv run --no-sync zos init --principal owner --display-name "Owner"
    ```
-4. **Actuator live visibility:** Stop and restart the actuator while connected — `mac_*` tools vanish and reappear automatically via `notifications/tools/list_changed`:
+
+4. **Verify health and admin login:**
    ```bash
-   launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.zos.actuator.plist
-   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.zos.actuator.plist
+   curl -s http://127.0.0.1:8787/healthz | python3 -m json.tool
    ```
+   Open `http://localhost:8787/admin` (or `https://zos.<your-domain>/admin`) and sign in with your owner passphrase.
 
 ---
 
-## 2. Pending morning steps (require GUI / browser)
+## 2. Google Calendar & Gmail
 
-### A. Grant Full Disk Access for `mac_messages_search`
+Both `gcal` and `gmail` share one encrypted Google OAuth credential.
 
-1. Open **System Settings → Privacy & Security → Full Disk Access**.
-2. Click **`+`**, press **`Cmd+Shift+G`**, and select the exact resolved Python binary:
-   ```text
-   /Users/zubinaysola/.local/share/uv/python/cpython-3.12.12-macos-aarch64-none/bin/python3.12
-   ```
-3. Restart the actuator so it picks up the permission:
-   ```bash
-   launchctl kickstart -k gui/$(id -u)/com.zos.actuator
-   ```
-4. Test `mac_messages_search` from any connected MCP client. *(Re-grant Full Disk Access if you upgrade Python.)*
-
-### B. Connect Google Calendar (MCP) + Gmail (REST)
-
-1. In [Google Cloud Console](https://console.cloud.google.com/), create (or pick) a project (e.g. `zos-personal`) and enable:
+1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and enable:
    - **Gmail API** (`gmail.googleapis.com`)
-   - **Google Calendar MCP** (`calendarmcp.googleapis.com`) — and optionally **Google Calendar API** (`calendar-json.googleapis.com`) if you ever want to switch `gcal` to `backend: api` fallback.
-2. Under **Google Auth Platform → Audience**: set User Type **External**, then click **Publish App** (**In production**; do *not* submit for verification).
-   - *Fallback if restricted Gmail scopes are blocked on an unverified personal account:* switch to **Testing** mode, add your personal Gmail as a Test User, and note the 7-day refresh token expiry.
-3. Under **Google Auth Platform → Data Access**, add the unioned Calendar MCP + Gmail scopes:
+   - **Google Calendar API** (`calendar-json.googleapis.com`) and/or **Google Calendar MCP** (`calendarmcp.googleapis.com`)
+2. Under **Google Auth Platform → Audience**, choose **External** and publish to production (or use **Testing** mode with your account listed as a Test User; note 7-day refresh token expiry in Testing mode).
+3. Under **Data Access**, add scopes:
    - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
    - `https://www.googleapis.com/auth/calendar.events.freebusy`
    - `https://www.googleapis.com/auth/calendar.events.readonly`
    - `https://www.googleapis.com/auth/calendar.events`
    - `https://www.googleapis.com/auth/gmail.readonly`
    - `https://www.googleapis.com/auth/gmail.send`
-4. Under **Clients → Create Client → Web application**:
-   - Tick **"Use this client for an AI-powered agent"** (required by Google's Calendar MCP server).
-   - Add Authorized Redirect URI:
-     ```text
-     http://localhost:8787/connect/google/callback
-     ```
-     *(Optional: also add `http://127.0.0.1:8765/callback` if you want to run `uv run python spikes/google/oauth_spike.py`.)*
-5. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `zos/.env`, then recreate the container:
+4. Under **Clients → Create Client → Web application**, add Authorized Redirect URI:
+   - Local: `http://localhost:8787/connect/google/callback`
+   - Public tunnel: `https://zos.<your-domain>/connect/google/callback`
+   - *(Tick "Use this client for an AI-powered agent" if using Google's Calendar MCP backend.)*
+5. Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` and recreate the container:
    ```bash
-   cd /Users/zubinaysola/Documents/personal/lowercaseLabs/zos
    docker compose --env-file .env -f deploy/docker-compose.yml up -d --force-recreate zos
    ```
-6. Open **`http://localhost:8787/connect/google`** in your browser, enter the passphrase from `zos/.owner-passphrase`, and complete Google consent. Both `gcal_*` (proxied from `https://calendarmcp.googleapis.com/mcp/v1`) and `gmail_*` (REST adapter) appear immediately via `notifications/tools/list_changed`.
-   - *Backend switch:* toggle `gcal` between `api` and `mcp` live with zero restart from **`/admin`** (Overview → Providers), or via CLI `zos provider set-backend gcal api|mcp` (persisted in `providers.config` and audited as `provider.backend_changed`).
+6. Open `/connect/google`, enter your owner passphrase, and complete Google consent. Both `gcal_*` and `gmail_*` appear immediately via `notifications/tools/list_changed`.
+7. **Hot-switching `gcal` backend (`api` vs `mcp`) with zero restart:** use the toggle on `/admin` Overview, or run:
+   ```bash
+   docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+     uv run --no-sync zos provider set-backend gcal api   # or mcp
+   ```
 
-### C. Public exposure via Cloudflare Named Tunnel (for ChatGPT & remote MCP clients)
+---
 
-When ready to expose ZOS at `https://zos.<your-domain>` (e.g. so ChatGPT connectors can reach `/mcp`):
+## 3. Public Exposure (Cloudflare Named Tunnel + Access)
 
-1. **Configure ZOS environment (`zos/.env`):**
-   - Set `ZOS_BASE_URL=https://zos.<your-domain>` (turns on `Secure` cookies on `/admin`, sets OAuth `issuer`/`resource`/PRM/`WWW-Authenticate` to the public URL, and sets the Google callback to `https://zos.<your-domain>/connect/google/callback`).
-   - Set `ZOS_ALLOWED_REDIRECT_HOSTS=chatgpt.com` (default is empty = loopback-only; ChatGPT MCP connectors use `https://chatgpt.com/connector_platform_oauth_redirect` and `https://chatgpt.com/connector/oauth/<id>`).
-   - Recreate the container:
+To reach ZOS from ChatGPT, phone Claude, or other remote clients at `https://zos.<your-domain>`:
+
+1. **Update `.env` and recreate:**
+   - `ZOS_BASE_URL=https://zos.<your-domain>` (enables `Secure` cookies, HTTPS redirect derivation, and RFC 8707 OAuth resource binding).
+   - `ZOS_ALLOWED_REDIRECT_HOSTS=chatgpt.com` (default is empty = loopback only; comma-separated external HTTPS hosts allowed at `/oauth/register`).
+   - Recreate `zos`:
      ```bash
-     cd /Users/zubinaysola/Documents/personal/lowercaseLabs/zos
      docker compose --env-file .env -f deploy/docker-compose.yml up -d --force-recreate zos
      ```
-2. **Update Google Cloud Console redirect URI:**
-   - Under **Google Auth Platform → Clients → your Web client → Authorized redirect URIs**, add:
-     ```text
-     https://zos.<your-domain>/connect/google/callback
-     ```
-3. **Re-point local MCP clients (`Claude Code` & `Codex`):**
-   - OAuth access tokens are bound to `ZOS_BASE_URL` (RFC 8707 `resource`), so once `ZOS_BASE_URL` switches to `https://zos.<your-domain>`, re-point Claude Code and Codex to **`https://zos.<your-domain>/mcp`** and sign in again.
-   - **Mac actuator stays local:** keep `~/.zos-actuator/config.toml` dialing `ws://127.0.0.1:8787/actuator` directly — `/actuator` is intentionally blocked on the public tunnel.
-4. **Cloudflare Tunnel ingress allowlist (`deploy/cloudflared/config.yml.example`):**
-   - Copy `deploy/cloudflared/config.yml.example` to `~/.cloudflared/config.yml` and fill in your tunnel UUID, home path, and hostname (`zos.<your-domain>`).
-   - Only `/mcp`, `/.well-known/*`, `/oauth/*`, `/admin*`, and `/connect/*` are routed to `http://localhost:8787`; everything else (including `/actuator` and `/healthz`) returns `404`.
-   - Use `deploy/launchd/com.zos.cloudflared.plist` (substituting `{{HOME}}` and `{{TUNNEL_NAME}}`) as a LaunchAgent template for `cloudflared tunnel run`.
-5. **Cloudflare Access (Zero Trust) on browser-only paths:**
-   - Put a **Cloudflare Access** self-hosted application policy (allowing only your email) on the browser-only owner paths:
-     - `zos.<your-domain>/oauth/authorize`
+2. **Add the HTTPS Google callback** (`https://zos.<your-domain>/connect/google/callback`) in Google Cloud Console if using Google.
+3. **Configure `cloudflared` ingress allowlist:**
+   - Copy `deploy/cloudflared/config.yml.example` to `~/.cloudflared/config.yml` and substitute `<TUNNEL-UUID>`, `<HOME>`, and `zos.<your-domain>`.
+   - Only `/mcp`, `/.well-known/*`, `/oauth/*`, `/admin*`, and `/connect/*` are routed to `http://localhost:8787`. `/actuator` and `/healthz` return `404` on the public internet.
+   - Install the LaunchAgent from `deploy/launchd/com.zos.cloudflared.plist` (substituting `{{HOME}}` and `{{TUNNEL_NAME}}`).
+4. **Add Cloudflare Access (Zero Trust) on browser-only owner paths:**
+   - Protect with an email allow policy:
      - `zos.<your-domain>/admin*`
+     - `zos.<your-domain>/oauth/authorize`
      - `zos.<your-domain>/connect/*`
-   - Leave the machine-to-machine OAuth & MCP paths **public** (bypass Access) so ChatGPT, Claude Code, and Codex can discover, register, exchange tokens, and call MCP:
+   - Leave machine-to-machine OAuth & MCP paths **bypassing Access** so clients can discover, register, exchange tokens, and call tools:
      - `zos.<your-domain>/mcp`
      - `zos.<your-domain>/.well-known/*`
      - `zos.<your-domain>/oauth/register`
      - `zos.<your-domain>/oauth/token`
-6. **Abuse protections active automatically:**
-   - One global passphrase rate limiter (5 failures/min, 20/hour, exponential backoff) protects `/admin/login`, `/oauth/authorize`, and `/connect/google` together, auditing each failure as `auth.failed` (`outcome=denied`, zero passphrase material).
-   - `/oauth/register` is globally rate-limited (10/hour) and capped at 50 total OAuth clients; prune unused OAuth clients anytime in **`/admin/clients`** (or `zos client delete <client>`).
-
-### D. Later / optional
-
-- **Cloud deploy (Fly + Neon):** `deploy/fly.toml` and `deploy/Dockerfile` are ready whenever you want to deploy off localhost.
+5. **Active abuse protections:**
+   - Shared global passphrase rate limiter (5 failures/min, 20/hr, exponential backoff, audited as `auth.failed`) across `/admin/login`, `/oauth/authorize`, `/connect/google`, and `/connect/<slug>`.
+   - `/oauth/register` rate-limited (default 10/hr) and capped at 50 active OAuth clients (`ZOS_DCR_MAX_PER_HOUR`, `ZOS_MAX_OAUTH_CLIENTS`).
 
 ---
 
-## 3. Honest V0 Check & Definition-of-Done Audit
+## 4. Connecting & Managing MCP Clients
 
-| Milestone / Item | Automated / Local Status | Still Pending (👤 Browser / GUI / Cloud) |
-|---|---|---|
-| **M0 — Spikes** | Local hosting spike (`ping`/`toggle`/`list_changed`/idle) passed; `DECISIONS.md` updated. | Fly.io 120s idle spike (deferred for OrbStack); M0.3 live Google personal-account restricted-scope spike (`spikes/google/oauth_spike.py` ready). |
-| **M1 — Core, Policy, Memory, Deploy** | All unit/integration/e2e tests pass (including `untrusted` ceiling, naming truncate+hash, annotations, elicitation, audit); OrbStack live stack running on `127.0.0.1:8787`; Codex CLI (`gpt-6.1-terra`) bearer smoke passed. | Fly + Neon cloud deploy smoke (deferred); manual Claude Code + Codex shared-memory smoke. |
-| **M2 — OAuth 2.1 AS** | Full MCP SDK `OAuthClientProvider` e2e passes locally and live against OrbStack; PKCE, single-use/expired codes, DCR rules, refresh rotation & family reuse isolation all tested. | Manual browser OAuth sign-in from Claude Code and Codex. |
-| **M3 — Mac Actuator** | Fixture `chat.db`, `typedstream` (127/128/70k/UTF-8/`NSMutableString`/truncated), real `tmux`, and core+actuator e2e (`list_changed`, `ACTUATOR_OFFLINE`, `ACTUATOR_DISCONNECTED_MID_CALL`, replacement, auth rejection) all pass; live LaunchAgent stop/restart tool visibility + live `mac_shell_run` via Codex passed. | Grant Full Disk Access to the resolved Python binary and run real-device `mac_messages_search` count-only smoke. |
-| **M4 — Google Upstream** | Vault AES-GCM + concurrent refresh lock + `respx`-mocked `/connect/google`, Calendar REST fallback (`backend=api`), Gmail bounded metadata search/read/MIME threading, 429 backoff, 401 refresh, `gmail_send` elicitation, and revocation all pass. | Google Cloud Web OAuth client setup, live `/connect/google` consent, and live Calendar/Gmail/`gmail_send` elicitation smoke. |
-| **M5 — Upstream MCP Proxy (`gcal`)** | Generic `McpUpstreamProvider` verified against in-process Streamable HTTP fake upstream: prefixing, verbatim call + `structuredContent`/`isError` passthrough, upstream→downstream `list_changed`, upstream form elicitation passthrough + decline + audit, 401→refresh→retry & reconnect error, upstream down→offline, unknown preview tool→`external`. Live `/healthz` reports `gcal` with `backend: mcp`. | Live smoke against Google's `calendarmcp.googleapis.com/mcp/v1` (counts/shapes only) after Zubin connects Google. |
-| **M6 — Owner Admin Dashboard (`/admin`)** | Shared `AdminService` layer backs both CLI and `/admin`; auth (Argon2 login, signed HttpOnly `SameSite=Strict` 12h cookie, `Secure` on HTTPS, expiry, rate limiting, CSRF 403, security headers), all 4 pages (Overview, Clients, Tools & Policy matrix, cursor-paginated Activity with digests only), and CLI audit parity all tested; live `/admin` login verified on OrbStack. | None — ready to use at `http://localhost:8787/admin`. |
-| **M7 — Pre-Public Hardening** | Shared global passphrase limiter (5/min, 20/hr, backoff) + `auth.failed` audit across `/admin/login`, `/oauth/authorize`, `/connect/google`; `ZOS_ALLOWED_REDIRECT_HOSTS` loopback-only default + `chatgpt.com` allowlist + prominent redirect host on approve page; DCR 10/hr limit + 50 OAuth client cap + `/admin/clients` pruning; public `https://` base URL test; `PublicSchemeMiddleware` HTTPS trailing-slash redirects; declarative `deploy/cloudflared/config.yml.example` + `com.zos.cloudflared.plist`. | Cloudflare named tunnel live at `https://zos.aysola.org`. |
-| **M8 — Context Layer & Baseline** | `zos memory import` (`claude-code` & `codex` importers, JSONL stdin host wrapper `deploy/scripts/import-memories.sh`, shared `MemoryService`, idempotent & audited); MCP `InitializeResult.instructions` (+ `ZOS_INSTRUCTIONS_FILE` override); `gcal` REST parity (`get_event`, `list_calendars`, `search_events`, `freebusy`, `respond_to_event` + `gcal_freebusy` read tier); `memory_list` (cursor-paginated, no content) + `author`/`created_at`/`updated_at` on `memory_get`/`search`; actuator AddressBook contact names & name-to-handle lookup in `mac_messages_search`; nightly encrypted `pg_dump` backup (`deploy/backup/{backup,restore}.sh`, `com.zos.backup.plist`, `/admin` Overview last-backup status, verified live restore into `zos-pg-test`). | Re-enable iCloud Drive on macOS if `~/Library/Mobile Documents/com~apple~CloudDocs/zos-backups/` should sync off-device automatically (directory created locally). |
-| **M9a — Routed Remote MCP Servers** | Generic remote MCP registrations (`runtime: remote`) via `zos upstream add/set-token/connect/list/remove` and `/admin/upstreams` ("MCP Servers"); `none`, `bearer` (stdin/password → AEAD vault), and `oauth` (`mcp.client.auth.OAuthClientProvider` PRM/DCR/PKCE at phone-friendly `/connect/<slug>`, refresh & revoke → `needs_reconnect`); strict slug validation, tool name sanitization & collision rejection, `--default-tier` + per-tool tier editor on `/admin/policy`, hot add/remove `list_changed`, and isolated offline startup. | Connect real remote MCP servers (e.g. GitHub, Linear, Cloudflare, Notion) via `/admin/upstreams` or `zos upstream` (Opus + Zubin). |
-| **M9b — Connector Catalog** | 20 verified remote connector manifests under `catalog/connectors/*.toml` (`manifest_version = 1`, Pydantic validated, bad entries skipped); `/admin/upstreams` "Available Connectors" + `zos catalog list/install [--as]`; manifest tier patterns applied on connect & `list_changed` without overwriting owner-set tiers; uninstall drops manifest-managed tiers; pre-registered OAuth client support for non-DCR servers (Slack, Asana); nothing installed live by default. | Owner installs & connects desired connectors from `/admin/upstreams`. |
-| **M9c — Async Approvals** | `pending_approvals` migration (`0005_m9c_pending_approvals.sql`) with AEAD-encrypted args purged on decision/expiry; elicitation-capable clients unchanged; non-elicitation clients hold up to `ZOS_APPROVAL_WAIT_S` (default 45s) for in-window approve/deny or return clickable `<ZOS_BASE_URL>/admin/approvals/<id>` link; atomic single-use retry consumption scoped to `(client_id, tool, args_digest)` within 10m TTL; mobile-friendly `/admin/approvals` + `/admin/approvals/<id>` (CSRF-protected Approve/Deny, `login?next=` support, Overview pending badge); `approval.requested` & `approval.decided` (outcome, latency) audited with zero raw args. | Live phone test (Claude/ChatGPT calling `mac_shell_run` → tapping approval link on phone → approve & execute) with Opus + Zubin. |
-| **Definition of Done (V0)** | Every call audited in `events`; `DECISIONS.md` current; zero `later/` scope built; all Docker ports bound strictly to `127.0.0.1`. | End-to-end human session with both Claude Code and Codex signed in via OAuth using shared memory + FDA Messages + live Google. |
+### OAuth 2.1 (recommended)
+
+Point any MCP client at `https://zos.<your-domain>/mcp` (or `http://localhost:8787/mcp` locally):
+
+- **Claude Code:**
+  ```bash
+  claude mcp add --transport http zos https://zos.<your-domain>/mcp
+  ```
+- **Codex:**
+  ```bash
+  codex mcp add zos --url https://zos.<your-domain>/mcp
+  ```
+- **ChatGPT / Claude mobile:** add a custom MCP connector pointing at `https://zos.<your-domain>/mcp` and complete OAuth sign-in in the browser.
+
+### Bearer token fallback (headless clients)
+
+```bash
+docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+  uv run --no-sync zos client add my-script --bearer
+```
+
+Pass `Authorization: Bearer <token>` to `/mcp`.
+
+### Retiring or pruning clients
+
+- **Disable any client (recommended; preserves audit attribution and memory authorship):**
+  ```bash
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+    uv run --no-sync zos client disable <client-name-or-id>
+  ```
+  (Or click **Disable** on `/admin/clients`.) Disabling revokes all active tokens, blocks future authentication, hides the client from `/admin/clients` and `/admin/policy`, and keeps historical `events` and `memories` authorship intact.
+- **Prune an unused OAuth DCR client:** click **Prune** on `/admin/clients` or run `zos client delete <oauth-client>`.
 
 ---
 
-## 4. M9b Connector Catalog Verification Log (2026-11-24)
+## 5. Mac Actuator (Messages + Local Tmux Shell)
 
-All 20 entries were probed with unauthenticated HTTP requests only (`POST` initialize + PRM + AS metadata):
+See [actuator/README.md](actuator/README.md) for full details. Quick steps:
+
+1. **Create an actuator token on ZOS:**
+   ```bash
+   docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+     uv run --no-sync zos actuator add mac
+   ```
+2. **Install with a dedicated Python 3.12 interpreter:**
+   ```bash
+   ./deploy/launchd/install.sh
+   ```
+   This copies uv's CPython 3.12 directory into `~/.zos-actuator/python/`, builds `~/.zos-actuator/venv` against `~/.zos-actuator/python/bin/python3.12`, creates `~/.zos-actuator/config.toml` (`chmod 600`), and installs LaunchAgents (`com.zos.tmux` and `com.zos.actuator`).
+3. **Edit `~/.zos-actuator/config.toml`** and paste the token (keep `url = "ws://127.0.0.1:8787/actuator"` — `/actuator` is intentionally local-only).
+4. **Grant Full Disk Access** (for `mac_messages_search` and AddressBook contact names):
+   - **System Settings → Privacy & Security → Full Disk Access → `+`** (`Cmd+Shift+G`) → add:
+     ```text
+     ~/.zos-actuator/python/bin/python3.12
+     ```
+   - Isolating the binary to `~/.zos-actuator/python/` ensures Full Disk Access is NOT granted to uv's shared Python interpreter.
+5. **Start the LaunchAgents:**
+   ```bash
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.zos.tmux.plist || true
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.zos.actuator.plist || true
+   ```
+
+---
+
+## 6. Remote MCP Servers & Connector Catalog
+
+Manage connectors from **`/admin/upstreams`** ("MCP Servers") or via the CLI. Nothing from the catalog is installed by default.
+
+- **List & install from catalog:**
+  ```bash
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+    uv run --no-sync zos catalog list
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+    uv run --no-sync zos catalog install linear
+  # Multi-instance install under a custom prefix:
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+    uv run --no-sync zos catalog install linear --as worklinear
+  ```
+- **Add or manage a custom remote MCP server:**
+  ```bash
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+    uv run --no-sync zos upstream add github --url https://api.githubcopilot.com/mcp/ --auth bearer --default-tier external
+  # Pass bearer tokens via stdin (never argv):
+  printf '%s\n' "$GITHUB_PAT" | docker compose --env-file .env -f deploy/docker-compose.yml exec -T zos \
+    uv run --no-sync zos upstream set-token github
+  # For OAuth upstreams, open the printed /connect/<slug> URL on desktop or phone:
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+    uv run --no-sync zos upstream connect linear
+  ```
+- **Per-tool tiers & policies:** override any tool's tier (`read | write | external`) or per-client decision (`allow | require_approval | deny`) on **`/admin/policy`**. Owner-edited tiers are never overwritten when an upstream updates its tool list.
+
+### Catalog Empirical Verification Log (2026-11-24)
+
+All 20 entries in `catalog/connectors/*.toml` were probed with unauthenticated HTTP requests only (`POST` initialize + PRM + AS metadata):
 
 | Slug | Endpoint URL | Verified Date | HTTP Status | Auth Mode | DCR (`registration_endpoint`) | Notes |
 |---|---|---|---|---|---|---|
@@ -207,49 +227,70 @@ All 20 entries were probed with unauthenticated HTTP requests only (`POST` initi
 | `slack` | `https://mcp.slack.com/mcp` | 2026-11-24 | 401 + PRM | `oauth` (pre-reg) | No (`mcp.slack.com`) | `requires_client_registration = true` |
 | `asana` | `https://mcp.asana.com/v2/mcp` | 2026-11-24 | 401 + PRM | `oauth` (pre-reg) | No (`app.asana.com`) | `requires_client_registration = true` (legacy `/sse` is 410) |
 
+See [catalog/README.md](catalog/README.md) for how to add new connectors.
+
 ---
 
-## 5. M8 & M9 Context & Operations Quick Commands
+## 7. Async Approvals (Phone & Non-Elicitation Clients)
 
-- **Manage routed remote MCP servers (CLI or `/admin/upstreams`):**
-  ```bash
-  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
-    uv run --no-sync zos upstream add github --url https://api.githubcopilot.com/mcp/ --auth bearer --default-tier external
-  # Pass PAT via stdin (never argv):
-  printf '%s\n' "$GITHUB_PAT" | docker compose --env-file .env -f deploy/docker-compose.yml exec -T zos \
-    uv run --no-sync zos upstream set-token github
-  # Or for OAuth remote MCP servers:
-  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
-    uv run --no-sync zos upstream connect <slug>
-  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
-    uv run --no-sync zos upstream list
-  ```
+- Clients declaring MCP elicitation capability use interactive `elicitation/create` prompts unchanged.
+- Clients without elicitation (such as mobile Claude or ChatGPT) automatically use the async approval flow on any `require_approval` call:
+  1. ZOS encrypts the tool arguments in `pending_approvals` using the AEAD vault and holds the call up to `ZOS_APPROVAL_WAIT_S` (default `45` seconds).
+  2. If you approve on **`/admin/approvals/<id>`** while held, the tool executes immediately and returns the real result.
+  3. If the hold window times out, ZOS returns a tool error containing `<ZOS_BASE_URL>/admin/approvals/<id>`. Open the link (on phone or desktop), review the exact escaped arguments, tap **Approve**, and tell the assistant to retry the same call.
+  4. Retrying the exact `(client, tool, args_digest)` within the 10-minute TTL atomically consumes the approval once and executes. A second retry is re-gated.
+  5. Encrypted arguments are purged immediately once decided, consumed, or expired, and never appear in `events`.
 
-- **Import host agent memories into ZOS (idempotent, prints counts only):**
-  ```bash
-  cd /Users/zubinaysola/Documents/personal/lowercaseLabs/zos
-  ./deploy/scripts/import-memories.sh
-  ```
-- **Run an encrypted backup manually:**
+---
+
+## 8. Importing Existing Host Memories
+
+Import existing Claude Code and Codex local memory files into ZOS (idempotent; prints counts only):
+
+```bash
+./deploy/scripts/import-memories.sh
+```
+
+Attributed to the dedicated `memory-import` client and audited as `memory.imported`.
+
+---
+
+## 9. Encrypted Backups & Restore
+
+- **Run a backup manually:**
   ```bash
   ./deploy/backup/backup.sh
   ```
-  Encrypted dumps are written to `~/Library/Mobile Documents/com~apple~CloudDocs/zos-backups/` (retaining the 14 newest) and recorded for `/admin` Overview.
-- **Restore a backup into a target Postgres container:**
+  Dumps Postgres (`pg_dump -Fc`), encrypts via `/usr/bin/openssl enc -aes-256-cbc -pbkdf2 -salt` using `ZOS_BACKUP_KEY`, saves to `~/Library/Mobile Documents/com~apple~CloudDocs/zos-backups/` (override with `ZOS_BACKUP_DIR`), keeps the newest 14 files, and records metadata (`backup.completed`) shown on `/admin` Overview.
+- **Schedule nightly backups (macOS):** render `deploy/launchd/com.zos.backup.plist` (substituting `{{HOME}}` and `{{ZOS_DIR}}`) into `~/Library/LaunchAgents/com.zos.backup.plist` and load with `launchctl bootstrap`.
+- **Restore into a test or live Postgres container:**
   ```bash
-  ./deploy/backup/restore.sh ~/Library/Mobile\ Documents/com~apple~CloudDocs/zos-backups/zos-backup-<ts>.dump.enc --container zos-pg-test --db zos_restore_test --user postgres
+  # Test restore into an isolated container:
+  ./deploy/backup/restore.sh ~/Library/Mobile\ Documents/com~apple~CloudDocs/zos-backups/zos-backup-<ts>.dump.enc \
+    --container zos-pg-test --db zos_restore_test --user zos
+
+  # Restore into live compose Postgres (stop zos first):
+  docker compose --env-file .env -f deploy/docker-compose.yml stop zos
+  ./deploy/backup/restore.sh ~/Library/Mobile\ Documents/com~apple~CloudDocs/zos-backups/zos-backup-<ts>.dump.enc
+  docker compose --env-file .env -f deploy/docker-compose.yml start zos
   ```
 
 ---
 
-## Running the automated test suites
+## 10. Running Automated Tests & Linting
 
-From `zos/`:
+Integration and end-to-end tests expect an isolated Postgres 17 test container on `127.0.0.1:55432` (never touching your live `deploy_zos_pgdata` volume):
 
 ```bash
-uv run pytest
-uv run ruff check
-(cd actuator && uv run pytest && uv run ruff check)
+docker run -d --name zos-pg-test \
+  -e POSTGRES_USER=zos -e POSTGRES_PASSWORD=zos -e POSTGRES_DB=zos \
+  -p 127.0.0.1:55432:5432 postgres:17
 ```
 
-*(Integration/E2E tests target the local `zos-pg-test` Postgres 17 container on `127.0.0.1:55432`, completely isolated from the live `deploy_zos_pgdata` volume.)*
+Run checks from `zos/`:
+
+```bash
+uv run ruff check
+uv run pytest
+(cd actuator && uv run ruff check && uv run pytest)
+```
