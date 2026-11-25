@@ -35,6 +35,18 @@ def _default_catalog_dir() -> Path:
     return candidates[0]
 
 
+def _default_modules_catalog_dir() -> Path:
+    candidates = [
+        Path(__file__).resolve().parents[2] / "catalog" / "modules",
+        Path.cwd() / "catalog" / "modules",
+        Path("/app/catalog/modules"),
+    ]
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return candidates[0]
+
+
 def _parse_host_list(raw: str) -> tuple[str, ...]:
     return tuple(h.strip().lower().rstrip(".") for h in raw.split(",") if h.strip())
 
@@ -90,9 +102,13 @@ class Settings:
     approval_ttl_seconds: int = 600
     policy_engines: tuple[str, ...] = ()
     policy_engine_timeout_seconds: float = 10.0
+    module_host: str = ""
+    docker_socket: str = "/var/run/docker.sock"
+    module_memory_bytes: int = 268435456
     instructions_file: str = ""
     migrations_dir: Path = field(default_factory=_default_migrations_dir)
     catalog_dir: Path = field(default_factory=_default_catalog_dir)
+    modules_catalog_dir: Path = field(default_factory=_default_modules_catalog_dir)
 
     @classmethod
     def from_env(cls, *, load_env_file: bool = True) -> Settings:
@@ -104,6 +120,10 @@ class Settings:
         base_url = os.environ.get("ZOS_BASE_URL", "http://localhost:8080").strip().rstrip("/")
         mig_override = os.environ.get("ZOS_MIGRATIONS_DIR", "").strip()
         cat_override = os.environ.get("ZOS_CATALOG_DIR", "").strip()
+        mod_cat_override = os.environ.get("ZOS_MODULES_CATALOG_DIR", "").strip()
+        mod_host = os.environ.get("ZOS_MODULE_HOST", "").strip().lower()
+        if mod_host and mod_host not in ("docker", "manual"):
+            raise ValueError(f"ZOS_MODULE_HOST must be 'docker' or 'manual', got {mod_host!r}")
         return cls(
             database_url=database_url,
             zos_base_url=base_url,
@@ -128,7 +148,16 @@ class Settings:
             policy_engine_timeout_seconds=_parse_positive_float(
                 os.environ.get("ZOS_POLICY_ENGINE_TIMEOUT_S", ""), 10.0
             ),
+            module_host=mod_host,
+            docker_socket=os.environ.get("ZOS_DOCKER_SOCKET", "/var/run/docker.sock").strip()
+            or "/var/run/docker.sock",
+            module_memory_bytes=_parse_positive_int(
+                os.environ.get("ZOS_MODULE_MEMORY_BYTES", ""), 268435456
+            ),
             instructions_file=os.environ.get("ZOS_INSTRUCTIONS_FILE", "").strip(),
             migrations_dir=Path(mig_override) if mig_override else _default_migrations_dir(),
             catalog_dir=Path(cat_override) if cat_override else _default_catalog_dir(),
+            modules_catalog_dir=(
+                Path(mod_cat_override) if mod_cat_override else _default_modules_catalog_dir()
+            ),
         )

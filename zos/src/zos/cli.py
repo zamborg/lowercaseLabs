@@ -17,12 +17,13 @@ import typer
 from argon2 import PasswordHasher
 
 from zos.admin_service import AdminService
-from zos.catalog import load_catalog
+from zos.catalog import load_catalog, load_module_catalog
 from zos.config import Settings
 from zos.db import open_pool, run_migrations
 from zos.db.queries import init_principal_and_space
 from zos.importers import IMPORTERS, dumps_jsonl, loads_jsonl
 from zos.memory_service import MemoryService
+from zos.modules import ModuleManager
 
 app = typer.Typer(name="zos", help="ZOS MCP router administration CLI.", no_args_is_help=True)
 client_app = typer.Typer(help="Manage MCP clients.")
@@ -32,6 +33,7 @@ actuator_app = typer.Typer(help="Manage dial-out actuators.")
 provider_app = typer.Typer(help="Manage upstream providers.")
 upstream_app = typer.Typer(help="Manage routed remote MCP servers.")
 catalog_app = typer.Typer(help="Browse and install connectors from the built-in catalog.")
+module_app = typer.Typer(help="Manage installable ZOS container modules.")
 memory_app = typer.Typer(help="Import and export agent memories.")
 backup_app = typer.Typer(help="Record encrypted backup status.")
 
@@ -42,6 +44,7 @@ app.add_typer(actuator_app, name="actuator")
 app.add_typer(provider_app, name="provider")
 app.add_typer(upstream_app, name="upstream")
 app.add_typer(catalog_app, name="catalog")
+app.add_typer(module_app, name="module")
 app.add_typer(memory_app, name="memory")
 app.add_typer(backup_app, name="backup")
 
@@ -523,6 +526,186 @@ def catalog_install_cmd(
             typer.echo(f"Next: open {base_url}/connect/{target}")
     elif manifest.auth.mode == "bearer":
         typer.echo(f"Next: run `zos upstream set-token {target}` (stdin) or paste token in {base_url}/admin/upstreams")
+
+
+@module_app.command("list")
+def module_list_cmd(
+    catalog: Annotated[bool, typer.Option("--catalog", help="Show available catalog modules")] = False,
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """List installed modules (or available catalog modules with --catalog)."""
+    s = _settings()
+    if catalog:
+        entries = load_module_catalog(s.modules_catalog_dir)
+        if not entries:
+            typer.echo("No catalog modules found.")
+            return
+        for m in entries:
+            src = m.runtime.image or m.runtime.build or "-"
+            typer.echo(
+                f"{m.slug}\t{m.name}\tv{m.version}\tpostgres={m.storage.postgres}\t"
+                f"egress={m.network.egress}\tsource={src}"
+            )
+        return
+
+    async def _run() -> list[dict]:
+        async with open_pool(s.database_url) as pool:
+            return await ModuleManager(pool, s).list_modules(principal_slug=principal)
+
+    items = asyncio.run(_run())
+    if not items:
+        typer.echo("No modules installed.")
+        return
+    for item in items:
+        typer.echo(
+            f"{item['slug']}\tstatus={item['status']}\tv{item['version']}\t"
+            f"host={item['host']}\tmcp_url={item['mcp_url'] or '-'}\tui_url={item['ui_url'] or '-'}"
+        )
+
+
+@module_app.command("install")
+def module_install_cmd(
+    slug: Annotated[str, typer.Argument(help="Catalog module slug (e.g. inbox)")],
+    config: Annotated[
+        list[str] | None,
+        typer.Option("--config", "-c", help="Module config as KEY=VALUE (repeatable)"),
+    ] = None,
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Install a module from the catalog."""
+    parsed_cfg: dict[str, str] = {}
+    for pair in config or []:
+        if "=" not in pair:
+            typer.echo(f"Error: invalid --config {pair!r}; expected KEY=VALUE", err=True)
+            raise typer.Exit(code=2)
+        k, v = pair.split("=", 1)
+        parsed_cfg[k.strip()] = v
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await ModuleManager(pool, s).install(
+                slug,
+                config_values=parsed_cfg,
+                principal_slug=principal,
+                wait_ready=False,
+            )
+
+    try:
+        res = asyncio.run(_run())
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    mod = res["module"]
+    typer.echo(
+        f"Installed module slug={mod['slug']} version={mod['version']} "
+        f"host={mod['host']} status={mod['status']}"
+    )
+    if res.get("instructions"):
+        typer.echo("")
+        typer.echo(res["instructions"])
+
+
+@module_app.command("attach")
+def module_attach_cmd(
+    slug: Annotated[str, typer.Argument(help="Module slug")],
+    url: Annotated[str, typer.Option("--url", help="Module MCP Streamable HTTP URL")],
+    ui_url: Annotated[str | None, typer.Option("--ui-url", help="Optional module UI base URL")] = None,
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Attach a manually-run module's MCP (and optional UI) URL."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await ModuleManager(pool, s).attach(
+                slug,
+                mcp_url=url,
+                ui_url=ui_url,
+                principal_slug=principal,
+            )
+
+    try:
+        mod = asyncio.run(_run())
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(
+        f"Attached module slug={mod['slug']} mcp_url={mod['mcp_url']} ui_url={mod['ui_url'] or '-'}"
+    )
+
+
+@module_app.command("disable")
+def module_disable_cmd(
+    slug: Annotated[str, typer.Argument(help="Installed module slug")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Stop a module and hide its tools while keeping its data."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await ModuleManager(pool, s).disable(slug, principal_slug=principal)
+
+    try:
+        mod = asyncio.run(_run())
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Disabled module slug={mod['slug']}")
+
+
+@module_app.command("enable")
+def module_enable_cmd(
+    slug: Annotated[str, typer.Argument(help="Disabled module slug")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Re-enable a disabled module."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await ModuleManager(pool, s).enable(
+                slug,
+                principal_slug=principal,
+                wait_ready=False,
+            )
+
+    try:
+        mod = asyncio.run(_run())
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Enabled module slug={mod['slug']}")
+
+
+@module_app.command("uninstall")
+def module_uninstall_cmd(
+    slug: Annotated[str, typer.Argument(help="Installed module slug")],
+    purge: Annotated[
+        bool,
+        typer.Option("--purge", help="Also drop the module's Postgres schema, role, and vault secrets"),
+    ] = False,
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Uninstall a module (keeps its Postgres schema unless --purge is passed)."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await ModuleManager(pool, s).uninstall(
+                slug,
+                purge=purge,
+                principal_slug=principal,
+            )
+
+    try:
+        res = asyncio.run(_run())
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Uninstalled module slug={res['slug']} purge={res['purge']}")
 
 
 @memory_app.command("export")

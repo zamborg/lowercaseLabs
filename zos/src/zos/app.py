@@ -35,6 +35,7 @@ from zos.auth.rate_limit import GlobalPassphraseRateLimiter, GlobalSlidingWindow
 from zos.config import Settings
 from zos.db import create_pool, run_migrations
 from zos.instructions import load_mcp_instructions
+from zos.modules import ModuleHost, ModuleManager
 from zos.policy import (
     ApprovalManager,
     DatabasePolicyEvaluator,
@@ -121,6 +122,7 @@ class ZosRuntime:
     google_hub: GoogleServiceHub
     upstream_manager: UpstreamManager
     approval_manager: ApprovalManager
+    module_manager: ModuleManager
     switch_provider_backend: Callable[[str, str], Awaitable[ToolProvider]] | None = None
 
 
@@ -148,6 +150,7 @@ def create_app(
     upstream_http_client_factory: HttpClientFactory | None = None,
     upstream_connect_timeout_s: float = 15.0,
     policy_engines: Sequence[PolicyEngine] | None = None,
+    module_host: ModuleHost | None = None,
 ) -> Starlette:
     """Create the ZOS Starlette ASGI application."""
     cfg = settings or Settings.from_env()
@@ -253,6 +256,12 @@ def create_app(
         http_client_factory=upstream_http_client_factory,
         connect_timeout_s=upstream_connect_timeout_s,
     )
+    module_manager = ModuleManager(
+        pool,
+        cfg,
+        host=module_host,
+        upstream_manager=upstream_manager,
+    )
 
     active_gcal_mcp: McpUpstreamProvider | None = None
     gcal_switch_lock = asyncio.Lock()
@@ -332,6 +341,7 @@ def create_app(
         google_hub=google_hub,
         upstream_manager=upstream_manager,
         approval_manager=approval_manager,
+        module_manager=module_manager,
         switch_provider_backend=switch_provider_backend,
     )
 
@@ -439,6 +449,7 @@ def create_app(
             switch_provider_backend=switch_provider_backend,
             upstream_manager=upstream_manager,
             approval_manager=approval_manager,
+            module_manager=module_manager,
         ),
     ]
     if extra_routes_factory is not None:

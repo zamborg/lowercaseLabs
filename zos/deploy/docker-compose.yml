@@ -8,6 +8,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-zos}
     volumes:
       - zos_pgdata:/var/lib/postgresql/data
+    networks:
+      - default
+      - zos_modules
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-zos} -d ${POSTGRES_DB:-zos}"]
       interval: 5s
@@ -24,6 +27,12 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:${ZOS_PORT:-8787}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+      - zos_modules
+      - zos_modules_egress
     env_file:
       - path: ../.env
         required: false
@@ -38,6 +47,13 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+
+networks:
+  zos_modules:
+    name: zos_modules
+    internal: true
+  zos_modules_egress:
+    name: zos_modules_egress
 
 volumes:
   zos_pgdata:

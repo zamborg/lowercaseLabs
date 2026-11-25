@@ -17,8 +17,9 @@ from starlette.routing import Route
 from zos.admin_service import AdminService
 from zos.auth.oauth import verify_owner_passphrase
 from zos.auth.rate_limit import GlobalPassphraseRateLimiter, record_auth_failure
-from zos.catalog import load_catalog
+from zos.catalog import load_catalog, load_module_catalog
 from zos.config import Settings
+from zos.modules import ModuleManager
 from zos.policy import ApprovalError, ApprovalManager
 from zos.providers.upstream_manager import UpstreamManager
 from zos.router import ProviderRegistry, SessionTracker
@@ -34,6 +35,7 @@ from zos.web.admin_views import (
     render_approval_detail_page,
     render_approvals_page,
     render_clients_page,
+    render_modules_page,
     render_overview_page,
     render_policy_page,
     render_upstreams_page,
@@ -85,9 +87,15 @@ def create_admin_routes(
     switch_provider_backend: Callable[[str, str], Awaitable[Any]] | None = None,
     upstream_manager: UpstreamManager | None = None,
     approval_manager: ApprovalManager | None = None,
+    module_manager: ModuleManager | None = None,
 ) -> list[Route]:
     """Create passphrase-gated, CSRF-protected /admin dashboard routes."""
     service = AdminService(pool)
+    modules = module_manager or ModuleManager(
+        pool,
+        settings,
+        upstream_manager=upstream_manager,
+    )
     approvals = approval_manager or ApprovalManager(
         pool,
         secret_key=settings.zos_secret_key,
@@ -810,6 +818,139 @@ def create_admin_routes(
     async def approval_deny(request: Request) -> Response:
         return await _approval_decide(request, approve=False)
 
+    def _module_catalog_entries():
+        return load_module_catalog(settings.modules_catalog_dir)
+
+    async def _render_modules(
+        session: AdminSession,
+        *,
+        notice: str | None = None,
+        error: str | None = None,
+        instructions: str | None = None,
+    ) -> Response:
+        installed = await modules.list_modules()
+        return _html(
+            render_modules_page(
+                installed=installed,
+                catalog=_module_catalog_entries(),
+                host_kind=modules.host.kind,
+                csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+                instructions=instructions,
+            )
+        )
+
+    async def modules_page(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect(f"/admin/login?next={quote(request.url.path, safe='/')}")
+        return await _render_modules(session)
+
+    async def modules_install(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        slug = data.get("slug", "").strip().lower()
+        cfg_values: dict[str, str] = {}
+        for k, v in data.items():
+            if k.startswith("cfg_"):
+                cfg_values[k[4:]] = v
+
+        notice = None
+        error = None
+        instructions = None
+        try:
+            res = await modules.install(slug, config_values=cfg_values)
+            mod = res["module"]
+            instructions = res.get("instructions")
+            if mod["status"] == "pending_attach":
+                notice = f"Prepared manual module '{slug}'. Follow the instructions below to start and attach it."
+            else:
+                notice = f"Installed module '{slug}' (v{mod['version']})."
+        except Exception as exc:
+            error = str(exc)
+
+        return await _render_modules(session, notice=notice, error=error, instructions=instructions)
+
+    async def modules_disable(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+        slug = data.get("slug", "").strip().lower()
+        notice = None
+        error = None
+        try:
+            await modules.disable(slug)
+            notice = f"Disabled module '{slug}'. Its tools are hidden and its data is preserved."
+        except Exception as exc:
+            error = str(exc)
+        return await _render_modules(session, notice=notice, error=error)
+
+    async def modules_enable(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+        slug = data.get("slug", "").strip().lower()
+        notice = None
+        error = None
+        try:
+            await modules.enable(slug)
+            notice = f"Enabled module '{slug}'."
+        except Exception as exc:
+            error = str(exc)
+        return await _render_modules(session, notice=notice, error=error)
+
+    async def modules_uninstall(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+        slug = data.get("slug", "").strip().lower()
+        purge = data.get("purge", "").strip().lower() in ("1", "true", "yes", "on")
+        notice = None
+        error = None
+        try:
+            await modules.uninstall(slug, purge=purge)
+            if purge:
+                notice = f"Uninstalled module '{slug}' and purged its database schema and secrets."
+            else:
+                notice = f"Uninstalled module '{slug}' (database schema kept)."
+        except Exception as exc:
+            error = str(exc)
+        return await _render_modules(session, notice=notice, error=error)
+
+    async def modules_attach(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+        slug = data.get("slug", "").strip().lower()
+        mcp_url = data.get("mcp_url", "").strip()
+        ui_url = data.get("ui_url", "").strip() or None
+        notice = None
+        error = None
+        try:
+            await modules.attach(slug, mcp_url=mcp_url, ui_url=ui_url)
+            notice = f"Attached module '{slug}'."
+        except Exception as exc:
+            error = str(exc)
+        return await _render_modules(session, notice=notice, error=error)
+
     return [
         Route("/admin", overview_page, methods=["GET"]),
         Route("/admin/providers/backend", provider_set_backend, methods=["POST"]),
@@ -819,6 +960,12 @@ def create_admin_routes(
         Route("/admin/approvals/{approval_id}", approval_detail_page, methods=["GET"]),
         Route("/admin/approvals/{approval_id}/approve", approval_approve, methods=["POST"]),
         Route("/admin/approvals/{approval_id}/deny", approval_deny, methods=["POST"]),
+        Route("/admin/modules", modules_page, methods=["GET"]),
+        Route("/admin/modules/install", modules_install, methods=["POST"]),
+        Route("/admin/modules/disable", modules_disable, methods=["POST"]),
+        Route("/admin/modules/enable", modules_enable, methods=["POST"]),
+        Route("/admin/modules/uninstall", modules_uninstall, methods=["POST"]),
+        Route("/admin/modules/attach", modules_attach, methods=["POST"]),
         Route("/admin/clients", clients_page, methods=["GET"]),
         Route("/admin/clients/create", clients_create, methods=["POST"]),
         Route("/admin/clients/token", clients_new_token, methods=["POST"]),

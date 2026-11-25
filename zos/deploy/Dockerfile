@@ -6,6 +6,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
 COPY migrations ./migrations
 COPY catalog ./catalog
+COPY zos_module_sdk ./zos_module_sdk
+COPY modules ./modules
 COPY src ./src
 
 RUN uv sync --frozen --no-dev

@@ -98,6 +98,7 @@ def _layout(
     nav_items = [
         ("overview", "/admin", "Overview"),
         ("approvals", "/admin/approvals", approvals_label),
+        ("modules", "/admin/modules", "Modules"),
         ("upstreams", "/admin/upstreams", "MCP Servers"),
         ("clients", "/admin/clients", "Clients"),
         ("policy", "/admin/policy", "Tools &amp; Policy"),
@@ -1028,6 +1029,175 @@ def render_approval_detail_page(
     return _layout(
         title=f"Approval — {approval['tool']}",
         active="approvals",
+        csrf_token=csrf_token,
+        body=body,
+        pending_approvals=pending_approvals,
+    )
+
+
+def render_modules_page(
+    *,
+    installed: list[dict[str, Any]],
+    catalog: list[Any],
+    host_kind: str,
+    csrf_token: str,
+    notice: str | None = None,
+    error: str | None = None,
+    instructions: str | None = None,
+    pending_approvals: int = 0,
+    ui_modules: list[dict[str, Any]] | None = None,
+) -> str:
+    banners = ""
+    if error:
+        banners += f'<div class="notice notice-err">{_e(error)}</div>'
+    if notice:
+        banners += f'<div class="notice notice-ok">{_e(notice)}</div>'
+    if instructions:
+        banners += (
+            '<div class="card">'
+            '<h2>Manual Setup Instructions</h2>'
+            f'<pre class="approval-pre">{_e(instructions)}</pre>'
+            '</div>'
+        )
+
+    installed_slugs = {str(m["slug"]) for m in installed}
+
+    inst_rows = []
+    for m in installed:
+        slug = str(m["slug"])
+        status = str(m.get("status") or "installed")
+        is_disabled = m.get("disabled_at") is not None or status == "disabled"
+        online = bool(m.get("online", False))
+        if is_disabled:
+            badge = '<span class="badge badge-muted">disabled</span>'
+        elif status == "pending_attach":
+            badge = '<span class="badge badge-warn">pending attach</span>'
+        elif online:
+            badge = f'<span class="badge badge-ok">online ({int(m.get("tool_count", 0))} tools)</span>'
+        else:
+            badge = f'<span class="badge badge-warn">{_e(m.get("upstream_status") or "offline")}</span>'
+
+        ui_link = ""
+        if m.get("ui_url") and not is_disabled:
+            ui_title = m.get("ui_title") or slug
+            ui_link = f'<a class="btn secondary sm" href="/admin/m/{_e(slug)}/">Open {_e(ui_title)}</a> '
+
+        toggle_btn = (
+            f'<form class="inline" method="post" action="/admin/modules/enable">'
+            f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+            f'<input type="hidden" name="slug" value="{_e(slug)}">'
+            f'<button type="submit" class="secondary sm">Enable</button></form>'
+            if is_disabled
+            else f'<form class="inline" method="post" action="/admin/modules/disable">'
+            f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+            f'<input type="hidden" name="slug" value="{_e(slug)}">'
+            f'<button type="submit" class="secondary sm">Disable</button></form>'
+        )
+        uninstall_btn = (
+            f'<form class="inline" method="post" action="/admin/modules/uninstall" '
+            f'onsubmit="return confirm(\'Uninstall module {_e(slug)}? Data will be kept.\')">'
+            f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+            f'<input type="hidden" name="slug" value="{_e(slug)}">'
+            f'<button type="submit" class="danger sm">Uninstall</button></form>'
+            f'<form class="inline" method="post" action="/admin/modules/uninstall" '
+            f'onsubmit="return confirm(\'Uninstall AND purge all data for {_e(slug)}?\')">'
+            f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+            f'<input type="hidden" name="slug" value="{_e(slug)}">'
+            f'<input type="hidden" name="purge" value="1">'
+            f'<button type="submit" class="danger sm">Purge</button></form>'
+        )
+        attach_form = ""
+        if status == "pending_attach":
+            attach_form = (
+                f'<form class="inline" method="post" action="/admin/modules/attach" style="margin-top:0.35rem;">'
+                f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+                f'<input type="hidden" name="slug" value="{_e(slug)}">'
+                f'<input type="text" name="mcp_url" placeholder="http://127.0.0.1:8081/mcp" required>'
+                f'<input type="text" name="ui_url" placeholder="UI URL (optional)">'
+                f'<button type="submit" class="sm">Attach</button></form>'
+            )
+
+        inst_rows.append(
+            f"<tr>"
+            f"<td><code>{_e(slug)}</code></td>"
+            f"<td><code>v{_e(m.get('version', ''))}</code></td>"
+            f"<td><code>{_e(m.get('host', ''))}</code></td>"
+            f"<td>{badge}</td>"
+            f"<td><div class=\"cell-controls\"><div>{ui_link}{toggle_btn} {uninstall_btn}</div>{attach_form}</div></td>"
+            f"</tr>"
+        )
+
+    installed_table = (
+        f'<div class="scroll-x"><table><thead><tr>'
+        f'<th>Module</th><th>Version</th><th>Host</th><th>Status</th><th>Actions</th>'
+        f'</tr></thead><tbody>{"".join(inst_rows)}</tbody></table></div>'
+        if inst_rows
+        else '<p class="muted">No modules installed yet. Install one from the catalog below.</p>'
+    )
+
+    cat_rows = []
+    for entry in catalog:
+        already = entry.slug in installed_slugs
+        cfg_inputs = "".join(
+            f'<label class="field">{_e(f.name)}'
+            f'<input type="{"password" if f.secret else "text"}" name="cfg_{_e(f.name)}" '
+            f'placeholder="{_e(f.help or f.name)}" {"required" if f.required else ""}></label>'
+            for f in entry.config
+        )
+        badges = []
+        if entry.storage.postgres:
+            badges.append('<span class="badge badge-muted">postgres</span>')
+        if entry.network.egress:
+            badges.append('<span class="badge badge-warn">egress</span>')
+        else:
+            badges.append('<span class="badge badge-ok">no-egress</span>')
+        if entry.runtime.ui_port:
+            badges.append('<span class="badge badge-muted">UI</span>')
+
+        if already:
+            action_html = '<span class="badge badge-ok">installed</span>'
+        else:
+            action_html = (
+                f'<form class="inline" method="post" action="/admin/modules/install">'
+                f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+                f'<input type="hidden" name="slug" value="{_e(entry.slug)}">'
+                f'{cfg_inputs}'
+                f'<button type="submit" class="sm">Install</button>'
+                f'</form>'
+            )
+        cat_rows.append(
+            f"<tr>"
+            f"<td><strong>{_e(entry.name)}</strong><br><code>{_e(entry.slug)}</code> "
+            f"<span class=\"muted\">v{_e(entry.version)}</span></td>"
+            f"<td>{_e(entry.description)}<br>{' '.join(badges)}</td>"
+            f"<td>{action_html}</td>"
+            f"</tr>"
+        )
+
+    catalog_table = (
+        f'<div class="scroll-x"><table><thead><tr>'
+        f'<th>Module</th><th>Description</th><th>Action</th>'
+        f'</tr></thead><tbody>{"".join(cat_rows)}</tbody></table></div>'
+        if cat_rows
+        else '<p class="muted">No container module manifests found in <code>catalog/modules/</code>.</p>'
+    )
+
+    body = f"""
+    <h1>Modules</h1>
+    <p class="muted">Active module host: <code>{_e(host_kind)}</code></p>
+    {banners}
+    <div class="card">
+      <h2>Installed Modules</h2>
+      {installed_table}
+    </div>
+    <div class="card">
+      <h2>Available Catalog Modules</h2>
+      {catalog_table}
+    </div>
+    """
+    return _layout(
+        title="Modules",
+        active="modules",
         csrf_token=csrf_token,
         body=body,
         pending_approvals=pending_approvals,

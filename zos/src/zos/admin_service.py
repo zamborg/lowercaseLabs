@@ -745,6 +745,13 @@ class AdminService:
     ) -> dict[str, Any]:
         clean_slug = slug.strip().lower()
         p, sp = await get_principal_and_space(self.pool, principal_slug)
+        existing = await get_remote_upstream(self.pool, slug=clean_slug, principal_id=p["id"])
+        if existing is not None:
+            ecfg = existing.get("config") if isinstance(existing.get("config"), dict) else {}
+            if ecfg.get("is_module"):
+                raise ValueError(
+                    f"'{clean_slug}' is a managed module; uninstall it from /admin/modules or `zos module uninstall {clean_slug}`"
+                )
         deleted = await delete_remote_upstream(self.pool, principal_id=p["id"], slug=clean_slug)
         if deleted is None:
             raise ValueError(f"Remote MCP upstream not found: {clean_slug}")
@@ -774,6 +781,8 @@ class AdminService:
         for row in rows:
             slug = str(row["slug"])
             cfg = row["config"] if isinstance(row.get("config"), dict) else {}
+            if cfg.get("is_module"):
+                continue
             auth_mode = str(cfg.get("auth_mode") or "none").lower()
             has_cred = row.get("credential_id") is not None
             rt = upstream_manager.get_runtime_info(slug) if upstream_manager is not None else None
