@@ -134,3 +134,5 @@ Seams kept in V0: `clients.trust_ceiling` (`owner | untrusted`), monotonic
 
 Everything in `later/`. Plus: MCP prompts/resources, third-party MCP
 proxying, contact-name resolution for Messages, multi-user, vector search.
+(Third-party MCP proxying shipped in M5; contact names in M8. V2 direction —
+modules, files, bus, skills — is drafted in `V2.md`.)
