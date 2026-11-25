@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from zos_actuator.contacts import ContactsIndex
 from zos_actuator.typedstream import decode_attributed_body
 
 APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=UTC)
@@ -41,9 +42,16 @@ def _safe_fts_query(query: str) -> str:
 class MessagesIndex:
     """Local FTS5 index synced incrementally by message.ROWID from read-only chat.db."""
 
-    def __init__(self, chat_db_path: Path, index_db_path: Path) -> None:
+    def __init__(
+        self,
+        chat_db_path: Path,
+        index_db_path: Path,
+        *,
+        contacts: ContactsIndex | None = None,
+    ) -> None:
         self.chat_db_path = chat_db_path.expanduser()
         self.index_db_path = index_db_path.expanduser()
+        self.contacts = contacts if contacts is not None else ContactsIndex()
 
     def _open_index(self) -> sqlite3.Connection:
         self.index_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -196,9 +204,25 @@ class MessagesIndex:
             params: list[Any] = [fts_q]
 
             if handle and handle.strip():
-                h = f"%{handle.strip()}%"
-                where_clauses.append("(s.handle LIKE ? OR s.chat_identifier LIKE ?)")
-                params.extend([h, h])
+                raw_h = handle.strip()
+                like_h = f"%{raw_h}%"
+                handle_or: list[str] = ["s.handle LIKE ?", "s.chat_identifier LIKE ?"]
+                handle_params: list[Any] = [like_h, like_h]
+
+                resolved_phones, resolved_emails = self.contacts.resolve_handles_for_name(raw_h)
+                norm_h_sql = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(s.handle, '-', ''), ' ', ''), '(', ''), ')', ''), '+', '')"
+                norm_c_sql = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(s.chat_identifier, '-', ''), ' ', ''), '(', ''), ')', ''), '+', '')"
+                for phone10 in sorted(resolved_phones):
+                    handle_or.append(f"{norm_h_sql} LIKE ?")
+                    handle_or.append(f"{norm_c_sql} LIKE ?")
+                    handle_params.extend([f"%{phone10}", f"%{phone10}"])
+                for email in sorted(resolved_emails):
+                    handle_or.append("LOWER(s.handle) = ?")
+                    handle_or.append("LOWER(s.chat_identifier) = ?")
+                    handle_params.extend([email, email])
+
+                where_clauses.append(f"({' OR '.join(handle_or)})")
+                params.extend(handle_params)
 
             if since and since.strip():
                 where_clauses.append("s.date_iso >= ?")
@@ -229,9 +253,13 @@ class MessagesIndex:
             truncated = len(txt) > MAX_TEXT_CHARS
             if truncated:
                 txt = txt[:MAX_TEXT_CHARS] + "..."
+            contact_name = self.contacts.lookup_name(r["handle"]) or self.contacts.lookup_name(
+                r["chat_identifier"]
+            )
             matches.append(
                 {
                     "handle": r["handle"],
+                    "contact_name": contact_name,
                     "is_from_me": bool(r["is_from_me"]),
                     "date": r["date_iso"],
                     "chat_identifier": r["chat_identifier"],
@@ -240,8 +268,11 @@ class MessagesIndex:
                 }
             )
 
-        return {
+        out: dict[str, Any] = {
             "synced_new": synced,
             "count": len(matches),
             "matches": matches,
         }
+        if self.contacts.last_hint:
+            out["contacts_hint"] = self.contacts.last_hint
+        return out

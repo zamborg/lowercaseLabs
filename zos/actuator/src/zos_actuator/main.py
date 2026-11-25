@@ -75,7 +75,10 @@ def build_actuator_mcp_server(
                         "type": "object",
                         "properties": {
                             "query": {"type": "string", "description": "Search terms."},
-                            "handle": {"type": "string", "description": "Optional phone/email/chat filter."},
+                            "handle": {
+                                "type": "string",
+                                "description": "Optional phone, email, chat identifier, or contact name filter.",
+                            },
                             "since": {"type": "string", "description": "Optional ISO 8601 minimum date (UTC)."},
                             "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20},
                         },
