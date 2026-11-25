@@ -344,6 +344,34 @@ def create_admin_routes(
             )
         )
 
+    async def clients_disable(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        client_id = data.get("client_id", "").strip()
+        error = None
+        notice = None
+        try:
+            disabled = await service.disable_client(client_identifier=client_id)
+            notice = f"Disabled client '{disabled['name']}' (audit & memory history preserved)."
+        except Exception as exc:
+            error = str(exc)
+
+        clients = await service.list_clients()
+        return _html(
+            render_clients_page(
+                clients=clients,
+                csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+                max_oauth_clients=settings.max_oauth_clients,
+            )
+        )
+
     async def policy_page(request: Request) -> Response:
         session = _require_session(request)
         if session is None:
@@ -795,6 +823,7 @@ def create_admin_routes(
         Route("/admin/clients/create", clients_create, methods=["POST"]),
         Route("/admin/clients/token", clients_new_token, methods=["POST"]),
         Route("/admin/clients/revoke", clients_revoke, methods=["POST"]),
+        Route("/admin/clients/disable", clients_disable, methods=["POST"]),
         Route("/admin/clients/delete", clients_delete, methods=["POST"]),
         Route("/admin/policy", policy_page, methods=["GET"]),
         Route("/admin/policy/set", policy_set, methods=["POST"]),

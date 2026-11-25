@@ -248,7 +248,7 @@ def create_oauth_routes(
 
         async with pool.connection() as conn:
             cnt_cur = await conn.execute(
-                "SELECT COUNT(*) AS cnt FROM clients WHERE principal_id = %s AND kind = 'oauth'",
+                "SELECT COUNT(*) AS cnt FROM clients WHERE principal_id = %s AND kind = 'oauth' AND disabled_at IS NULL",
                 (principal["id"],),
             )
             cnt_row = await cnt_cur.fetchone()
@@ -307,7 +307,7 @@ def create_oauth_routes(
                 """
                 SELECT id, principal_id, default_space_id, name, oauth_client_id, redirect_uris
                 FROM clients
-                WHERE oauth_client_id = %s AND kind = 'oauth'
+                WHERE oauth_client_id = %s AND kind = 'oauth' AND disabled_at IS NULL
                 """,
                 (oauth_client_id,),
             )

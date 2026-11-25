@@ -102,6 +102,13 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** macOS Full Disk Access (required for reading `~/Library/Messages/chat.db` and AddressBook SQLite databases) is granted per resolved executable binary. Pointing the actuator venv at uv's shared Python 3.12 binary would grant Full Disk Access to every unrelated uv project using that Python version. Because uv's `python3.12` links `@executable_path/../lib/libpython3.12.dylib`, copying the whole interpreter directory isolates the TCC/FDA grant strictly to `zos-actuator`.
 - **Impact:** Full Disk Access is granted only to `~/.zos-actuator/python/bin/python3.12`, and upgrading `zos-actuator` code no longer invalidates the FDA grant.
 
+## 2026-11-25 — Client soft-disable (`clients.disabled_at`) to preserve audit and memory authorship (V1 tidy)
+
+- **Decision:** Add `clients.disabled_at TIMESTAMPTZ` (`0006_v1_client_disabled_at.sql`), update `clients_principal_name_bearer_uidx` to apply only while `disabled_at IS NULL`, and expose `zos client disable <client>` + `/admin/clients/disable` (`AdminService.disable_client`). Disabling revokes all active tokens, blocks future auth, hides the client from active lists/policy matrix, and audits `client.disabled` while keeping the `clients` row intact.
+- **Why:** Both `events.client_id` and `memories.created_by_client_id` use `ON DELETE SET NULL` (and `pending_approvals.client_id` uses `ON DELETE CASCADE`), and `delete_oauth_client` intentionally rejects bearer clients. Hard-deleting a client therefore wipes client attribution in `/admin/activity` and strips `author` from memories created by that client. Soft-disabling retires test or old clients cleanly while guaranteeing audit attribution and memory authorship survive indefinitely.
+- **Impact:** Retired bearer clients (`codex-smoke`, `opus-live-smoke`, `opus-m8-check`) can be disabled cleanly without losing historical audit attribution, while `memory-import` stays active.
+
+
 
 
 

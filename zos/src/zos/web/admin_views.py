@@ -515,6 +515,13 @@ def render_clients_page(
                 f'<input type="hidden" name="client_id" value="{_e(cid)}">'
                 f'<button type="submit" class="secondary sm">Prune</button></form>'
             )
+        else:
+            actions.append(
+                f'<form class="inline" method="post" action="/admin/clients/disable">'
+                f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+                f'<input type="hidden" name="client_id" value="{_e(cid)}">'
+                f'<button type="submit" class="secondary sm">Disable</button></form>'
+            )
         rows.append(
             f"<tr>"
             f"<td><strong>{_e(c['name'])}</strong><div class=\"muted mono\">{_e(c['oauth_client_id'] or cid)}</div></td>"

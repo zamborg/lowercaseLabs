@@ -145,6 +145,27 @@ def client_delete_cmd(
     typer.echo(f"Pruned OAuth client name={res['name']} id={res['id']}")
 
 
+@client_app.command("disable")
+def client_disable_cmd(
+    client: Annotated[str, typer.Argument(help="Client UUID, oauth_client_id, or name")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Soft-disable any client and revoke its tokens while preserving audit history and memory authorship."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).disable_client(
+                client_identifier=client,
+                principal_slug=principal,
+            )
+
+    res = asyncio.run(_run())
+    typer.echo(
+        f"Disabled client name={res['name']} id={res['id']} revoked_tokens={res['revoked_tokens']}"
+    )
+
+
 @token_app.command("create")
 def token_create_cmd(
     client_name: Annotated[str, typer.Argument(help="Existing bearer client name")],

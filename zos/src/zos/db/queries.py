@@ -203,7 +203,7 @@ async def mint_bearer_token_for_client(
         cur = await conn.execute(
             """
             SELECT id, name, default_space_id FROM clients
-            WHERE principal_id = %s AND name = %s AND kind = 'bearer'
+            WHERE principal_id = %s AND name = %s AND kind = 'bearer' AND disabled_at IS NULL
             """,
             (principal_id, client_name),
         )
@@ -275,8 +275,10 @@ async def find_client_by_name_or_id(
     *,
     principal_id: UUID,
     identifier: str,
+    include_disabled: bool = False,
 ) -> dict[str, Any] | None:
-    """Resolve a client by UUID, oauth_client_id, or bearer client name."""
+    """Resolve a client by UUID, oauth_client_id, or bearer client name (active clients by default)."""
+    disabled_clause = "" if include_disabled else " AND disabled_at IS NULL"
     async with pool.connection() as conn:
         try:
             parsed_uuid = UUID(identifier)
@@ -285,7 +287,8 @@ async def find_client_by_name_or_id(
 
         if parsed_uuid is not None:
             cur = await conn.execute(
-                "SELECT id, name, kind, default_space_id, trust_ceiling FROM clients WHERE principal_id = %s AND id = %s",
+                f"SELECT id, name, kind, default_space_id, trust_ceiling FROM clients "
+                f"WHERE principal_id = %s AND id = %s{disabled_clause}",
                 (principal_id, parsed_uuid),
             )
             row = await cur.fetchone()
@@ -293,9 +296,9 @@ async def find_client_by_name_or_id(
                 return dict(row)
 
         cur = await conn.execute(
-            """
+            f"""
             SELECT id, name, kind, default_space_id, trust_ceiling FROM clients
-            WHERE principal_id = %s AND (oauth_client_id = %s OR name = %s)
+            WHERE principal_id = %s AND (oauth_client_id = %s OR name = %s){disabled_clause}
             ORDER BY CASE WHEN kind = 'bearer' THEN 0 ELSE 1 END, created_at ASC
             LIMIT 1
             """,
@@ -303,6 +306,41 @@ async def find_client_by_name_or_id(
         )
         row = await cur.fetchone()
         return dict(row) if row else None
+
+
+async def disable_client(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    client_id: UUID,
+) -> dict[str, Any] | None:
+    """Soft-disable any client and revoke its active tokens while preserving events and memories."""
+    async with pool.connection() as conn, conn.transaction():
+        tok_cur = await conn.execute(
+            """
+            UPDATE tokens
+            SET revoked_at = now()
+            WHERE client_id = %s AND revoked_at IS NULL
+            """,
+            (client_id,),
+        )
+        revoked_count = int(tok_cur.rowcount or 0)
+
+        cur = await conn.execute(
+            """
+            UPDATE clients
+            SET disabled_at = now()
+            WHERE principal_id = %s AND id = %s AND disabled_at IS NULL
+            RETURNING id, name, kind, oauth_client_id, disabled_at
+            """,
+            (principal_id, client_id),
+        )
+        row = await cur.fetchone()
+        if row is None:
+            return None
+        res = dict(row)
+        res["revoked_tokens"] = revoked_count
+        return res
 
 
 async def delete_oauth_client(

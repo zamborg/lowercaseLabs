@@ -52,6 +52,7 @@ async def verify_client_bearer_token(
                 c.name AS client_name,
                 c.kind AS client_kind,
                 c.trust_ceiling AS trust_ceiling,
+                c.disabled_at AS client_disabled_at,
                 p.id AS principal_id,
                 p.slug AS principal_slug,
                 s.id AS space_id,
@@ -69,7 +70,7 @@ async def verify_client_bearer_token(
         if row is None:
             return None
 
-        if row["token_revoked_at"] is not None:
+        if row["token_revoked_at"] is not None or row["client_disabled_at"] is not None:
             return None
 
         expires_at = row["token_expires_at"]

@@ -38,6 +38,9 @@ from zos.db.queries import (
     set_tool_tier,
     unmark_managed_tier_pattern,
 )
+from zos.db.queries import (
+    disable_client as db_disable_client,
+)
 from zos.policy import Decision, Tier, build_tool_annotations, resolve_decision, resolve_tier
 from zos.providers.upstream_manager import (
     ISSUER_MCP_BEARER,
@@ -206,6 +209,40 @@ class AdminService:
             },
         )
         return deleted
+
+    async def disable_client(
+        self,
+        *,
+        client_identifier: str,
+        principal_slug: str | None = None,
+    ) -> dict[str, Any]:
+        """Soft-disable any client (bearer or oauth), revoking tokens while preserving history."""
+        clean_id = client_identifier.strip()
+        if not clean_id:
+            raise ValueError("Must specify client ID or name to disable")
+
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        c = await find_client_by_name_or_id(self.pool, principal_id=p["id"], identifier=clean_id)
+        if c is None:
+            raise ValueError(f"Active client not found: {clean_id}")
+
+        disabled = await db_disable_client(self.pool, principal_id=p["id"], client_id=c["id"])
+        if disabled is None:
+            raise ValueError(f"Client already disabled or not found: {clean_id}")
+
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            client_id=disabled["id"],
+            event_type="client.disabled",
+            payload={
+                "name": disabled["name"],
+                "kind": disabled["kind"],
+                "revoked_tokens": disabled["revoked_tokens"],
+            },
+        )
+        return disabled
 
     async def set_policy(
         self,
@@ -880,10 +917,11 @@ class AdminService:
             "pending_approvals_count": int(pending_approvals_row["cnt"]) if pending_approvals_row is not None else 0,
         }
 
-    async def list_clients(self) -> list[dict[str, Any]]:
+    async def list_clients(self, *, include_disabled: bool = False) -> list[dict[str, Any]]:
+        where_clause = "" if include_disabled else "WHERE c.disabled_at IS NULL"
         async with self.pool.connection() as conn:
             cur = await conn.execute(
-                """
+                f"""
                 SELECT
                     c.id,
                     c.name,
@@ -892,6 +930,7 @@ class AdminService:
                     c.trust_ceiling,
                     c.created_at,
                     c.last_seen_at,
+                    c.disabled_at,
                     COUNT(t.id) FILTER (
                         WHERE t.revoked_at IS NULL
                           AND (t.expires_at IS NULL OR t.expires_at > now())
@@ -899,6 +938,7 @@ class AdminService:
                     ) AS active_token_count
                 FROM clients c
                 LEFT JOIN tokens t ON t.client_id = c.id
+                {where_clause}
                 GROUP BY c.id
                 ORDER BY c.created_at DESC
                 """

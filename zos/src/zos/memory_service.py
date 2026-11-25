@@ -132,7 +132,7 @@ class MemoryService:
                 """
                 SELECT id, name, kind, default_space_id, trust_ceiling
                 FROM clients
-                WHERE principal_id = %s AND name = %s AND kind = 'bearer'
+                WHERE principal_id = %s AND name = %s AND kind = 'bearer' AND disabled_at IS NULL
                 """,
                 (principal_id, name),
             )
@@ -144,7 +144,7 @@ class MemoryService:
                 """
                 INSERT INTO clients (principal_id, default_space_id, name, kind, trust_ceiling)
                 VALUES (%s, %s, %s, 'bearer', 'owner')
-                ON CONFLICT (principal_id, name) WHERE kind = 'bearer' DO UPDATE
+                ON CONFLICT (principal_id, name) WHERE kind = 'bearer' AND disabled_at IS NULL DO UPDATE
                 SET last_seen_at = now()
                 RETURNING id, name, kind, default_space_id, trust_ceiling
                 """,
