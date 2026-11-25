@@ -86,6 +86,17 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Matches `V2.md`'s future module manifest (`runtime: remote`) while honoring real-world OAuth server capabilities empirically verified against live PRM/ASM metadata, and keeps owner hand-tuned tool tiers safe across upstream tool list changes.
 - **Impact:** All 20 verified connectors appear in `/admin/upstreams` ("Available Connectors") and `zos catalog list`, support multi-instance installs via `--as`, and remain uninstalled until explicitly added by the owner.
 
+## 2026-11-24 — Async approvals behind `require_approval` for non-elicitation clients (M9c)
+
+- **Decision:** Keep MCP `elicitation/create` unchanged whenever `session_supports_elicitation(session)` is true; otherwise route `require_approval` calls through `ApprovalManager` (`src/zos/policy/approvals.py`, backed by `pending_approvals` in `0005_m9c_pending_approvals.sql`).
+  1. **Encrypted-at-rest arguments & immediate purge:** Encrypt pending tool arguments with the existing AES-256-GCM `CredentialVault` (AAD bound to `(principal_id, "pending_approval", approval_id, key_version)`). Never store plaintext arguments in Postgres or `events`. Immediately purge `args_ciphertext` and `args_nonce` to `NULL` when decided (`approved`/`denied`), consumed, or expired (with a sweep on every access).
+  2. **Hold timeout (`ZOS_APPROVAL_WAIT_S=45`):** Hold the tool call up to 45 seconds waiting on an in-process `asyncio.Event` (with a 1s DB fallback check). `45s` stays safely below observed transport/proxy timeouts: uvicorn `timeout_keep_alive=75s`, `cloudflared` origin timeout (`90s`), Cloudflare proxy timeout (`100s`), MCP SDK Streamable HTTP read timeout (`300s`), and typical remote MCP client tool-call timeouts (`~60s`). On timeout, return a clear error containing `<ZOS_BASE_URL>/admin/approvals/<id>` so the assistant shows the clickable link to the user to approve and retry the exact same call.
+  3. **Atomic single-use retry:** Within the 10-minute TTL (`ZOS_APPROVAL_TTL_S=600`), retrying the exact `(principal_id, client_id, tool, args_digest)` atomically transitions one `approved` row to `consumed` (`FOR UPDATE SKIP LOCKED`) and executes; any second retry is re-gated.
+  4. **Out of scope (V1):** Push notifications to the phone are explicitly deferred; the clickable approval link returned in the tool error is the notification channel for V1.
+- **Why:** Phone Claude and ChatGPT do not implement MCP elicitation, which previously caused all `require_approval` calls (e.g., `mac_shell_run`, `gmail_send`) to fail. Plugging async approvals directly behind `require_approval` preserves a single policy engine and audit model while keeping owner review mobile-friendly behind the Access-gated `/admin` path.
+- **Impact:** Non-elicitation clients can now execute approval-gated tools by approving on `/admin/approvals/<id>` (either while the call is held or via link + retry); elicitation-capable clients are unaffected.
+
+
 
 
 
