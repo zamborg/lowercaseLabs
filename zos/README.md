@@ -2,6 +2,8 @@
 
 **A personal, self-hosted context and MCP routing layer shared by every AI agent you use.**
 
+> **Status: V1.** One owner per deployment, self-hosted (today: a laptop + Cloudflare Tunnel). It's in daily personal use, not a hosted product. Expect sharp edges.
+
 ## Why ZOS exists
 
 Think of a good employee. They have a **brain** (intelligence) and **hands** (dexterity). They don't keep everything in their head — their notes, calendar, email, tools, and work live outside them in their workplace.
