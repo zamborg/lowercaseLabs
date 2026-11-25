@@ -40,6 +40,7 @@ from zos.web.admin_views import (
     render_policy_page,
     render_upstreams_page,
 )
+from zos.web.module_proxy import proxy_module_ui_request
 
 
 def _html(content: str, *, status_code: int = 200, extra_headers: dict[str, str] | None = None) -> HTMLResponse:
@@ -180,13 +181,36 @@ def create_admin_routes(
         auth.clear_cookie(resp)
         return resp
 
+    async def _ui_modules() -> list[dict[str, Any]]:
+        try:
+            all_mods = await modules.list_modules()
+        except Exception:
+            return []
+        return [
+            {
+                "slug": str(m["slug"]),
+                "title": str(m.get("ui_title") or m["slug"]),
+                "href": f"/admin/m/{m['slug']}/",
+                "online": bool(m.get("online", False)),
+            }
+            for m in all_mods
+            if m.get("ui_url") and m.get("disabled_at") is None and m.get("status") != "disabled"
+        ]
+
     async def overview_page(request: Request) -> Response:
         session = _require_session(request)
         if session is None:
             return _redirect("/admin/login")
         await approvals.sweep_expired()
         overview = await service.get_overview(registry, sessions)
-        return _html(render_overview_page(overview=overview, csrf_token=session.csrf_token))
+        ui_mods = await _ui_modules()
+        return _html(
+            render_overview_page(
+                overview=overview,
+                csrf_token=session.csrf_token,
+                ui_modules=ui_mods,
+            )
+        )
 
     async def provider_set_backend(request: Request) -> Response:
         session = _require_session(request)
@@ -829,6 +853,16 @@ def create_admin_routes(
         instructions: str | None = None,
     ) -> Response:
         installed = await modules.list_modules()
+        ui_mods = [
+            {
+                "slug": str(m["slug"]),
+                "title": str(m.get("ui_title") or m["slug"]),
+                "href": f"/admin/m/{m['slug']}/",
+                "online": bool(m.get("online", False)),
+            }
+            for m in installed
+            if m.get("ui_url") and m.get("disabled_at") is None and m.get("status") != "disabled"
+        ]
         return _html(
             render_modules_page(
                 installed=installed,
@@ -838,6 +872,7 @@ def create_admin_routes(
                 notice=notice,
                 error=error,
                 instructions=instructions,
+                ui_modules=ui_mods,
             )
         )
 
@@ -951,6 +986,23 @@ def create_admin_routes(
             error = str(exc)
         return await _render_modules(session, notice=notice, error=error)
 
+    async def module_ui_proxy(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            next_path = request.url.path
+            if request.url.query:
+                next_path = f"{next_path}?{request.url.query}"
+            return _redirect(f"/admin/login?next={quote(next_path, safe='/?=&')}")
+        slug = str(request.path_params.get("slug", "")).strip()
+        subpath = str(request.path_params.get("path", ""))
+        return await proxy_module_ui_request(
+            request,
+            slug=slug,
+            subpath=subpath,
+            module_manager=modules,
+            base_url=settings.zos_base_url,
+        )
+
     return [
         Route("/admin", overview_page, methods=["GET"]),
         Route("/admin/providers/backend", provider_set_backend, methods=["POST"]),
@@ -966,6 +1018,16 @@ def create_admin_routes(
         Route("/admin/modules/enable", modules_enable, methods=["POST"]),
         Route("/admin/modules/uninstall", modules_uninstall, methods=["POST"]),
         Route("/admin/modules/attach", modules_attach, methods=["POST"]),
+        Route(
+            "/admin/m/{slug:str}",
+            module_ui_proxy,
+            methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        ),
+        Route(
+            "/admin/m/{slug:str}/{path:path}",
+            module_ui_proxy,
+            methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        ),
         Route("/admin/clients", clients_page, methods=["GET"]),
         Route("/admin/clients/create", clients_create, methods=["POST"]),
         Route("/admin/clients/token", clients_new_token, methods=["POST"]),

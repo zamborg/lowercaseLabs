@@ -89,6 +89,7 @@ def _layout(
     csrf_token: str,
     body: str,
     pending_approvals: int = 0,
+    ui_modules: list[dict[str, Any]] | None = None,
 ) -> str:
     approvals_label = (
         f'Approvals <span class="badge badge-warn">{int(pending_approvals)}</span>'
@@ -108,6 +109,11 @@ def _layout(
         f'<a href="{href}" class="{"active" if active == key else ""}">{label}</a>'
         for key, href, label in nav_items
     )
+    if ui_modules:
+        nav_html += "".join(
+            f'<a href="{_e(m["href"])}">{_e(m["title"])}</a>'
+            for m in ui_modules
+        )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -186,6 +192,7 @@ def render_overview_page(
     csrf_token: str,
     notice: str | None = None,
     error: str | None = None,
+    ui_modules: list[dict[str, Any]] | None = None,
 ) -> str:
     banners = ""
     if error:
@@ -259,6 +266,19 @@ def render_overview_page(
         else '<span class="badge badge-muted" style="font-size:0.9rem;">0 pending</span>'
     )
 
+    module_ui_card = ""
+    if ui_modules:
+        mod_links = " ".join(
+            f'<a class="btn secondary" href="{_e(m["href"])}">{_e(m["title"])}</a>'
+            for m in ui_modules
+        )
+        module_ui_card = f"""
+    <div class="card">
+      <h2>Module UIs</h2>
+      <p style="display:flex;gap:0.6rem;flex-wrap:wrap;margin:0;">{mod_links}</p>
+    </div>
+    """
+
     body = f"""
     <h1>Overview</h1>
     {banners}
@@ -268,6 +288,7 @@ def render_overview_page(
       <div class="stat"><div class="label">Pending Approvals</div><div class="value"><a href="/admin/approvals" style="text-decoration:none;">{pending_badge}</a></div></div>
       <div class="stat"><div class="label">Last Backup</div><div class="value">{backup_val}</div></div>
     </div>
+    {module_ui_card}
     <div class="card">
       <h2>Providers</h2>
       <div class="scroll-x">
@@ -288,6 +309,7 @@ def render_overview_page(
         csrf_token=csrf_token,
         body=body,
         pending_approvals=pending_count,
+        ui_modules=ui_modules,
     )
 
 
@@ -1201,4 +1223,5 @@ def render_modules_page(
         csrf_token=csrf_token,
         body=body,
         pending_approvals=pending_approvals,
+        ui_modules=ui_modules,
     )
