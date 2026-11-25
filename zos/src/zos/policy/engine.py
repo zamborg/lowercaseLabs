@@ -29,11 +29,13 @@ Plugging in a future LLM judge:
 from __future__ import annotations
 
 import asyncio
+import copy
 import importlib
 import inspect
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
@@ -95,6 +97,23 @@ class ChainDecision:
     decision: Decision
     engine: str
     error: str | None = None
+
+
+def _freeze_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({k: _freeze_value(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze_value(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_freeze_value(item) for item in value)
+    return copy.deepcopy(value)
+
+
+def freeze_policy_args(args: Mapping[str, Any] | None) -> Mapping[str, Any]:
+    """Return a read-only deep copy of tool arguments so policy engines cannot mutate call args."""
+    if not args:
+        return MappingProxyType({})
+    return MappingProxyType({str(k): _freeze_value(v) for k, v in args.items()})
 
 
 def verdict_to_decision(verdict: FinalVerdict) -> Decision:

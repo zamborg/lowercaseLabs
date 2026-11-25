@@ -18,6 +18,7 @@ from zos.policy.engine import (
     PolicyInput,
     PolicyTool,
     TableEngine,
+    freeze_policy_args,
     visible,
 )
 from zos.policy.tiers import Tier
@@ -155,9 +156,20 @@ class ToolRouter:
         idempotent_hint: bool | None = None,
         fallback_eval: PolicyEvaluation,
     ) -> tuple[str, str, str | None]:
-        """Layer 2: per-call allowance evaluation via `EngineChain`."""
-        if snapshot is None:
-            return fallback_eval.decision, "table", None
+        """Layer 2: per-call allowance evaluation via `EngineChain`.
+
+        Always runs `self._policy_chain` (using a read-only deep copy of `args`) even when
+        no DB `PolicySnapshot` loader is wired, so configured guards can never be bypassed.
+        """
+        effective_snapshot = (
+            snapshot
+            if snapshot is not None
+            else PolicySnapshot(
+                tiers={exposed_name: tier},
+                client_rules={exposed_name: fallback_eval.decision},
+                global_rules={},
+            )
+        )
         policy_input = PolicyInput(
             principal_id=ctx.principal_id,
             client=PolicyClient(
@@ -171,11 +183,11 @@ class ToolRouter:
                 destructive_hint=destructive_hint,
                 idempotent_hint=idempotent_hint,
             ),
-            args=args,
+            args=freeze_policy_args(args),
         )
         chain_decision = await self._policy_chain.evaluate(
             policy_input,
-            table_engine=TableEngine(snapshot),
+            table_engine=TableEngine(effective_snapshot),
         )
         return chain_decision.decision, chain_decision.engine, chain_decision.error
 

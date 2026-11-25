@@ -361,3 +361,57 @@ async def test_engine_can_allow_tool_table_would_escalate() -> None:
     assert audits[-1][1] == "deny"
     assert audits[-1][3] is not None
     assert audits[-1][3]["engine"] == "visibility"
+
+
+async def test_mutating_engine_cannot_alter_executed_args() -> None:
+    """PolicyInput.args is a read-only deep copy so an engine can never alter executed args."""
+    reg = ProviderRegistry()
+    prov = _StubProvider("mac", [ProviderTool(name="shell_run", description="Shell")])
+    reg.register(prov)
+    snap = PolicySnapshot(tiers={"mac_shell_run": "write"}, client_rules={}, global_rules={})
+
+    mutation_blocked = False
+
+    async def mutating_engine(inp: PolicyInput) -> Verdict:
+        nonlocal mutation_blocked
+        with pytest.raises(TypeError):
+            inp.args["command"] = "evil"  # type: ignore[index]
+        with pytest.raises(TypeError):
+            inp.args["nested"]["k"] = "tampered"
+        mutation_blocked = True
+        assert isinstance(inp.args["items"], tuple)
+        return "allow"
+
+    async def load_snap(_: CallContext) -> PolicySnapshot:
+        return snap
+
+    router = ToolRouter(
+        reg,
+        load_policy_snapshot=load_snap,
+        policy_chain=EngineChain([FunctionPolicyEngine("mutator", mutating_engine)]),
+    )
+    original_args = {"command": "echo safe", "nested": {"k": "orig"}, "items": ["a", "b"]}
+    res = await router.call_tool("mac_shell_run", original_args, _ctx(trust="owner"))
+    assert not res.is_error
+    assert mutation_blocked is True
+    assert prov.calls == [("shell_run", {"command": "echo safe", "nested": {"k": "orig"}, "items": ["a", "b"]})]
+
+
+async def test_engine_chain_runs_even_without_policy_snapshot() -> None:
+    """Configured engines are never bypassed even when load_policy_snapshot is None."""
+    reg = ProviderRegistry()
+    prov = _StubProvider("mac", [ProviderTool(name="shell_run", description="Shell")])
+    reg.register(prov)
+
+    router = ToolRouter(
+        reg,
+        policy_chain=EngineChain([deny_rm_in_shell]),
+    )
+    owner = _ctx(trust="owner")
+    r_bad = await router.call_tool("mac_shell_run", {"command": "rm -rf /tmp/x"}, owner)
+    assert r_bad.is_error
+    assert prov.calls == []
+
+    r_ok = await router.call_tool("mac_shell_run", {"command": "echo ok"}, owner)
+    assert not r_ok.is_error
+    assert prov.calls == [("shell_run", {"command": "echo ok"})]
