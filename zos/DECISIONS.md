@@ -96,6 +96,13 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Phone Claude and ChatGPT do not implement MCP elicitation, which previously caused all `require_approval` calls (e.g., `mac_shell_run`, `gmail_send`) to fail. Plugging async approvals directly behind `require_approval` preserves a single policy engine and audit model while keeping owner review mobile-friendly behind the Access-gated `/admin` path.
 - **Impact:** Non-elicitation clients can now execute approval-gated tools by approving on `/admin/approvals/<id>` (either while the call is held or via link + retry); elicitation-capable clients are unaffected.
 
+## 2026-11-25 — Dedicated Python interpreter for Mac actuator (V1 tidy)
+
+- **Decision:** Copy uv's CPython 3.12 installation directory into `~/.zos-actuator/python/` and build `~/.zos-actuator/venv` against `~/.zos-actuator/python/bin/python3.12` in `deploy/launchd/install.sh`. Preserve `~/.zos-actuator/python/` across normal re-installs unless `--upgrade-python` is passed.
+- **Why:** macOS Full Disk Access (required for reading `~/Library/Messages/chat.db` and AddressBook SQLite databases) is granted per resolved executable binary. Pointing the actuator venv at uv's shared Python 3.12 binary would grant Full Disk Access to every unrelated uv project using that Python version. Because uv's `python3.12` links `@executable_path/../lib/libpython3.12.dylib`, copying the whole interpreter directory isolates the TCC/FDA grant strictly to `zos-actuator`.
+- **Impact:** Full Disk Access is granted only to `~/.zos-actuator/python/bin/python3.12`, and upgrading `zos-actuator` code no longer invalidates the FDA grant.
+
+
 
 
 
