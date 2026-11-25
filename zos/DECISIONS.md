@@ -108,6 +108,13 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Both `events.client_id` and `memories.created_by_client_id` use `ON DELETE SET NULL` (and `pending_approvals.client_id` uses `ON DELETE CASCADE`), and `delete_oauth_client` intentionally rejects bearer clients. Hard-deleting a client therefore wipes client attribution in `/admin/activity` and strips `author` from memories created by that client. Soft-disabling retires test or old clients cleanly while guaranteeing audit attribution and memory authorship survive indefinitely.
 - **Impact:** Retired bearer clients (`codex-smoke`, `opus-live-smoke`, `opus-m8-check`) can be disabled cleanly without losing historical audit attribution, while `memory-import` stays active.
 
+## 2026-11-25 — Removed unused `deploy/fly.toml` and throwaway M0 spikes (V1 tidy)
+
+- **Decision:** Delete `deploy/fly.toml`, `deploy/launchd/.gitkeep`, and the throwaway M0 `spikes/` directory (`spikes/hosting/`, `spikes/google/`).
+- **Why:** `deploy/fly.toml` was never deployed or verified on Fly.io (V1 self-hosts on Docker Compose + Cloudflare Named Tunnel) and is broken as written: `[build] dockerfile = "Dockerfile"` fails from `deploy/` context because `deploy/Dockerfile` copies `pyproject.toml`, `migrations/`, `catalog/`, and `src/` from the `zos/` parent directory, and `256mb` VM memory is tight alongside Argon2id verification. Both M0 spikes (`spikes/hosting/` and `spikes/google/`) have been superseded by the shipped ASGI server, Google OAuth flow, and integration test suite.
+- **Impact:** The repository contains only live, tested code and working deployment templates (`deploy/Dockerfile`, `deploy/docker-compose.yml`, `deploy/cloudflared/`, `deploy/launchd/`, `deploy/backup/`).
+
+
 
 
 

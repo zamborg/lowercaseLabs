@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from psycopg import AsyncConnection
@@ -103,7 +103,7 @@ class DatabaseAuditRecorder:
             event_type="tool.called",
             tool=tool,
             decision=decision,
-            outcome=outcome,  # type: ignore[arg-type]
+            outcome=cast(Outcome, outcome),
             args=args,
             payload=payload,
         )
@@ -126,6 +126,6 @@ class DatabaseAuditRecorder:
             event_type="elicitation.passthrough",
             tool=tool,
             decision=decision,
-            outcome=outcome,  # type: ignore[arg-type]
+            outcome=cast(Outcome, outcome),
             payload=payload,
         )

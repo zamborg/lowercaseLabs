@@ -7,12 +7,10 @@
 !.env.example
 .owner-passphrase
 
-# Local databases / spike tokens
+# Local databases
 *.db
 *.sqlite
 *.sqlite3
-spikes/google/token.json
-spikes/google/client_secret*.json
 
 # Python / tool caches
 .venv/

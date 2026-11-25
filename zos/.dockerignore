@@ -11,4 +11,3 @@ __pycache__/
 *.sqlite*
 later/
 tests/
-spikes/google/
