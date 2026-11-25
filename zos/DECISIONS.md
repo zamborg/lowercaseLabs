@@ -134,6 +134,16 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Keeps modules completely behind the existing M9a `UpstreamManager` seam (same routing, policy, approvals, manifest tiers, online health, and `tools/list_changed`), avoids pulling in a heavy Docker SDK, enforces hard Postgres and container network isolation, and passes caller attribution reliably without transport hacks.
 - **Impact:** Modules can be installed/disabled/enabled/uninstalled from `/admin/modules` or `zos module …` on both Docker (`ZOS_MODULE_HOST=docker`) and non-Docker (`ZOS_MODULE_HOST=manual` + `zos module attach`) hosts.
 
+## 2026-11-25 — Module UI reverse proxy under `/admin/m/<slug>` and same-origin trust model (M10c)
+
+- **Decision:** Mount installed module human UIs at `/admin/m/<slug>` and `/admin/m/<slug>/{path}` via streaming `httpx` reverse proxy (`src/zos/web/module_proxy.py`), gated behind the owner `/admin` session:
+  1. **Header/cookie isolation:** Strip `zos_admin_session` (and any `zos_admin*` cookie), `Authorization`, and client-supplied caller/prefix headers before forwarding; inject `X-Forwarded-Prefix: /admin/m/<slug>` and HMAC-SHA256-signed `X-ZOS-Caller` + `X-ZOS-Caller-Signature` (`client_name = "owner"`) signed with the module's vault secret.
+  2. **Response rewriting:** Rewrite upstream `Location` headers (root-relative or same-origin with `ui_url`) under `/admin/m/<slug>`. Scope module `Set-Cookie` headers to `Path=/admin/m/<slug>` and drop any cookie named `zos_admin_session` or starting with `zos_admin`. Unknown, disabled, or headless modules return `404`.
+  3. **Same-origin trust model (WordPress-plugin model):** Module UIs are served same-origin with `/admin`, which means installed module UI code is trusted owner-level code. That is why ZOS only installs catalog manifests pinned by image digest (or audited first-party in-repo builds). Serving module UIs on separate per-module origins remains a future option if untrusted third-party UIs are ever supported.
+  4. **WebSockets deferred:** HTTP streaming is supported; WebSocket proxying is intentionally deferred until a live-canvas module (such as Whiteboard) requires it.
+- **Why:** Lets the owner open any installed module UI directly from `/admin` (including over mobile + Cloudflare Access) with zero extra domains, tunnels, or logins while preventing the admin session cookie or owner passphrase from ever reaching module containers.
+- **Impact:** Installed modules with a `ui_port` automatically appear in the `/admin` navigation bar and Overview page and render seamlessly under `/admin/m/<slug>/`.
+
 
 
 
