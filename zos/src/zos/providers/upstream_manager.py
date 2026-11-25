@@ -650,6 +650,23 @@ class UpstreamManager:
                 exposed_tools=exposed,
             )
 
+        is_module = bool(cfg.get("is_module", False))
+        module_slug = str(cfg.get("module_slug") or slug)
+
+        async def _get_module_caller_secret() -> str | None:
+            if self._store is None:
+                return None
+            found = await self._store.find_credential(
+                principal_id=principal_id,
+                issuer="module_secret",
+                account=module_slug,
+            )
+            if found is None:
+                return None
+            _crow, cpayload = found
+            val = str(cpayload.get("secret") or "")
+            return val or None
+
         mcp_provider = McpUpstreamProvider(
             namespace=slug,
             url=url,
@@ -662,6 +679,7 @@ class UpstreamManager:
             auth_mode=auth_mode,
             on_auth_failed=_on_auth_failed,
             on_tools_updated=_on_tools_updated if manifest_patterns else None,
+            caller_secret_getter=_get_module_caller_secret if is_module else None,
         )
         return _ManagedUpstream(
             slug=slug,

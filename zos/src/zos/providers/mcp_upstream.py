@@ -13,13 +13,14 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import httpx2
 import mcp_types as types
 from mcp.client.session import ClientRequestContext, ClientSession, IncomingMessage
 from mcp.client.streamable_http import streamable_http_client
+from zos_module_sdk.caller import MCP_CALLER_META_KEY, sign_mcp_caller
 
 from zos.auth.context import CallContext
 from zos.policy.elicitation import session_supports_elicitation
@@ -159,6 +160,7 @@ class McpUpstreamProvider:
         auth_mode: str = "oauth",
         on_auth_failed: Callable[[str], Awaitable[None]] | None = None,
         on_tools_updated: Callable[[list[ProviderTool]], Awaitable[None]] | None = None,
+        caller_secret_getter: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         self._namespace = namespace
         self.url = url
@@ -173,6 +175,7 @@ class McpUpstreamProvider:
         self._connect_timeout_s = connect_timeout_s
         self._on_auth_failed = on_auth_failed
         self._on_tools_updated = on_tools_updated
+        self._caller_secret_getter = caller_secret_getter
 
         self._session: ClientSession | None = None
         self._auth: _UpstreamBearerAuth | None = None
@@ -516,7 +519,7 @@ class McpUpstreamProvider:
         async with self._call_lock:
             self._current_downstream = downstream
             try:
-                return await self._call_with_reconnect(name, args)
+                return await self._call_with_reconnect(name, args, ctx)
             finally:
                 self._current_downstream = None
 
@@ -524,6 +527,7 @@ class McpUpstreamProvider:
         self,
         name: str,
         args: dict[str, Any],
+        ctx: CallContext,
     ) -> types.CallToolResult:
         for attempt in range(2):
             if not self.is_online():
@@ -555,7 +559,25 @@ class McpUpstreamProvider:
             assert session is not None
             raw_name = self._local_to_raw.get(name, name)
             try:
-                result = await session.call_tool(raw_name, args)
+                call_meta: dict[str, Any] | None = None
+                if self._caller_secret_getter is not None:
+                    caller_secret = await self._caller_secret_getter()
+                    if caller_secret:
+                        call_meta = {
+                            MCP_CALLER_META_KEY: sign_mcp_caller(
+                                caller_secret,
+                                principal_id=str(ctx.principal_id),
+                                client_id=str(ctx.client_id),
+                                client_name=ctx.client_name,
+                                tool=raw_name,
+                                args=args,
+                            )
+                        }
+                result = await session.call_tool(
+                    raw_name,
+                    args,
+                    meta=cast(types.RequestParamsMeta, call_meta) if call_meta is not None else None,
+                )
                 if isinstance(result, types.CallToolResult):
                     return types.CallToolResult(
                         content=list(result.content),
