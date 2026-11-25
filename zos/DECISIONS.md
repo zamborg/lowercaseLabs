@@ -114,6 +114,16 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** `deploy/fly.toml` was never deployed or verified on Fly.io (V1 self-hosts on Docker Compose + Cloudflare Named Tunnel) and is broken as written: `[build] dockerfile = "Dockerfile"` fails from `deploy/` context because `deploy/Dockerfile` copies `pyproject.toml`, `migrations/`, `catalog/`, and `src/` from the `zos/` parent directory, and `256mb` VM memory is tight alongside Argon2id verification. Both M0 spikes (`spikes/hosting/` and `spikes/google/`) have been superseded by the shipped ASGI server, Google OAuth flow, and integration test suite.
 - **Impact:** The repository contains only live, tested code and working deployment templates (`deploy/Dockerfile`, `deploy/docker-compose.yml`, `deploy/cloudflared/`, `deploy/launchd/`, `deploy/backup/`).
 
+## 2026-11-25 — Two-layer policy split: static visibility vs. allowance engine chain (M10a)
+
+- **Decision:** Split policy enforcement in `ToolRouter` (`src/zos/router/routing.py`) into two explicit layers without changing default behavior:
+  1. **Visibility (`visible(snapshot, client, tool)`):** Static, argument-free check against the policy table snapshot. Hides tools whose table decision is `deny` (including `untrusted` clients losing `external` tools) from `tools/list`, and rejects hidden tools at call time before any allowance engine runs (auditing `payload.engine = "visibility"`).
+  2. **Allowance (`EngineChain` in `src/zos/policy/engine.py`):** Per-call evaluation over `PolicyInput(principal_id, client, tool, args)` running configured `PolicyEngine`s (`ZOS_POLICY_ENGINES`, comma-separated `module:attr`, empty by default) in order, followed by `TableEngine` (which never returns `pass`). First non-`pass` verdict wins; `escalate` maps to existing `require_approval` (elicitation or async approvals). Core invariants enforced in `EngineChain`: per-engine timeout (`ZOS_POLICY_ENGINE_TIMEOUT_S`, default `10.0`) or exception becomes `escalate`, and `trust_ceiling == "untrusted"` clamps any `escalate` to `deny`. Every audited `tool.called` event records `payload.engine` while keeping existing `events.decision` values (`allow`, `deny`, `require_approval`).
+  3. **Optional built-in guard (`zos.policy.guards:deny_rm_in_shell`):** Matches `*_shell_run` commands containing an `rm` token via `(?<![A-Za-z0-9_-])rm(?![A-Za-z0-9_-])` (catches `rm -rf`, `sudo rm`, `x;rm`, `\rm`, `/bin/rm` without false-positiving on `farm` or `--rm`). Disabled by default.
+  4. **Future LLM judge seam:** Documented in `src/zos/policy/engine.py` as a `PolicyEngine` calling a module tool within `ZOS_POLICY_ENGINE_TIMEOUT_S`, failing safe to `escalate` on timeout or error (not built in M10a).
+- **Why:** Decouples static tool visibility from argument-aware per-call checks so future guards or LLM judges plug cleanly behind `ZOS_POLICY_ENGINES` while keeping core invariants (untrusted clamp, fail-safe escalation, audit attribution) strictly in core.
+- **Impact:** Zero behavior change when `ZOS_POLICY_ENGINES` is empty; all existing policy/router/e2e tests pass unchanged, and every decision now records its deciding engine in `events.payload`.
+
 
 
 
