@@ -87,12 +87,13 @@ def render_google_connect_page(*, error: str | None = None, status_message: str 
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ZOS — Connect Google</title>
   <style>
-    body {{ font-family: system-ui, -apple-system, sans-serif; max-width: 520px; margin: 3rem auto; padding: 0 1rem; color: #111; }}
+    body {{ font-family: system-ui, -apple-system, sans-serif; max-width: 520px; margin: 2rem auto; padding: 0 1rem; color: #111; }}
     .card {{ border: 1px solid #d4d4d8; border-radius: 8px; padding: 1.5rem; }}
-    input[type=password] {{ width: 100%; padding: 0.5rem; margin: 0.5rem 0 1rem; box-sizing: border-box; }}
-    button {{ padding: 0.55rem 1rem; border-radius: 6px; border: 1px solid #18181b; background: #18181b; color: #fff; cursor: pointer; }}
+    input[type=password] {{ width: 100%; padding: 0.65rem; font-size: 16px; margin: 0.5rem 0 1rem; box-sizing: border-box; }}
+    button {{ width: 100%; padding: 0.7rem 1rem; font-size: 16px; border-radius: 6px; border: 1px solid #18181b; background: #18181b; color: #fff; cursor: pointer; }}
   </style>
 </head>
 <body>
@@ -106,6 +107,64 @@ def render_google_connect_page(*, error: str | None = None, status_message: str 
       <input id="passphrase" name="passphrase" type="password" autocomplete="current-password" required autofocus>
       <button type="submit">Continue to Google</button>
     </form>
+  </div>
+</body>
+</html>
+"""
+
+
+def render_upstream_connect_page(
+    *,
+    slug: str,
+    upstream_url: str,
+    error: str | None = None,
+    status_message: str | None = None,
+    connected: bool = False,
+) -> str:
+    """Render mobile-friendly owner passphrase gate for `/connect/<slug>` OAuth flow."""
+    error_html = (
+        f'<p style="color:#b91c1c;font-weight:600;">{html.escape(error)}</p>' if error else ""
+    )
+    status_html = (
+        f'<p style="color:#15803d;font-weight:600;">{html.escape(status_message)}</p>'
+        if status_message
+        else ""
+    )
+    parsed = urlparse(upstream_url)
+    host = parsed.netloc or parsed.hostname or upstream_url
+    form_html = (
+        '<p style="margin-top:1.25rem;"><a href="/admin/upstreams" '
+        'style="display:inline-block;padding:0.65rem 1rem;border-radius:6px;background:#18181b;color:#fff;text-decoration:none;">'
+        "Open MCP Servers in Admin</a></p>"
+        if connected
+        else f"""
+    <form method="post" action="/connect/{html.escape(slug, quote=True)}">
+      <label for="passphrase"><strong>Owner passphrase</strong></label>
+      <input id="passphrase" name="passphrase" type="password" autocomplete="current-password" required autofocus>
+      <button type="submit">Continue to {html.escape(slug)}</button>
+    </form>"""
+    )
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ZOS — Connect {html.escape(slug)}</title>
+  <style>
+    body {{ font-family: system-ui, -apple-system, sans-serif; max-width: 520px; margin: 2rem auto; padding: 0 1rem; color: #111; }}
+    .card {{ border: 1px solid #d4d4d8; border-radius: 8px; padding: 1.5rem; }}
+    .meta {{ background: #f4f4f5; border-radius: 6px; padding: 0.65rem 0.75rem; font-family: ui-monospace, monospace; font-size: 0.85rem; word-break: break-all; margin: 0.75rem 0 1rem; }}
+    input[type=password] {{ width: 100%; padding: 0.65rem; font-size: 16px; margin: 0.5rem 0 1rem; box-sizing: border-box; }}
+    button {{ width: 100%; padding: 0.7rem 1rem; font-size: 16px; border-radius: 6px; border: 1px solid #18181b; background: #18181b; color: #fff; cursor: pointer; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Connect MCP Server: <code>{html.escape(slug)}</code></h1>
+    <div class="meta"><strong>Host:</strong> {html.escape(host)}<br><strong>URL:</strong> {html.escape(upstream_url)}</div>
+    {error_html}
+    {status_html}
+    {form_html}
   </div>
 </body>
 </html>

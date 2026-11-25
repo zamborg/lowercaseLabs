@@ -384,6 +384,229 @@ async def set_provider_backend(
     return out
 
 
+async def set_tool_tier(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    tool_pattern: str,
+    tier: str,
+) -> dict[str, Any]:
+    """Upsert a tool tier pattern (`read` | `write` | `external`) in `tool_tiers`."""
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            """
+            INSERT INTO tool_tiers (principal_id, tool_pattern, tier)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (principal_id, tool_pattern) DO UPDATE
+            SET tier = EXCLUDED.tier
+            RETURNING principal_id, tool_pattern, tier
+            """,
+            (principal_id, tool_pattern, tier),
+        )
+        row = await cur.fetchone()
+        await conn.commit()
+    assert row is not None
+    return dict(row)
+
+
+async def delete_tool_tier(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    tool_pattern: str,
+) -> bool:
+    """Delete a tool tier pattern if present."""
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            "DELETE FROM tool_tiers WHERE principal_id = %s AND tool_pattern = %s",
+            (principal_id, tool_pattern),
+        )
+        deleted = (cur.rowcount or 0) > 0
+        await conn.commit()
+    return deleted
+
+
+async def create_remote_upstream(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    space_id: UUID,
+    slug: str,
+    url: str,
+    auth_mode: str,
+    default_tier: str = "external",
+) -> dict[str, Any]:
+    """Register a generic remote MCP upstream (`runtime: remote`) in `providers`."""
+    config = {
+        "runtime": "remote",
+        "transport": "mcp",
+        "url": url,
+        "auth_mode": auth_mode,
+        "default_tier": default_tier,
+    }
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            "SELECT id, slug FROM providers WHERE principal_id = %s AND slug = %s",
+            (principal_id, slug),
+        )
+        if await cur.fetchone() is not None:
+            raise ValueError(f"Provider slug '{slug}' already exists")
+
+        cur = await conn.execute(
+            """
+            INSERT INTO providers (
+                principal_id, space_id, slug, kind, credential_id, config, enabled
+            )
+            VALUES (%s, %s, %s, 'upstream', NULL, %s, true)
+            RETURNING id, principal_id, space_id, slug, kind, credential_id, config, enabled, last_seen_at, created_at
+            """,
+            (principal_id, space_id, slug, Jsonb(config)),
+        )
+        row = await cur.fetchone()
+        assert row is not None
+
+        if default_tier != "external":
+            await conn.execute(
+                """
+                INSERT INTO tool_tiers (principal_id, tool_pattern, tier)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (principal_id, tool_pattern) DO UPDATE
+                SET tier = EXCLUDED.tier
+                """,
+                (principal_id, f"{slug}_*", default_tier),
+            )
+    return dict(row)
+
+
+async def list_remote_upstreams(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID | None = None,
+) -> list[dict[str, Any]]:
+    """List registered generic remote MCP upstream providers (`config->>'runtime' = 'remote'`)."""
+    async with pool.connection() as conn:
+        if principal_id is not None:
+            cur = await conn.execute(
+                """
+                SELECT id, principal_id, space_id, slug, kind, credential_id, config, enabled, last_seen_at, created_at
+                FROM providers
+                WHERE principal_id = %s AND kind = 'upstream' AND config->>'runtime' = 'remote'
+                ORDER BY slug ASC
+                """,
+                (principal_id,),
+            )
+        else:
+            cur = await conn.execute(
+                """
+                SELECT id, principal_id, space_id, slug, kind, credential_id, config, enabled, last_seen_at, created_at
+                FROM providers
+                WHERE kind = 'upstream' AND config->>'runtime' = 'remote'
+                ORDER BY slug ASC
+                """
+            )
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_remote_upstream(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    slug: str,
+    principal_id: UUID | None = None,
+) -> dict[str, Any] | None:
+    """Fetch a single generic remote MCP upstream provider by slug."""
+    async with pool.connection() as conn:
+        if principal_id is not None:
+            cur = await conn.execute(
+                """
+                SELECT id, principal_id, space_id, slug, kind, credential_id, config, enabled, last_seen_at, created_at
+                FROM providers
+                WHERE principal_id = %s AND slug = %s AND kind = 'upstream' AND config->>'runtime' = 'remote'
+                """,
+                (principal_id, slug),
+            )
+        else:
+            cur = await conn.execute(
+                """
+                SELECT id, principal_id, space_id, slug, kind, credential_id, config, enabled, last_seen_at, created_at
+                FROM providers
+                WHERE slug = %s AND kind = 'upstream' AND config->>'runtime' = 'remote'
+                LIMIT 1
+                """,
+                (slug,),
+            )
+        row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def attach_upstream_credential(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    provider_id: UUID,
+    credential_id: UUID,
+) -> None:
+    """Bind a vault credential ID to a remote upstream provider and mark last_seen_at."""
+    async with pool.connection() as conn:
+        await conn.execute(
+            """
+            UPDATE providers
+            SET credential_id = %s, last_seen_at = now()
+            WHERE id = %s
+            """,
+            (credential_id, provider_id),
+        )
+        await conn.commit()
+
+
+async def clear_upstream_credential(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    provider_id: UUID,
+) -> UUID | None:
+    """Detach and return the previous credential_id on a remote upstream provider."""
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            "SELECT credential_id FROM providers WHERE id = %s",
+            (provider_id,),
+        )
+        row = await cur.fetchone()
+        old_cred_id: UUID | None = row["credential_id"] if row else None
+        await conn.execute(
+            "UPDATE providers SET credential_id = NULL WHERE id = %s",
+            (provider_id,),
+        )
+        await conn.commit()
+    return old_cred_id
+
+
+async def delete_remote_upstream(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    slug: str,
+) -> dict[str, Any] | None:
+    """Delete a remote upstream provider, its vault credential, and its `<slug>_*` default tier."""
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            """
+            DELETE FROM providers
+            WHERE principal_id = %s AND slug = %s AND kind = 'upstream' AND config->>'runtime' = 'remote'
+            RETURNING id, slug, credential_id, config
+            """,
+            (principal_id, slug),
+        )
+        row = await cur.fetchone()
+        if row is None:
+            return None
+        cred_id = row["credential_id"]
+        if cred_id is not None:
+            await conn.execute("DELETE FROM credentials WHERE id = %s", (cred_id,))
+        await conn.execute(
+            "DELETE FROM tool_tiers WHERE principal_id = %s AND tool_pattern = %s",
+            (principal_id, f"{slug}_*"),
+        )
+    return dict(row)
+
+
 async def set_client_policy(
     pool: AsyncConnectionPool[AsyncConnection[DictRow]],
     *,

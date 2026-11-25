@@ -46,6 +46,7 @@ from zos.providers.google import (
 )
 from zos.providers.mcp_upstream import HttpClientFactory, McpUpstreamProvider
 from zos.providers.memory import MemoryProvider
+from zos.providers.upstream_manager import UpstreamManager
 from zos.router import ProviderRegistry, SessionTracker, ToolRouter
 from zos.web.admin import create_admin_routes
 
@@ -110,6 +111,7 @@ class ZosRuntime:
     session_manager: StreamableHTTPSessionManager
     actuator_manager: ActuatorManager
     google_hub: GoogleServiceHub
+    upstream_manager: UpstreamManager
     switch_provider_backend: Callable[[str, str], Awaitable[ToolProvider]] | None = None
 
 
@@ -134,6 +136,8 @@ def create_app(
     gcal_backend: str | None = None,
     gcal_mcp_url: str | None = None,
     gcal_http_client_factory: HttpClientFactory | None = None,
+    upstream_http_client_factory: HttpClientFactory | None = None,
+    upstream_connect_timeout_s: float = 15.0,
 ) -> Starlette:
     """Create the ZOS Starlette ASGI application."""
     cfg = settings or Settings.from_env()
@@ -198,6 +202,16 @@ def create_app(
     )
     actuator_manager = ActuatorManager(pool, registry, sessions)
     google_hub = GoogleServiceHub(pool, cfg, sessions, passphrase_limiter=passphrase_limiter)
+    upstream_manager = UpstreamManager(
+        pool,
+        cfg,
+        registry,
+        sessions,
+        passphrase_limiter=passphrase_limiter,
+        audit_elicitation=audit_recorder.record_elicitation,
+        http_client_factory=upstream_http_client_factory,
+        connect_timeout_s=upstream_connect_timeout_s,
+    )
 
     active_gcal_mcp: McpUpstreamProvider | None = None
     gcal_switch_lock = asyncio.Lock()
@@ -275,6 +289,7 @@ def create_app(
         session_manager=session_manager,
         actuator_manager=actuator_manager,
         google_hub=google_hub,
+        upstream_manager=upstream_manager,
         switch_provider_backend=switch_provider_backend,
     )
 
@@ -310,6 +325,7 @@ def create_app(
             await _activate_gcal_backend(effective_backend, broadcast=False)
 
             registry.register(GmailProvider(google_hub))
+            await upstream_manager.load_all_on_startup()
             for provider in extra_providers or []:
                 registry.register(provider)
                 if isinstance(provider, McpUpstreamProvider):
@@ -318,6 +334,8 @@ def create_app(
             async with session_manager.run():
                 yield
         finally:
+            with contextlib.suppress(Exception):
+                await upstream_manager.aclose()
             if active_gcal_mcp is not None:
                 with contextlib.suppress(Exception):
                     await active_gcal_mcp.aclose()
@@ -365,6 +383,7 @@ def create_app(
         ),
         *actuator_manager.routes(),
         *google_hub.routes(),
+        *upstream_manager.routes(),
         *create_admin_routes(
             pool,
             cfg,
