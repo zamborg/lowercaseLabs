@@ -70,6 +70,12 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Keeps container filesystem isolation intact (the container never mounts `~/.claude` or iCloud), guarantees backup/restore compatibility across macOS LibreSSL vs Homebrew OpenSSL, and avoids manual DB edits for new tool tier seeds.
 - **Impact:** Running `./deploy/scripts/import-memories.sh` and `./deploy/backup/backup.sh` works cleanly on the host against the live OrbStack stack; `~/Library/Mobile Documents/com~apple~CloudDocs/zos-backups/` was created locally (enable macOS iCloud Drive if off-device sync is desired).
 
+## 2026-11-24 — Owner-managed routed remote MCP servers (M9a)
+
+- **Decision:** Generalize `credentials.issuer` CHECK constraint (`0004_m9a_generic_upstream_credentials.sql`) to `length(trim(issuer)) > 0` so any upstream or future V2 module can store AEAD-encrypted secrets (`mcp_bearer`, `mcp_oauth`) in `credentials`. Store generic routed MCP registrations in `providers` (`kind='upstream'`) with `config = {runtime: "remote", transport: "mcp", url, auth_mode, default_tier}` (aligning with `V2.md`'s `runtime: remote` module manifest shape; zero secrets in `config`). Drive OAuth upstreams through the installed `mcp.client.auth.OAuthClientProvider` (`VaultOAuthTokenStorage` implementing `TokenStorage` over the AEAD vault) behind the existing owner passphrase-gated `/connect/<slug>` → `/connect/<slug>/callback` flow (mobile-friendly, shared global rate limiter), persisting discovered `OAuthMetadata`/`ProtectedResourceMetadata` so token refresh works across restarts and failed/revoked refreshes transition to `needs_reconnect` with a clear reconnect URL. Enforce strict slug format `^[a-z][a-z0-9]{1,15}$` (rejecting `zos` and built-ins), sanitize upstream tool names to `[a-zA-Z0-9_-]+` while forwarding raw names upstream, and reject exposed-name collisions. Implement `--default-tier` via a `<slug>_*` row in `tool_tiers` (so per-tool overrides set on `/admin/policy/tier` automatically win by longest-literal specificity).
+- **Why:** Reuses `McpUpstreamProvider`, `CredentialVault`, `tool_tiers`, and the Access-gated `/connect/` path without inventing parallel auth or policy machinery, while directly matching `V2.md`'s future remote-module manifest shape.
+- **Impact:** Any Streamable HTTP remote MCP server (`none`, `bearer`, or `oauth`) can be added, configured, connected from a phone, tiered per tool, disconnected, and removed live with zero restarts via `zos upstream ...` or `/admin/upstreams`.
+
 
 
 

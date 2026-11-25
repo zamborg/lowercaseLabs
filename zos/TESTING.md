@@ -173,11 +173,26 @@ When ready to expose ZOS at `https://zos.<your-domain>` (e.g. so ChatGPT connect
 | **M6 — Owner Admin Dashboard (`/admin`)** | Shared `AdminService` layer backs both CLI and `/admin`; auth (Argon2 login, signed HttpOnly `SameSite=Strict` 12h cookie, `Secure` on HTTPS, expiry, rate limiting, CSRF 403, security headers), all 4 pages (Overview, Clients, Tools & Policy matrix, cursor-paginated Activity with digests only), and CLI audit parity all tested; live `/admin` login verified on OrbStack. | None — ready to use at `http://localhost:8787/admin`. |
 | **M7 — Pre-Public Hardening** | Shared global passphrase limiter (5/min, 20/hr, backoff) + `auth.failed` audit across `/admin/login`, `/oauth/authorize`, `/connect/google`; `ZOS_ALLOWED_REDIRECT_HOSTS` loopback-only default + `chatgpt.com` allowlist + prominent redirect host on approve page; DCR 10/hr limit + 50 OAuth client cap + `/admin/clients` pruning; public `https://` base URL test; `PublicSchemeMiddleware` HTTPS trailing-slash redirects; declarative `deploy/cloudflared/config.yml.example` + `com.zos.cloudflared.plist`. | Cloudflare named tunnel live at `https://zos.aysola.org`. |
 | **M8 — Context Layer & Baseline** | `zos memory import` (`claude-code` & `codex` importers, JSONL stdin host wrapper `deploy/scripts/import-memories.sh`, shared `MemoryService`, idempotent & audited); MCP `InitializeResult.instructions` (+ `ZOS_INSTRUCTIONS_FILE` override); `gcal` REST parity (`get_event`, `list_calendars`, `search_events`, `freebusy`, `respond_to_event` + `gcal_freebusy` read tier); `memory_list` (cursor-paginated, no content) + `author`/`created_at`/`updated_at` on `memory_get`/`search`; actuator AddressBook contact names & name-to-handle lookup in `mac_messages_search`; nightly encrypted `pg_dump` backup (`deploy/backup/{backup,restore}.sh`, `com.zos.backup.plist`, `/admin` Overview last-backup status, verified live restore into `zos-pg-test`). | Re-enable iCloud Drive on macOS if `~/Library/Mobile Documents/com~apple~CloudDocs/zos-backups/` should sync off-device automatically (directory created locally). |
+| **M9a — Routed Remote MCP Servers** | Generic remote MCP registrations (`runtime: remote`) via `zos upstream add/set-token/connect/list/remove` and `/admin/upstreams` ("MCP Servers"); `none`, `bearer` (stdin/password → AEAD vault), and `oauth` (`mcp.client.auth.OAuthClientProvider` PRM/DCR/PKCE at phone-friendly `/connect/<slug>`, refresh & revoke → `needs_reconnect`); strict slug validation, tool name sanitization & collision rejection, `--default-tier` + per-tool tier editor on `/admin/policy`, hot add/remove `list_changed`, and isolated offline startup. | Connect real remote MCP servers (e.g. GitHub, Linear, Cloudflare, Notion) via `/admin/upstreams` or `zos upstream` (Opus + Zubin). |
 | **Definition of Done (V0)** | Every call audited in `events`; `DECISIONS.md` current; zero `later/` scope built; all Docker ports bound strictly to `127.0.0.1`. | End-to-end human session with both Claude Code and Codex signed in via OAuth using shared memory + FDA Messages + live Google. |
 
 ---
 
-## 4. M8 Context & Operations Quick Commands
+## 4. M8 & M9a Context & Operations Quick Commands
+
+- **Manage routed remote MCP servers (CLI or `/admin/upstreams`):**
+  ```bash
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+    uv run --no-sync zos upstream add github --url https://api.githubcopilot.com/mcp/ --auth bearer --default-tier external
+  # Pass PAT via stdin (never argv):
+  printf '%s\n' "$GITHUB_PAT" | docker compose --env-file .env -f deploy/docker-compose.yml exec -T zos \
+    uv run --no-sync zos upstream set-token github
+  # Or for OAuth remote MCP servers:
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+    uv run --no-sync zos upstream connect <slug>
+  docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+    uv run --no-sync zos upstream list
+  ```
 
 - **Import host agent memories into ZOS (idempotent, prints counts only):**
   ```bash
