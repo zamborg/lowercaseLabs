@@ -207,9 +207,11 @@ async def proxy_module_ui_request(
     if filtered_cookie:
         fwd_headers["Cookie"] = filtered_cookie
 
+    public_parsed = urlsplit(base_url)
     fwd_headers["Accept-Encoding"] = "identity"
     fwd_headers["X-Forwarded-Prefix"] = prefix
     fwd_headers["X-Forwarded-Proto"] = "https" if base_url.lower().startswith("https://") else "http"
+    fwd_headers["X-Forwarded-Host"] = public_parsed.netloc or request.headers.get("host", "")
     fwd_headers[HTTP_CALLER_HEADER] = caller_hdr
     fwd_headers[HTTP_CALLER_SIGNATURE_HEADER] = sig_hdr
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import quote
@@ -1015,6 +1016,29 @@ def create_admin_routes(
             next_path = request.url.path
             if request.url.query:
                 next_path = f"{next_path}?{request.url.query}"
+            # SameSite=Strict admin cookies are omitted by browsers on cross-site top-level GET
+            # redirects (e.g. OAuth callbacks to /admin/m/<slug>/callback). Serve a tiny same-origin
+            # meta-refresh interstitial so the follow-up same-origin request carries the cookie
+            # without weakening SameSite=Strict.
+            sec_fetch_site = request.headers.get("sec-fetch-site", "").strip().lower()
+            sec_fetch_mode = request.headers.get("sec-fetch-mode", "").strip().lower()
+            if (
+                request.method == "GET"
+                and sec_fetch_site == "cross-site"
+                and sec_fetch_mode in ("", "navigate")
+                and next_path.startswith("/admin/m/")
+            ):
+                safe_target = html.escape(next_path, quote=True)
+                return _html(
+                    "<!doctype html>"
+                    '<html lang="en"><head><meta charset="utf-8">'
+                    '<meta name="viewport" content="width=device-width, initial-scale=1">'
+                    f'<meta http-equiv="refresh" content="0;url={safe_target}">'
+                    "<title>Continuing…</title></head>"
+                    f'<body><p>Completing sign-in… <a href="{safe_target}">Continue</a></p></body>'
+                    "</html>",
+                    status_code=200,
+                )
             return _redirect(f"/admin/login?next={quote(next_path, safe='/?=&')}")
         slug = str(request.path_params.get("slug", "")).strip()
         subpath = str(request.path_params.get("path", ""))

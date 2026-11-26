@@ -116,6 +116,8 @@ def _create_fake_ui_app(secret_holder: dict[str, str]) -> Starlette:
                 "path": request.url.path,
                 "query": request.url.query,
                 "prefix": request.headers.get("x-forwarded-prefix"),
+                "proto": request.headers.get("x-forwarded-proto"),
+                "host": request.headers.get("x-forwarded-host"),
                 "cookie": request.headers.get("cookie"),
                 "authorization": request.headers.get("authorization"),
                 "caller_name": caller.client_name,
@@ -191,10 +193,30 @@ title = "Board UI"
 
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(transport=transport, base_url=cfg.zos_base_url) as client:
-                # 1. Unauthenticated request redirects to /admin/login?next=...
+                # 1. Unauthenticated same-origin request redirects to /admin/login?next=...
                 r_unauth = await client.get("/admin/m/board/items?a=1", follow_redirects=False)
                 assert r_unauth.status_code == 303
                 assert "/admin/login?next=/admin/m/board/items" in r_unauth.headers["location"]
+
+                # 1b. Cookieless cross-site top-level GET (e.g. OAuth callback with SameSite=Strict cookie)
+                #     gets a same-origin meta-refresh interstitial instead of /admin/login redirect
+                r_xs = await client.get(
+                    "/admin/m/board/callback?code=g123&state=s456",
+                    headers={"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate"},
+                    follow_redirects=False,
+                )
+                assert r_xs.status_code == 200
+                assert 'http-equiv="refresh"' in r_xs.text
+                assert 'url=/admin/m/board/callback?code=g123&amp;state=s456' in r_xs.text
+
+                # 1c. Follow-up same-origin request WITHOUT cookie does NOT loop -> redirects to /admin/login
+                r_so = await client.get(
+                    "/admin/m/board/callback?code=g123&state=s456",
+                    headers={"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "navigate"},
+                    follow_redirects=False,
+                )
+                assert r_so.status_code == 303
+                assert "/admin/login?next=/admin/m/board/callback" in r_so.headers["location"]
 
                 # Login as owner
                 r_login = await client.post(
@@ -203,6 +225,7 @@ title = "Board UI"
                     follow_redirects=False,
                 )
                 assert r_login.status_code == 303
+                assert "samesite=strict" in r_login.headers.get("set-cookie", "").lower()
 
                 # 2. Overview & nav include link to Board UI
                 r_ov = await client.get("/admin")
@@ -225,6 +248,7 @@ title = "Board UI"
                         "Cookie": f"zos_admin_session={admin_cookie}; mod_csrf=kept99",
                         "X-ZOS-Caller": "spoofed",
                         "X-ZOS-Caller-Signature": "spoofed",
+                        "X-Forwarded-Host": "evil.example",
                     },
                 )
                 assert r_prox.status_code == 200
@@ -232,6 +256,8 @@ title = "Board UI"
                 assert data["path"] == "/sub/page"
                 assert data["query"] == "k=v"
                 assert data["prefix"] == "/admin/m/board"
+                assert data["proto"] == "http"
+                assert data["host"] == cfg.zos_base_url.removeprefix("http://")
                 assert data["authorization"] is None
                 assert data["cookie"] == "mod_csrf=kept99"
                 assert "zos_admin_session" not in (data["cookie"] or "")

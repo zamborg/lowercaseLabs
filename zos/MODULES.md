@@ -109,12 +109,14 @@ Every ZOS → module `tools/call` request carries an HMAC-SHA256-signed envelope
 
 When `ui_port` is declared, ZOS reverse-proxies `/admin/m/<slug>` and `/admin/m/<slug>/{path}` behind the owner `/admin` session:
 
-- **Stripped before forwarding:** `zos_admin_session` (and any `zos_admin*` cookie), `Authorization`, and any client-supplied `X-ZOS-Caller*` or `X-Forwarded-Prefix` headers.
+- **Stripped before forwarding:** `zos_admin_session` (and any `zos_admin*` cookie), `Authorization`, and any client-supplied `X-ZOS-Caller*` or `X-Forwarded-*` headers.
 - **Injected by ZOS:**
   - `X-ZOS-Caller`: base64url canonical JSON `{"client_id":"owner","client_name":"owner","principal_id":"<uuid>","ts":<epoch>}`.
   - `X-ZOS-Caller-Signature`: `sha256=<lowercase hex HMAC-SHA256(ZOS_MODULE_SECRET, X-ZOS-Caller)>`.
   - `X-Forwarded-Prefix`: `/admin/m/<slug>`.
-  - `X-Forwarded-Proto`: `http` or `https`.
+  - `X-Forwarded-Proto`: `http` or `https` (from `ZOS_BASE_URL`).
+  - `X-Forwarded-Host`: public host[:port] (from `ZOS_BASE_URL`, Contract v1.1) so modules that perform upstream OAuth can construct exact callback URLs (`<proto>://<host><prefix>/callback`).
+- **Cross-site OAuth callbacks (`SameSite=Strict`):** Because `zos_admin_session` is `SameSite=Strict`, browsers omit it on cross-site redirects back from external OAuth providers. For cookieless top-level `GET` requests to `/admin/m/*` carrying `Sec-Fetch-Site: cross-site`, ZOS returns a minimal same-origin `<meta http-equiv="refresh">` re-navigation page to the exact same path and query; the browser's immediate same-origin follow-up carries `zos_admin_session` without weakening the cookie.
 - **Module obligations:**
   - Verify `X-ZOS-Caller` + `X-ZOS-Caller-Signature` on every UI request (except `/healthz`); return `403` otherwise.
   - Prefix all generated links, form actions, redirects, and CSRF cookie paths with `X-Forwarded-Prefix`.
