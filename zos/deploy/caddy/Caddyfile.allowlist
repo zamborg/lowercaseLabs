@@ -1,0 +1,11 @@
+@allowed {
+    path /mcp /mcp/* /.well-known/* /oauth/* /admin /admin/* /connect/* /actuator
+}
+handle @allowed {
+    reverse_proxy zos:8080 {
+        flush_interval -1
+    }
+}
+handle {
+    respond 404
+}

@@ -1,0 +1,4 @@
+services:
+  edge-filter:
+    ports:
+      - "8000:8000"
