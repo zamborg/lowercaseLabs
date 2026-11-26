@@ -26,10 +26,10 @@ Choose **Route A** (fastest, no domain needed) or **Route B** (bring your own do
 1. **👤 Sign up at [exe.dev](https://exe.dev/) (Personal plan) and add your SSH public key.**
 2. **Create your VM** (run from your local machine — an agent with SSH access to `exe.dev` can also run this):
    ```bash
-   ssh exe.dev new --name=zos
+   ssh exe.dev new --name=my-zos
    ```
-   > **Note:** **Your VM name becomes your public URL** (`--name=zos` → `https://zos.exe.xyz`). If you pick a different name (e.g. `my-zos`), your URL will be `https://my-zos.exe.xyz`. You can also attach a custom domain later with `ssh exe.dev domain add`.
-3. exe.dev VMs boot Ubuntu 24.04 with Docker, Compose, systemd, and passwordless `sudo` already installed (`ssh zos.exe.xyz` connects as `exedev`). Hand `ssh zos.exe.xyz` to your agent (or run Steps 2–4 yourself).
+   > **Note:** **Your VM name becomes your public URL** (`--name=my-zos` → `https://my-zos.exe.xyz`). exe.dev VM names must be **5–52 characters**: lowercase letters and digits with single hyphens, starting with a letter (so `zos` alone is too short). Pick something like `my-zos` or `zos-home`. You can also attach a custom domain later with `ssh exe.dev domain add`.
+3. exe.dev VMs boot Ubuntu 24.04 with Docker, Compose, systemd, and passwordless `sudo` already installed (`ssh my-zos.exe.xyz` connects as `exedev`). Hand `ssh my-zos.exe.xyz` to your agent (or run Steps 2–4 yourself).
 
 ### Route B — Bring Your Own Domain (Hetzner / Any Ubuntu 24.04 VPS + Caddy)
 
@@ -50,39 +50,39 @@ Choose **Route A** (fastest, no domain needed) or **Route B** (bring your own do
 
 ## Step 2 — Run the Installer (Agent or Human)
 
-SSH into the server and run `deploy/install.sh` pinned to the release tag (`zos-v3.1.1`). Choose the command matching your edge mode (all variants install into `/opt/zos` by default):
+SSH into the server and run `deploy/install.sh` pinned to the release tag (`zos-v3.1.2`). Choose the command matching your edge mode (all variants install into `/opt/zos` by default):
 
 - **`--edge exe` *(recommended no-domain path — run on the exe.dev VM from any directory)*:**
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.1.1/zos/deploy/install.sh -o /tmp/zos-install.sh
+  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.1.2/zos/deploy/install.sh -o /tmp/zos-install.sh
   sudo bash /tmp/zos-install.sh \
     --edge exe \
-    --ref zos-v3.1.1
+    --ref zos-v3.1.2
   ```
   *(Sets `ZOS_BASE_URL=https://$(hostname).exe.xyz` automatically. If you configured a custom domain via `ssh exe.dev domain add`, pass `--domain zos.<your-domain>`.)*
 - **`--edge caddy` *(bring-your-own-domain VPS — automatic Let's Encrypt HTTPS; run from any directory)*:**
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.1.1/zos/deploy/install.sh -o /tmp/zos-install.sh
+  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.1.2/zos/deploy/install.sh -o /tmp/zos-install.sh
   sudo bash /tmp/zos-install.sh \
     --domain zos.<your-domain> \
     --edge caddy \
-    --ref zos-v3.1.1
+    --ref zos-v3.1.2
   ```
 - **`--edge cloudflared` *(outbound Cloudflare Tunnel; run from any directory)*:**
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.1.1/zos/deploy/install.sh -o /tmp/zos-install.sh
+  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.1.2/zos/deploy/install.sh -o /tmp/zos-install.sh
   sudo bash /tmp/zos-install.sh \
     --domain zos.<your-domain> \
     --edge cloudflared \
-    --ref zos-v3.1.1
+    --ref zos-v3.1.2
   ```
 - **`--edge none` *(local `127.0.0.1:8787` only — rehearsals or SSH-tunneled access)*:**
   From GitHub (run from any directory):
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.1.1/zos/deploy/install.sh -o /tmp/zos-install.sh
+  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.1.2/zos/deploy/install.sh -o /tmp/zos-install.sh
   sudo bash /tmp/zos-install.sh \
     --edge none \
-    --ref zos-v3.1.1
+    --ref zos-v3.1.2
   ```
   Or from a local checkout on the host (run from the `zos/` directory of the repo):
   ```bash
@@ -116,9 +116,9 @@ SSH into the server and run `deploy/install.sh` pinned to the release tag (`zos-
      sudo bash /opt/zos/zos/deploy/install.sh
      ```
      Because `install.sh` is idempotent and reuses your persisted edge, domain, and ref/source from `/opt/zos/zos/.env`, it skips already-completed steps, prompts only for the missing owner passphrase (**asked twice, input hidden**), hashes it into `.env`, and recreates `zos`.
-2. **exe.dev only — make the HTTPS proxy public** (run from your **local machine**, not on the VM; replace `zos` if you chose a different VM name):
+2. **exe.dev only — make the HTTPS proxy public** (run from your **local machine**, not on the VM; replace `my-zos` if you chose a different VM name):
    ```bash
-   ssh exe.dev share set-public zos
+   ssh exe.dev share set-public my-zos
    ```
    *(exe.dev VMs are private by default; MCP clients and OAuth callbacks need the public proxy enabled, while `edge-filter` blocks `/healthz` and unknown paths with `404`.)*
 
@@ -133,7 +133,7 @@ Run from the server:
    curl -sf http://127.0.0.1:8787/healthz | python3 -m json.tool
    ```
    Confirm `"ok": true` and both `memory` (5 tools) and `inbox` (5 tools) report `"online": true`.
-   - **When using `--edge exe`:** exe.dev VMs cannot hairpin to `https://<vm>.exe.xyz`, so check the path filter on `127.0.0.1:8000` from the VM (and check `https://zos.exe.xyz/healthz` from your local machine after `share set-public`):
+   - **When using `--edge exe`:** exe.dev VMs cannot hairpin to `https://<vm>.exe.xyz`, so check the path filter on `127.0.0.1:8000` from the VM (and check `https://my-zos.exe.xyz/healthz` from your local machine after `share set-public`):
      ```bash
      curl -s -o /dev/null -w "healthz=%{http_code}\n" http://127.0.0.1:8000/healthz
      curl -s -o /dev/null -w "nope=%{http_code}\n" http://127.0.0.1:8000/nope
@@ -153,7 +153,7 @@ Run from the server:
    ```
    Confirm `('zos_app', False)`.
 3. **Admin UI:**
-   - With `--edge exe`, open `https://zos.exe.xyz/admin` (replace `zos` with your VM name).
+   - With `--edge exe`, open `https://my-zos.exe.xyz/admin` (replace `my-zos` with your VM name).
    - With `--edge caddy` or `--edge cloudflared`, open `https://zos.<your-domain>/admin`.
    - With `--edge none`, open an SSH tunnel from your local machine first:
      ```bash
@@ -181,19 +181,19 @@ Run from the server:
 
 ## Step 5 — 👤 Connect Your Agents
 
-> **Human step:** Point your MCP clients at `https://zos.exe.xyz/mcp` (or `https://zos.<your-domain>/mcp` if using a custom domain).
+> **Human step:** Point your MCP clients at `https://my-zos.exe.xyz/mcp` (or `https://zos.<your-domain>/mcp` if using a custom domain).
 
 - **Claude Code:**
   ```bash
-  claude mcp add --transport http zos https://zos.exe.xyz/mcp
+  claude mcp add --transport http zos https://my-zos.exe.xyz/mcp
   ```
 - **Codex:**
   ```bash
-  codex mcp add zos --url https://zos.exe.xyz/mcp
+  codex mcp add zos --url https://my-zos.exe.xyz/mcp
   ```
-- **ChatGPT / Claude web & mobile:** Add a custom MCP server pointing at `https://zos.exe.xyz/mcp` and complete OAuth sign-in in your browser.
+- **ChatGPT / Claude web & mobile:** Add a custom MCP server pointing at `https://my-zos.exe.xyz/mcp` and complete OAuth sign-in in your browser.
   - `chatgpt.com`, `claude.ai`, and `agent.meta.ai` are seeded on the OAuth redirect allowlist by default (loopback hosts are always allowed).
-  - If a new external client is rejected during OAuth registration, open **`https://zos.exe.xyz/admin/clients`** — you will see `"<client> tried to connect from <host>"` with **Allow** and **Dismiss** buttons (both audited). Click **Allow** and retry connecting the client.
+  - If a new external client is rejected during OAuth registration, open **`https://my-zos.exe.xyz/admin/clients`** — you will see `"<client> tried to connect from <host>"` with **Allow** and **Dismiss** buttons (both audited). Click **Allow** and retry connecting the client.
 - **Headless / bearer scripts:** Create a bearer client on `/admin/clients` or from `/opt/zos/zos` on the server (token is printed once — **don't paste the token into chat**):
   ```bash
   cd /opt/zos/zos
@@ -232,9 +232,9 @@ To copy every encrypted backup off-box (S3, Cloudflare R2, Backblaze B2, Google 
 `install.sh --update` takes an encrypted backup first, reuses your saved edge and domain from `/opt/zos/zos/.env`, fetches the requested ref (or pulls updated digest images), runs database migrations, upgrades installed modules (preserving all schemas, secrets, and manual tier/policy overrides), and recreates containers:
 
 ```bash
-sudo bash /opt/zos/zos/deploy/install.sh --update --ref zos-v3.1.1
+sudo bash /opt/zos/zos/deploy/install.sh --update --ref zos-v3.1.2
 ```
-*(Replace `zos-v3.1.1` with a newer release tag when upgrading, omit `--ref` to refresh your persisted ref or `--local-source`, or pass `--ref main` to track the development branch.)*
+*(Replace `zos-v3.1.2` with a newer release tag when upgrading, omit `--ref` to refresh your persisted ref or `--local-source`, or pass `--ref main` to track the development branch.)*
 
 ---
 
@@ -251,7 +251,7 @@ Follow the full migration and restore runbook in [TESTING.md § 11 (Moving ZOS t
 - **Cloudflare Named Tunnel (`--edge cloudflared`):**
   1. **Containerized token mode (recommended for Cloudflare):** Create a remotely-managed Named Tunnel in Cloudflare Zero Trust, set its Public Hostname (`zos.<your-domain>`) service URL to **`http://edge-filter:8000`**, put `CLOUDFLARED_TOKEN=<token>` in `/opt/zos/zos/.env`, and run:
      ```bash
-     sudo bash /opt/zos/zos/deploy/install.sh --domain zos.<your-domain> --edge cloudflared --ref zos-v3.1.1
+     sudo bash /opt/zos/zos/deploy/install.sh --domain zos.<your-domain> --edge cloudflared --ref zos-v3.1.2
      ```
      `edge-filter` publishes no host ports and `cloudflared` is network-isolated on `zos_edge` so traffic can only reach `edge-filter:8000` (enforcing the allowlist, blocking `/healthz`, and allowing `/actuator` WebSockets for a remote Mac actuator).
   2. **Host-side locally-managed mode:** Leave `CLOUDFLARED_TOKEN` unset and configure host `~/.cloudflared/config.yml` from `deploy/cloudflared/config.yml.example` (proxies allowlisted paths including `/actuator` to `http://127.0.0.1:8787`, catch-all `404`).
@@ -272,12 +272,12 @@ Gmail and Google Calendar run as two isolated egress modules (`gmail` and `gcal`
 1. **👤 Create a Google Cloud OAuth Web Client:**
    - Open [Google Cloud Console](https://console.cloud.google.com/), create or select a project, and enable **Gmail API** and **Google Calendar API** (plus **Google Calendar MCP** if you plan to use the `mcp` backend).
    - Under **Google Auth Platform → Audience**, choose **External** and publish (or add yourself as a Test User).
-   - Under **Clients → Create Client → Web application**, add **both** Authorized Redirect URIs (using `zos.exe.xyz` or `zos.<your-domain>`):
-     - `https://zos.exe.xyz/admin/m/gmail/callback`
-     - `https://zos.exe.xyz/admin/m/gcal/callback`
+   - Under **Clients → Create Client → Web application**, add **both** Authorized Redirect URIs (using `my-zos.exe.xyz` or `zos.<your-domain>`):
+     - `https://my-zos.exe.xyz/admin/m/gmail/callback`
+     - `https://my-zos.exe.xyz/admin/m/gcal/callback`
    - Copy the **Client ID** and **Client Secret**.
 2. **Install the modules:**
-   - Open **`https://zos.exe.xyz/admin/modules`**, click **Install** on **Gmail** and **Google Calendar**, and enter `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` for each (stored encrypted in the ZOS vault).
+   - Open **`https://my-zos.exe.xyz/admin/modules`**, click **Install** on **Gmail** and **Google Calendar**, and enter `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` for each (stored encrypted in the ZOS vault).
    - Or install via CLI:
      ```bash
      cd /opt/zos/zos
@@ -290,6 +290,6 @@ Gmail and Google Calendar run as two isolated egress modules (`gmail` and `gcal`
      docker compose --env-file .env -f deploy/docker-compose.yml restart zos
      ```
 3. **👤 Connect in your browser:**
-   - Open `https://zos.exe.xyz/admin/m/gmail/` and click **Connect Gmail**.
-   - Open `https://zos.exe.xyz/admin/m/gcal/` and click **Connect Google Calendar** (you can also switch between `api` REST v3 and `mcp` Calendar MCP backends on this page).
+   - Open `https://my-zos.exe.xyz/admin/m/gmail/` and click **Connect Gmail**.
+   - Open `https://my-zos.exe.xyz/admin/m/gcal/` and click **Connect Google Calendar** (you can also switch between `api` REST v3 and `mcp` Calendar MCP backends on this page).
    - Verify `/healthz` reports `gmail` (3 tools) and `gcal` (9 tools on `api`) online.
