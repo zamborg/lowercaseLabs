@@ -201,6 +201,27 @@ async def test_startup_warns_when_connected_as_superuser_and_migrate_script_is_i
                 )
                 await admin2.execute(f"ALTER DATABASE {test_db} OWNER TO {app_role}")
                 await admin2.execute(f"ALTER SCHEMA public OWNER TO {app_role}")
+                # Mirror migrate-existing-to-app-role.sh: hand over existing objects too.
+                await admin2.execute(
+                    f"""
+                    DO $$
+                    DECLARE r record;
+                    BEGIN
+                      FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
+                        EXECUTE format('ALTER TABLE public.%I OWNER TO {app_role}', r.tablename);
+                      END LOOP;
+                      FOR r IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public' LOOP
+                        EXECUTE format('ALTER SEQUENCE public.%I OWNER TO {app_role}', r.sequencename);
+                      END LOOP;
+                      FOR r IN SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args
+                               FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                               LEFT JOIN pg_depend d ON d.objid = p.oid AND d.deptype = 'e'
+                               WHERE n.nspname = 'public' AND d.objid IS NULL LOOP
+                        EXECUTE format('ALTER FUNCTION public.%I(%s) OWNER TO {app_role}', r.proname, r.args);
+                      END LOOP;
+                    END $$
+                    """
+                )
 
         # 3. Non-superuser connection emits NO superuser warning
         app_url = _replace_db_and_user(admin_url, user=app_role, password=app_pw, dbname=test_db)
