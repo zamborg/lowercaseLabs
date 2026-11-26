@@ -1,4 +1,5 @@
 .venv/
+**/.venv/
 actuator/.venv/
 .git/
 .pytest_cache/
