@@ -16,9 +16,40 @@ from psycopg_pool import AsyncConnectionPool
 
 V0_TIER_SEEDS: dict[str, str] = {
     "zos_status": "read",
-    "mac_messages_search": "read",
-    "mac_shell_run": "external",
 }
+
+
+async def _ensure_slug_available(
+    conn: AsyncConnection[DictRow],
+    *,
+    principal_id: UUID,
+    slug: str,
+    skip_modules: bool = False,
+) -> None:
+    """Enforce strict slug uniqueness across all provider kinds (connectors, modules, devices)."""
+    cur = await conn.execute(
+        "SELECT id, kind, config FROM providers WHERE principal_id = %s AND slug = %s",
+        (principal_id, slug),
+    )
+    prow = await cur.fetchone()
+    if prow is not None:
+        kind = str(prow["kind"])
+        cfg = prow["config"] if isinstance(prow["config"], dict) else {}
+        if kind == "actuator":
+            label = "device"
+        elif cfg.get("module_slug"):
+            label = "module"
+        else:
+            label = "connector"
+        raise ValueError(f"Slug '{slug}' is already in use by an existing {label}")
+
+    if not skip_modules:
+        cur = await conn.execute(
+            "SELECT id FROM modules WHERE principal_id = %s AND slug = %s",
+            (principal_id, slug),
+        )
+        if await cur.fetchone() is not None:
+            raise ValueError(f"Slug '{slug}' is already in use by an installed module")
 
 
 def hash_secret(raw: str) -> bytes:
@@ -456,12 +487,12 @@ async def create_remote_upstream(
     if extra_config:
         config.update(extra_config)
     async with pool.connection() as conn, conn.transaction():
-        cur = await conn.execute(
-            "SELECT id, slug FROM providers WHERE principal_id = %s AND slug = %s",
-            (principal_id, slug),
+        await _ensure_slug_available(
+            conn,
+            principal_id=principal_id,
+            slug=slug,
+            skip_modules=bool(extra_config and extra_config.get("module_slug")),
         )
-        if await cur.fetchone() is not None:
-            raise ValueError(f"Provider slug '{slug}' already exists")
 
         cur = await conn.execute(
             """
@@ -805,15 +836,19 @@ async def create_actuator_provider_and_token(
     space_id: UUID,
     slug: str,
 ) -> dict[str, Any]:
-    """Create or reuse an actuator provider row and mint a fresh actuator token."""
+    """Create a new device (actuator) provider row and mint its initial token.
+
+    Enforces strict slug uniqueness across devices, modules, and connectors.
+    """
     raw_token, token_hash = generate_token("zos_a")
     async with pool.connection() as conn, conn.transaction():
+        await _ensure_slug_available(conn, principal_id=principal_id, slug=slug)
+
         cur = await conn.execute(
             """
                 INSERT INTO providers (principal_id, space_id, slug, kind, config, enabled)
                 VALUES (%s, %s, %s, 'actuator', %s, true)
-                ON CONFLICT (principal_id, slug) DO UPDATE SET enabled = true
-                RETURNING id, slug, kind
+                RETURNING id, slug, kind, enabled, last_seen_at, created_at
                 """,
             (principal_id, space_id, slug, Jsonb({})),
         )
@@ -835,6 +870,139 @@ async def create_actuator_provider_and_token(
         "provider": dict(provider),
         "token_id": token_row["id"],
         "token": raw_token,
+    }
+
+
+async def list_device_providers(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+) -> list[dict[str, Any]]:
+    """List all persisted device (`kind = 'actuator'`) providers for a principal."""
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            """
+            SELECT id, principal_id, space_id, slug, kind, enabled, last_seen_at, created_at
+            FROM providers
+            WHERE principal_id = %s AND kind = 'actuator'
+            ORDER BY slug ASC
+            """,
+            (principal_id,),
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def rotate_device_token(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    slug: str,
+) -> dict[str, Any]:
+    """Revoke all existing tokens for a device and mint a fresh actuator token."""
+    raw_token, token_hash = generate_token("zos_a")
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            """
+            SELECT id, slug, kind, enabled, last_seen_at, created_at
+            FROM providers
+            WHERE principal_id = %s AND slug = %s AND kind = 'actuator'
+            FOR UPDATE
+            """,
+            (principal_id, slug),
+        )
+        provider = await cur.fetchone()
+        if provider is None:
+            raise ValueError(f"Device '{slug}' not found")
+
+        rev = await conn.execute(
+            """
+            UPDATE tokens
+            SET revoked_at = now()
+            WHERE provider_id = %s AND kind = 'actuator' AND revoked_at IS NULL
+            """,
+            (provider["id"],),
+        )
+        revoked_count = rev.rowcount or 0
+
+        cur = await conn.execute(
+            """
+            INSERT INTO tokens (principal_id, provider_id, kind, token_hash, scopes)
+            VALUES (%s, %s, 'actuator', %s, %s)
+            RETURNING id
+            """,
+            (principal_id, provider["id"], token_hash, ["actuator"]),
+        )
+        token_row = await cur.fetchone()
+        assert token_row is not None
+
+    return {
+        "provider": dict(provider),
+        "token_id": token_row["id"],
+        "token": raw_token,
+        "revoked_tokens": revoked_count,
+    }
+
+
+async def set_device_enabled(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    slug: str,
+    enabled: bool,
+) -> dict[str, Any]:
+    """Enable or disable a device provider while keeping its row and tokens intact."""
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            """
+            UPDATE providers
+            SET enabled = %s
+            WHERE principal_id = %s AND slug = %s AND kind = 'actuator'
+            RETURNING id, slug, kind, enabled, last_seen_at, created_at
+            """,
+            (enabled, principal_id, slug),
+        )
+        row = await cur.fetchone()
+        if row is None:
+            raise ValueError(f"Device '{slug}' not found")
+    return dict(row)
+
+
+async def delete_device_provider(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    principal_id: UUID,
+    slug: str,
+) -> dict[str, Any]:
+    """Revoke all tokens and delete a device provider row (preserving audit events)."""
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            """
+            SELECT id, slug, kind
+            FROM providers
+            WHERE principal_id = %s AND slug = %s AND kind = 'actuator'
+            FOR UPDATE
+            """,
+            (principal_id, slug),
+        )
+        provider = await cur.fetchone()
+        if provider is None:
+            raise ValueError(f"Device '{slug}' not found")
+
+        rev = await conn.execute(
+            """
+            UPDATE tokens
+            SET revoked_at = now()
+            WHERE provider_id = %s AND kind = 'actuator' AND revoked_at IS NULL
+            """,
+            (provider["id"],),
+        )
+        revoked_count = rev.rowcount or 0
+
+        await conn.execute("DELETE FROM providers WHERE id = %s", (provider["id"],))
+    return {
+        "id": provider["id"],
+        "slug": provider["slug"],
+        "revoked_tokens": revoked_count,
     }
 
 

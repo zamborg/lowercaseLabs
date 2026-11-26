@@ -26,6 +26,7 @@ from zos.db.queries import (
     create_bearer_client,
     create_remote_upstream,
     delete_dcr_rejected_attempt,
+    delete_device_provider,
     delete_oauth_client,
     delete_remote_upstream,
     find_client_by_name_or_id,
@@ -33,6 +34,7 @@ from zos.db.queries import (
     get_remote_upstream,
     list_allowed_redirect_hosts,
     list_dcr_rejected_attempts,
+    list_device_providers,
     list_remote_upstreams,
     mint_bearer_token_for_client,
     remove_allowed_redirect_host,
@@ -44,7 +46,14 @@ from zos.db.queries import (
 from zos.db.queries import (
     disable_client as db_disable_client,
 )
+from zos.db.queries import (
+    rotate_device_token as db_rotate_device_token,
+)
+from zos.db.queries import (
+    set_device_enabled as db_set_device_enabled,
+)
 from zos.policy import Decision, Tier, build_tool_annotations, resolve_decision, resolve_tier
+from zos.providers.actuator import ActuatorManager
 from zos.providers.upstream_manager import (
     ISSUER_MCP_BEARER,
     UpstreamManager,
@@ -52,7 +61,7 @@ from zos.providers.upstream_manager import (
     validate_upstream_url,
 )
 from zos.router import ZOS_STATUS_TOOL_NAME, ProviderRegistry, SessionTracker, format_tool_name
-from zos.router.naming import BUILTIN_PROVIDER_SLUGS, validate_upstream_slug
+from zos.router.naming import BUILTIN_PROVIDER_SLUGS, validate_device_slug, validate_upstream_slug
 from zos.vault import CredentialStore, CredentialVault
 
 
@@ -327,20 +336,32 @@ class AdminService:
             )
         return deleted
 
-    async def add_actuator(
+    async def add_device(
         self,
         *,
         slug: str,
         principal_slug: str | None = None,
+        actuator_manager: ActuatorManager | None = None,
     ) -> dict[str, Any]:
-        if not slug or "_" in slug or not slug.replace("-", "").isalnum():
-            raise ValueError("actuator slug must match [a-zA-Z0-9-]+ with no underscores")
+        """Register a new local device (dial-in MCP server), mint its token, and audit."""
+        clean_slug = validate_device_slug(slug)
         p, sp = await get_principal_and_space(self.pool, principal_slug)
         res = await create_actuator_provider_and_token(
             self.pool,
             principal_id=p["id"],
             space_id=sp["id"],
-            slug=slug,
+            slug=clean_slug,
+        )
+        if actuator_manager is not None:
+            actuator_manager.enable_device(clean_slug, res["provider"]["id"])
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            provider_id=res["provider"]["id"],
+            event_type="device.added",
+            outcome="ok",
+            payload={"slug": clean_slug},
         )
         await record_event(
             self.pool,
@@ -348,9 +369,170 @@ class AdminService:
             space_id=sp["id"],
             provider_id=res["provider"]["id"],
             event_type="token.issued",
-            payload={"token_id": str(res["token_id"]), "kind": "actuator", "slug": slug},
+            payload={"token_id": str(res["token_id"]), "kind": "actuator", "slug": clean_slug},
         )
         return res
+
+    async def add_actuator(
+        self,
+        *,
+        slug: str,
+        principal_slug: str | None = None,
+        actuator_manager: ActuatorManager | None = None,
+    ) -> dict[str, Any]:
+        """Backwards-compatible alias for `add_device`."""
+        return await self.add_device(
+            slug=slug,
+            principal_slug=principal_slug,
+            actuator_manager=actuator_manager,
+        )
+
+    async def list_devices(
+        self,
+        *,
+        registry: ProviderRegistry | None = None,
+        principal_slug: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """List registered devices merged with live online status and tool count."""
+        try:
+            p, _sp = await get_principal_and_space(self.pool, principal_slug)
+        except ValueError:
+            return []
+        rows = await list_device_providers(self.pool, principal_id=p["id"])
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            slug = str(row["slug"])
+            live = registry.get(slug) if registry is not None else None
+            online = bool(live is not None and live.is_online())
+            tool_count = int(getattr(live, "tool_count", 0)) if online else 0
+            out.append(
+                {
+                    "id": row["id"],
+                    "slug": slug,
+                    "enabled": bool(row["enabled"]),
+                    "online": online,
+                    "tool_count": tool_count,
+                    "last_seen_at": row.get("last_seen_at"),
+                    "created_at": row.get("created_at"),
+                }
+            )
+        return out
+
+    async def rotate_device_token(
+        self,
+        *,
+        slug: str,
+        principal_slug: str | None = None,
+        actuator_manager: ActuatorManager | None = None,
+    ) -> dict[str, Any]:
+        """Revoke existing device tokens, disconnect live WS, mint a fresh token, and audit."""
+        clean_slug = validate_device_slug(slug)
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        res = await db_rotate_device_token(self.pool, principal_id=p["id"], slug=clean_slug)
+        if actuator_manager is not None:
+            await actuator_manager.disconnect_device(clean_slug, reason="Device token rotated")
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            provider_id=res["provider"]["id"],
+            event_type="device.token_rotated",
+            outcome="ok",
+            payload={
+                "slug": clean_slug,
+                "token_id": str(res["token_id"]),
+                "revoked_tokens": res["revoked_tokens"],
+            },
+        )
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            provider_id=res["provider"]["id"],
+            event_type="token.issued",
+            payload={"token_id": str(res["token_id"]), "kind": "actuator", "slug": clean_slug},
+        )
+        return res
+
+    async def disable_device(
+        self,
+        *,
+        slug: str,
+        principal_slug: str | None = None,
+        actuator_manager: ActuatorManager | None = None,
+    ) -> dict[str, Any]:
+        """Disable a device (hide tools and close live WS while preserving row and tokens)."""
+        clean_slug = validate_device_slug(slug)
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        row = await db_set_device_enabled(
+            self.pool, principal_id=p["id"], slug=clean_slug, enabled=False
+        )
+        if actuator_manager is not None:
+            await actuator_manager.disable_device(clean_slug)
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            provider_id=row["id"],
+            event_type="device.disabled",
+            outcome="ok",
+            payload={"slug": clean_slug},
+        )
+        return row
+
+    async def enable_device(
+        self,
+        *,
+        slug: str,
+        principal_slug: str | None = None,
+        actuator_manager: ActuatorManager | None = None,
+    ) -> dict[str, Any]:
+        """Re-enable a disabled device so it can dial back in."""
+        clean_slug = validate_device_slug(slug)
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        row = await db_set_device_enabled(
+            self.pool, principal_id=p["id"], slug=clean_slug, enabled=True
+        )
+        if actuator_manager is not None:
+            actuator_manager.enable_device(clean_slug, row["id"])
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            provider_id=row["id"],
+            event_type="device.enabled",
+            outcome="ok",
+            payload={"slug": clean_slug},
+        )
+        return row
+
+    async def remove_device(
+        self,
+        *,
+        slug: str,
+        principal_slug: str | None = None,
+        actuator_manager: ActuatorManager | None = None,
+    ) -> dict[str, Any]:
+        """Disconnect live WS, revoke tokens, remove device row (preserving audit events)."""
+        clean_slug = validate_device_slug(slug)
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        if actuator_manager is not None:
+            await actuator_manager.remove_device(clean_slug)
+        deleted = await delete_device_provider(self.pool, principal_id=p["id"], slug=clean_slug)
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            provider_id=None,
+            event_type="device.removed",
+            outcome="ok",
+            payload={
+                "slug": clean_slug,
+                "deleted_provider_id": str(deleted["id"]),
+                "revoked_tokens": deleted["revoked_tokens"],
+            },
+        )
+        return deleted
 
     async def list_allowed_redirect_hosts(self) -> list[dict[str, Any]]:
         return await list_allowed_redirect_hosts(self.pool)
@@ -984,11 +1166,12 @@ class AdminService:
             online: bool,
             destructive_hint: bool | None = None,
             idempotent_hint: bool | None = None,
+            default_tier: Tier = "external",
         ) -> None:
             if exposed_name in seen_names:
                 return
             seen_names.add(exposed_name)
-            tier = resolve_tier(exposed_name, tiers)
+            tier = resolve_tier(exposed_name, tiers, default_tier=default_tier)
             ann = build_tool_annotations(
                 tier,
                 destructive_hint=destructive_hint,
@@ -1036,12 +1219,16 @@ class AdminService:
                 ptools = []
             for pt in ptools:
                 exposed = format_tool_name(provider.namespace, pt.name)
+                default_tier: Tier = (
+                    "read" if (provider.kind == "actuator" and pt.read_only_hint is True) else "external"
+                )
                 _add_tool(
                     exposed,
                     provider.namespace,
                     True,
                     destructive_hint=pt.destructive_hint,
                     idempotent_hint=pt.idempotent_hint,
+                    default_tier=default_tier,
                 )
 
         # Include seeded offline tools so owner can pre-configure policies even while offline

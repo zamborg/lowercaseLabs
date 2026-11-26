@@ -55,6 +55,7 @@ class ProviderTool:
     name: str
     description: str
     input_schema: dict[str, Any] = field(default_factory=lambda: {"type": "object", "properties": {}})
+    read_only_hint: bool | None = None
     destructive_hint: bool | None = None
     idempotent_hint: bool | None = None
 

@@ -229,7 +229,7 @@ async def test_admin_pages_mutations_audit_privacy_pagination_and_cli_parity(db_
         r_pol = await client.get("/admin/policy")
         assert r_pol.status_code == 200
         assert "zos_status" in r_pol.text
-        assert "mac_shell_run" in r_pol.text
+        assert "mac_shell_run" not in r_pol.text
         assert "web-client" in r_pol.text
 
         r_set = await client.post(

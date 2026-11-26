@@ -28,7 +28,8 @@ app = typer.Typer(name="zos", help="ZOS MCP router administration CLI.", no_args
 client_app = typer.Typer(help="Manage MCP clients.")
 token_app = typer.Typer(help="Manage bearer and OAuth tokens.")
 policy_app = typer.Typer(help="Manage per-client and default tool policies.")
-actuator_app = typer.Typer(help="Manage dial-out actuators.")
+actuator_app = typer.Typer(help="Manage dial-in devices (alias for `zos device`).")
+device_app = typer.Typer(help="Manage dial-in devices (local MCP servers).")
 provider_app = typer.Typer(help="Manage upstream providers.")
 upstream_app = typer.Typer(help="Manage routed remote MCP servers.")
 catalog_app = typer.Typer(help="Browse and install connectors from the built-in catalog.")
@@ -40,6 +41,7 @@ app.add_typer(client_app, name="client")
 app.add_typer(token_app, name="token")
 app.add_typer(policy_app, name="policy")
 app.add_typer(actuator_app, name="actuator")
+app.add_typer(device_app, name="device")
 app.add_typer(provider_app, name="provider")
 app.add_typer(upstream_app, name="upstream")
 app.add_typer(catalog_app, name="catalog")
@@ -264,27 +266,135 @@ def policy_clear_cmd(
 
 
 @actuator_app.command("add")
+@device_app.command("add")
 def actuator_add_cmd(
-    slug: Annotated[str, typer.Argument(help="Actuator provider slug (e.g. mac)")],
+    slug: Annotated[str, typer.Argument(help="Device slug (e.g. mac, studio-mac)")],
     principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
 ) -> None:
-    """Register an actuator provider and print its actuator token once."""
-    if "_" in slug or not slug.replace("-", "").isalnum():
-        typer.echo("Error: actuator slug must match [a-zA-Z0-9-]+ with no underscores.", err=True)
-        raise typer.Exit(code=2)
+    """Register a dial-in device and print its token once."""
 
     async def _run() -> dict:
         s = _settings()
         async with open_pool(s.database_url) as pool:
-            return await AdminService(pool).add_actuator(
+            return await AdminService(pool).add_device(
                 slug=slug,
                 principal_slug=principal,
             )
 
-    res = asyncio.run(_run())
+    try:
+        res = asyncio.run(_run())
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
     typer.echo(f"provider_id={res['provider']['id']}")
     typer.echo(f"token_id={res['token_id']}")
     typer.echo(f"token={res['token']}")
+
+
+@device_app.command("list")
+def device_list_cmd(
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """List registered dial-in devices."""
+
+    async def _run() -> list[dict]:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).list_devices(principal_slug=principal)
+
+    items = asyncio.run(_run())
+    if not items:
+        typer.echo("No devices registered.")
+        return
+    for d in items:
+        state = "enabled" if d["enabled"] else "disabled"
+        last_seen = d["last_seen_at"].isoformat() if d.get("last_seen_at") else "never"
+        typer.echo(f"{d['slug']}\tstate={state}\tlast_seen={last_seen}")
+
+
+@device_app.command("rotate")
+def device_rotate_cmd(
+    slug: Annotated[str, typer.Argument(help="Device slug")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Revoke prior tokens for a device and print a fresh token once."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).rotate_device_token(
+                slug=slug,
+                principal_slug=principal,
+            )
+
+    try:
+        res = asyncio.run(_run())
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"revoked_tokens={res['revoked_tokens']}")
+    typer.echo(f"token_id={res['token_id']}")
+    typer.echo(f"token={res['token']}")
+
+
+@device_app.command("disable")
+def device_disable_cmd(
+    slug: Annotated[str, typer.Argument(help="Device slug")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Disable a device (hides tools, keeps row)."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).disable_device(slug=slug, principal_slug=principal)
+
+    try:
+        row = asyncio.run(_run())
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Disabled device slug={row['slug']}")
+
+
+@device_app.command("enable")
+def device_enable_cmd(
+    slug: Annotated[str, typer.Argument(help="Device slug")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Re-enable a disabled device."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).enable_device(slug=slug, principal_slug=principal)
+
+    try:
+        row = asyncio.run(_run())
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Enabled device slug={row['slug']}")
+
+
+@device_app.command("remove")
+def device_remove_cmd(
+    slug: Annotated[str, typer.Argument(help="Device slug")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Remove a device and revoke its tokens."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await AdminService(pool).remove_device(slug=slug, principal_slug=principal)
+
+    try:
+        res = asyncio.run(_run())
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"Removed device slug={res['slug']} revoked_tokens={res['revoked_tokens']}")
 
 
 @upstream_app.command("add")

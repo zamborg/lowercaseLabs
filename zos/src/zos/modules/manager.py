@@ -248,6 +248,16 @@ class ModuleManager:
         if existing is not None:
             raise ValueError(f"Module '{clean_slug}' is already installed")
 
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT kind FROM providers WHERE principal_id = %s AND slug = %s",
+                (p["id"], clean_slug),
+            )
+            prow = await cur.fetchone()
+            if prow is not None:
+                label = "device" if prow["kind"] == "actuator" else "connector"
+                raise ValueError(f"Slug '{clean_slug}' is already in use by an existing {label}")
+
         resolved_cfg = self._validate_config_values(manifest, config_values)
         module_secret = await self.storage.ensure_module_secret(
             principal_id=p["id"],

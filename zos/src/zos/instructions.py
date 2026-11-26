@@ -12,10 +12,10 @@ DEFAULT_MCP_INSTRUCTIONS = (
     "- Saving memories: persist durable facts with `memory_put` using descriptive "
     "kebab-case keys and relevant tags (e.g. `type:preference`, `project:<name>`). "
     "Never store secrets, tokens, or passwords.\n"
-    "- Providers: tool prefixes map to providers (`memory_*`, `gcal_*`, `gmail_*`, "
-    "`mac_*`); call `zos_status` to check which providers are currently online.\n"
-    "- Approvals: `external`-tier tools (sending email, changing calendar events, "
-    "running shell commands) require explicit owner approval before executing."
+    "- Providers: tool prefixes map to installed modules, connectors, and connected devices "
+    "(e.g. `memory_*`, `inbox_*`); call `zos_status` to check which providers are currently online.\n"
+    "- Approvals: `external`-tier tools (sending email, changing external state, "
+    "or running local device actions) require explicit owner approval before executing."
 )
 
 

@@ -31,7 +31,12 @@ def match_best_pattern[T](tool_name: str, rules: Mapping[str, T]) -> T | None:
     return best_val
 
 
-def resolve_tier(tool_name: str, tiers: Mapping[str, Tier]) -> Tier:
-    """Resolve a tool's global tier from `tool_tiers` rows; unknown -> 'external'."""
+def resolve_tier(
+    tool_name: str,
+    tiers: Mapping[str, Tier],
+    *,
+    default_tier: Tier = "external",
+) -> Tier:
+    """Resolve a tool's global tier from `tool_tiers` rows; unmatched -> `default_tier`."""
     matched = match_best_pattern(tool_name, tiers)
-    return matched if matched is not None else "external"
+    return matched if matched is not None else default_tier

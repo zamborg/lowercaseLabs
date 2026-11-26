@@ -127,6 +127,8 @@ def visible(
     snapshot: PolicySnapshot,
     client: CallContext | PolicyClient,
     tool: str,
+    *,
+    default_tier: Tier = "external",
 ) -> bool:
     """Layer 1 visibility check: static, per-client, argument-free.
 
@@ -134,7 +136,7 @@ def visible(
     Because `resolve_decision` downgrades `require_approval` -> `deny` for untrusted
     clients, untrusted clients continue to hide external tools automatically.
     """
-    tier = resolve_tier(tool, snapshot.tiers)
+    tier = resolve_tier(tool, snapshot.tiers, default_tier=default_tier)
     decision = resolve_decision(
         tool,
         tier=tier,

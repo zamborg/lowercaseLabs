@@ -73,8 +73,9 @@ class PolicySnapshot:
         trust_ceiling: TrustCeiling,
         destructive_hint: bool | None = None,
         idempotent_hint: bool | None = None,
+        default_tier: Tier = "external",
     ) -> PolicyEvaluation:
-        tier = resolve_tier(exposed_name, self.tiers)
+        tier = resolve_tier(exposed_name, self.tiers, default_tier=default_tier)
         decision = resolve_decision(
             exposed_name,
             tier=tier,

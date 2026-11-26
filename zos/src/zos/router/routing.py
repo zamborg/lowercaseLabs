@@ -78,6 +78,17 @@ class ToolRouter:
             return None
         return await self._load_policy_snapshot(ctx)
 
+    @staticmethod
+    def _default_tier_for(provider: ToolProvider, ptool: ProviderTool) -> Tier:
+        """Default tier when no explicit `tool_tiers` row matches.
+
+        Device (actuator) tools with MCP `readOnlyHint: true` default to `read`;
+        all other unmatched tools default to `external` (approval required).
+        """
+        if provider.kind == "actuator" and ptool.read_only_hint is True:
+            return "read"
+        return "external"
+
     async def _eval_policy(
         self,
         ctx: CallContext,
@@ -85,6 +96,7 @@ class ToolRouter:
         *,
         destructive_hint: bool | None = None,
         idempotent_hint: bool | None = None,
+        default_tier: Tier = "external",
         snapshot: PolicySnapshot | None = None,
     ) -> PolicyEvaluation:
         if snapshot is not None:
@@ -93,6 +105,7 @@ class ToolRouter:
                 trust_ceiling=ctx.trust_ceiling,
                 destructive_hint=destructive_hint,
                 idempotent_hint=idempotent_hint,
+                default_tier=default_tier,
             )
         if self._load_policy_snapshot is not None:
             snap = await self._load_policy_snapshot(ctx)
@@ -101,19 +114,21 @@ class ToolRouter:
                 trust_ceiling=ctx.trust_ceiling,
                 destructive_hint=destructive_hint,
                 idempotent_hint=idempotent_hint,
+                default_tier=default_tier,
             )
         if self._evaluate_policy is not None:
             return await self._evaluate_policy(ctx, exposed_name, destructive_hint, idempotent_hint)
-        is_read = exposed_name == ZOS_STATUS_TOOL_NAME
+        tier: Tier = "read" if exposed_name == ZOS_STATUS_TOOL_NAME else default_tier
+        is_read = tier == "read"
         resolved_destructive = False if is_read else (True if destructive_hint is None else bool(destructive_hint))
         return PolicyEvaluation(
-            tier="read" if is_read else "external",
+            tier=tier,
             decision="allow",
             annotations=types.ToolAnnotations(
                 read_only_hint=is_read,
                 destructive_hint=resolved_destructive,
                 idempotent_hint=idempotent_hint,
-                open_world_hint=not is_read,
+                open_world_hint=(tier == "external"),
             ),
         )
 
@@ -125,15 +140,17 @@ class ToolRouter:
         *,
         destructive_hint: bool | None = None,
         idempotent_hint: bool | None = None,
+        default_tier: Tier = "external",
     ) -> tuple[bool, PolicyEvaluation]:
         """Layer 1: static, per-client, argument-free visibility check."""
         if snapshot is not None:
-            is_visible = visible(snapshot, ctx, exposed_name)
+            is_visible = visible(snapshot, ctx, exposed_name, default_tier=default_tier)
             ev = snapshot.evaluate(
                 exposed_name,
                 trust_ceiling=ctx.trust_ceiling,
                 destructive_hint=destructive_hint,
                 idempotent_hint=idempotent_hint,
+                default_tier=default_tier,
             )
             return is_visible, ev
         ev = await self._eval_policy(
@@ -141,6 +158,7 @@ class ToolRouter:
             exposed_name,
             destructive_hint=destructive_hint,
             idempotent_hint=idempotent_hint,
+            default_tier=default_tier,
         )
         return ev.decision != "deny", ev
 
@@ -255,13 +273,14 @@ class ToolRouter:
 
         tool_map = await self._build_tool_map()
         for exposed_name in sorted(tool_map):
-            _provider, ptool = tool_map[exposed_name]
+            provider, ptool = tool_map[exposed_name]
             is_visible, ev = await self._check_visibility(
                 snapshot,
                 ctx,
                 exposed_name,
                 destructive_hint=ptool.destructive_hint,
                 idempotent_hint=ptool.idempotent_hint,
+                default_tier=self._default_tier_for(provider, ptool),
             )
             if not is_visible:
                 continue
@@ -480,6 +499,7 @@ class ToolRouter:
             exposed_name,
             destructive_hint=ptool.destructive_hint,
             idempotent_hint=ptool.idempotent_hint,
+            default_tier=self._default_tier_for(provider, ptool),
         )
         if not is_visible:
             await self._audit(

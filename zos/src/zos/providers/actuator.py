@@ -61,6 +61,26 @@ class ActuatorProvider:
     def is_online(self) -> bool:
         return self._online and self._session is not None
 
+    @property
+    def tool_count(self) -> int:
+        return len(self._tools) if self.is_online() else 0
+
+    async def disconnect(self, *, reason: str = "Disconnected by owner") -> bool:
+        """Forcibly close any live WebSocket and detach tools immediately."""
+        ws_to_close: WebSocket | None = None
+        async with self._lock:
+            was_online = self._online
+            self._generation += 1
+            ws_to_close = self._active_ws
+            self._online = False
+            self._session = None
+            self._tools = []
+            self._active_ws = None
+        if ws_to_close is not None:
+            with contextlib.suppress(Exception):
+                await ws_to_close.close(code=4001, reason=reason)
+        return was_online
+
     async def attach(
         self,
         *,
@@ -161,9 +181,12 @@ class ActuatorProvider:
 def _convert_mcp_tools(mcp_tools: list[types.Tool]) -> list[ProviderTool]:
     converted: list[ProviderTool] = []
     for tool in mcp_tools:
+        read_only: bool | None = None
         destructive: bool | None = None
         idempotent: bool | None = None
         if tool.annotations is not None:
+            if tool.annotations.read_only_hint is not None:
+                read_only = bool(tool.annotations.read_only_hint)
             if tool.annotations.destructive_hint is not None:
                 destructive = bool(tool.annotations.destructive_hint)
             idempotent = tool.annotations.idempotent_hint
@@ -172,6 +195,7 @@ def _convert_mcp_tools(mcp_tools: list[types.Tool]) -> list[ProviderTool]:
                 name=tool.name,
                 description=tool.description or "",
                 input_schema=dict(tool.input_schema or {"type": "object", "properties": {}}),
+                read_only_hint=read_only,
                 destructive_hint=destructive,
                 idempotent_hint=idempotent,
             )
@@ -206,6 +230,37 @@ class ActuatorManager:
         self._providers[slug] = provider
         self.registry.register(provider)
         return provider
+
+    def enable_device(self, slug: str, provider_id: UUID) -> ActuatorProvider:
+        """Ensure an enabled device is registered in the provider registry (offline until it dials in)."""
+        return self.get_or_create_provider(slug, provider_id=provider_id)
+
+    async def disconnect_device(self, slug: str, *, reason: str = "Device token rotated") -> None:
+        """Close any active WebSocket for `slug` without removing it from the registry."""
+        provider = self._providers.get(slug)
+        if provider is None:
+            return
+        was_online = await provider.disconnect(reason=reason)
+        if was_online:
+            await self.sessions.broadcast_tools_changed()
+
+    async def disable_device(self, slug: str) -> None:
+        """Close any active WebSocket and unregister a disabled device so its tools disappear."""
+        provider = self._providers.pop(slug, None)
+        self.registry.unregister(slug)
+        if provider is not None:
+            was_online = await provider.disconnect(reason="Device disabled")
+            if was_online:
+                await self.sessions.broadcast_tools_changed()
+
+    async def remove_device(self, slug: str) -> None:
+        """Close any active WebSocket and unregister a removed device."""
+        provider = self._providers.pop(slug, None)
+        self.registry.unregister(slug)
+        if provider is not None:
+            was_online = await provider.disconnect(reason="Device removed")
+            if was_online:
+                await self.sessions.broadcast_tools_changed()
 
     async def load_registered_actuators(self) -> None:
         """Pre-register persisted actuator providers as offline so zos_status reports them."""

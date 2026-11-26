@@ -7,12 +7,25 @@ import re
 
 MAX_TOOL_NAME_LENGTH = 48
 RESERVED_PREFIXES = frozenset({"zos"})
-BUILTIN_PROVIDER_SLUGS = frozenset({"zos", "mac"})
+BUILTIN_PROVIDER_SLUGS = frozenset({"zos"})
 _PREFIX_RE = re.compile(r"^[a-zA-Z0-9-]+$")
 _UPSTREAM_SLUG_RE = re.compile(r"^[a-z][a-z0-9]{1,15}$")
+_DEVICE_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
 _TOOL_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _NON_TOOL_CHARS_RE = re.compile(r"[^a-zA-Z0-9_-]+")
 _MULTI_UNDERSCORE_RE = re.compile(r"_{2,}")
+
+
+def validate_device_slug(slug: str) -> str:
+    """Validate a device slug (`^[a-z][a-z0-9-]{1,31}$`, no underscores, not `zos`)."""
+    cleaned = slug.strip().lower()
+    if not _DEVICE_SLUG_RE.fullmatch(cleaned) or cleaned.endswith("-"):
+        raise ValueError(
+            f"Invalid device slug {slug!r}: must be 2-32 lowercase letters, digits, or hyphens (starting with a letter, no underscores)"
+        )
+    if cleaned in RESERVED_PREFIXES:
+        raise ValueError(f"Slug {cleaned!r} is reserved for router-owned tools")
+    return cleaned
 
 
 def validate_upstream_slug(slug: str) -> str:
