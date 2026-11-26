@@ -245,6 +245,16 @@ gen_pw() {
   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 }
 
+ensure_env_default() {
+  local key="$1"
+  local fallback="$2"
+  local cur
+  cur="$(get_env_val "${key}")"
+  if [ -z "${cur}" ]; then
+    set_env_val "${key}" "${fallback}"
+  fi
+}
+
 if [ -n "${DOMAIN}" ]; then
   BASE_URL="https://${DOMAIN}"
 else
@@ -252,13 +262,13 @@ else
   BASE_URL="${BASE_URL:-http://localhost:8787}"
 fi
 
-set_env_val "ZOS_PORT" "$(get_env_val ZOS_PORT | sed 's/^$/8787/')"
+ensure_env_default "ZOS_PORT" "8787"
 set_env_val "ZOS_BASE_URL" "${BASE_URL}"
-set_env_val "ZOS_LOG_LEVEL" "$(get_env_val ZOS_LOG_LEVEL | sed 's/^$/INFO/')"
-set_env_val "POSTGRES_USER" "$(get_env_val POSTGRES_USER | sed 's/^$/zos/')"
-set_env_val "POSTGRES_DB" "$(get_env_val POSTGRES_DB | sed 's/^$/zos/')"
-set_env_val "ZOS_DB_USER" "$(get_env_val ZOS_DB_USER | sed 's/^$/zos_app/')"
-set_env_val "ZOS_BACKUP_DIR" "$(get_env_val ZOS_BACKUP_DIR | sed 's/^$/\/var\/backups\/zos/')"
+ensure_env_default "ZOS_LOG_LEVEL" "INFO"
+ensure_env_default "POSTGRES_USER" "zos"
+ensure_env_default "POSTGRES_DB" "zos"
+ensure_env_default "ZOS_DB_USER" "zos_app"
+ensure_env_default "ZOS_BACKUP_DIR" "/var/backups/zos"
 
 [ -n "$(get_env_val POSTGRES_PASSWORD)" ] || set_env_val "POSTGRES_PASSWORD" "$(gen_pw)"
 [ -n "$(get_env_val ZOS_DB_PASSWORD)" ] || set_env_val "ZOS_DB_PASSWORD" "$(gen_pw)"
