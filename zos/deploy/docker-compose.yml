@@ -50,6 +50,7 @@ services:
       ZOS_MODULE_NETWORK_INTERNAL: ${ZOS_MODULE_NETWORK_INTERNAL:-zos_modules}
       ZOS_MODULE_NETWORK_EGRESS: ${ZOS_MODULE_NETWORK_EGRESS:-zos_modules_egress}
       ZOS_MODULE_CONTAINER_PREFIX: ${ZOS_MODULE_CONTAINER_PREFIX:-zos-mod}
+      ZOS_MODULES_CATALOG_DIR: ${ZOS_MODULES_CATALOG_DIR:-/app/catalog/modules}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
       interval: 15s

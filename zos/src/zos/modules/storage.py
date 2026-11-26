@@ -226,6 +226,32 @@ class ModuleStorageProvisioner:
                     role=role_id,
                 )
             )
+            # Reassign ownership of any pre-existing tables/sequences in `mod_<slug>`
+            # (e.g. after restoring a `--no-owner` pg_dump backup onto a new host).
+            t_cur = await conn.execute(
+                "SELECT tablename FROM pg_tables WHERE schemaname = %s",
+                (schema_name,),
+            )
+            for trow in await t_cur.fetchall():
+                await conn.execute(
+                    sql.SQL("ALTER TABLE {schema}.{tbl} OWNER TO {role}").format(
+                        schema=schema_id,
+                        tbl=sql.Identifier(str(trow["tablename"])),
+                        role=role_id,
+                    )
+                )
+            s_cur = await conn.execute(
+                "SELECT sequencename FROM pg_sequences WHERE schemaname = %s",
+                (schema_name,),
+            )
+            for srow in await s_cur.fetchall():
+                await conn.execute(
+                    sql.SQL("ALTER SEQUENCE {schema}.{seq} OWNER TO {role}").format(
+                        schema=schema_id,
+                        seq=sql.Identifier(str(srow["sequencename"])),
+                        role=role_id,
+                    )
+                )
             await conn.execute(
                 sql.SQL("ALTER ROLE {role} SET search_path TO {schema}").format(
                     role=role_id,

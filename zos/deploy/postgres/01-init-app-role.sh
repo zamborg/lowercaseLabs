@@ -29,5 +29,7 @@ psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER}" --dbname "${DB_NAME}" \
   SELECT format('ALTER DATABASE %I OWNER TO %I', :'db_name', :'app_user') \gexec
   SELECT format('ALTER SCHEMA public OWNER TO %I', :'app_user') \gexec
   REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+  SELECT format('SET ROLE %I', :'app_user') \gexec
   CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  RESET ROLE;
 EOSQL
