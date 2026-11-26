@@ -401,7 +401,7 @@ if [ -z "$(get_env_val ZOS_OWNER_PASSWORD_HASH)" ] && [ "${SKIP_PASSPHRASE}" -eq
   echo ""
   echo "=== Owner Passphrase Setup ==="
   echo "Set the passphrase used to sign into ${BASE_URL}/admin and approve OAuth clients."
-  if [ -r /dev/tty ]; then
+  if [ -t 0 ] && [ -r /dev/tty ]; then
     INPUT_FD="/dev/tty"
   else
     INPUT_FD="/dev/stdin"
