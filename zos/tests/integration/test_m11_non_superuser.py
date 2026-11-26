@@ -80,7 +80,7 @@ async def test_non_superuser_core_role_migrations_and_module_isolation() -> None
         init = await init_principal_and_space(pool, principal_slug="owner")
         principal_id = init["principal"]["id"]
 
-        # 3. Provision a module Postgres role/schema as non-superuser
+        # 3. Provision a module Postgres role/schema as non-superuser (and re-provision on upgrade!)
         store = CredentialStore(pool, CredentialVault(cfg.zos_secret_key))
         prov = ModuleStorageProvisioner(pool, store)
         mod_dsn = await prov.provision_postgres(
@@ -88,6 +88,13 @@ async def test_non_superuser_core_role_migrations_and_module_isolation() -> None
             slug=mod_slug,
             base_database_url=app_url,
         )
+        # Second call exercises the `exists=True` ALTER ROLE path as non-superuser!
+        mod_dsn_re = await prov.provision_postgres(
+            principal_id=principal_id,
+            slug=mod_slug,
+            base_database_url=app_url,
+        )
+        assert mod_dsn_re == mod_dsn
 
         # 4. Connect AS the module role: can create/read its own schema, CANNOT read core tables
         async with await psycopg.AsyncConnection.connect(mod_dsn, autocommit=True) as mod_conn:

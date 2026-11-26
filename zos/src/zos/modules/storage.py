@@ -188,17 +188,18 @@ class ModuleStorageProvisioner:
             )
             exists = await cur.fetchone() is not None
             if exists:
+                # PG 16+: ALTER ROLE rejects changing any attribute (even to NO*) that the
+                # calling role does not itself hold; only update LOGIN, PASSWORD, NOCREATEROLE, NOINHERIT.
                 await conn.execute(
                     sql.SQL(
-                        "ALTER ROLE {role} WITH LOGIN PASSWORD {pw} "
-                        "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION"
+                        "ALTER ROLE {role} WITH LOGIN PASSWORD {pw} NOCREATEROLE NOINHERIT"
                     ).format(role=role_id, pw=sql.Literal(password))
                 )
             else:
+                # NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION are Postgres defaults.
                 await conn.execute(
                     sql.SQL(
-                        "CREATE ROLE {role} WITH LOGIN PASSWORD {pw} "
-                        "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION"
+                        "CREATE ROLE {role} WITH LOGIN PASSWORD {pw} NOINHERIT"
                     ).format(role=role_id, pw=sql.Literal(password))
                 )
 
