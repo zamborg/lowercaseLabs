@@ -10,7 +10,7 @@ Self-contained deployment guide for running ZOS on a single Linux server (Ubuntu
 - **Database (`postgres:17`):** Runs inside Docker Compose under a restricted non-superuser app role (`zos_app`, `CREATEROLE`, `NOSUPERUSER`). Each stateful module receives its own isolated `mod_<slug>` role and schema.
 - **Default modules:** `memory` (Postgres FTS + `pg_trgm` shared memory store) and `inbox` (async agent-to-agent and owner mailboxes), both running on the internal `zos_modules` network with zero internet egress.
 - **Edge (`--edge`):**
-  - `caddy` *(default)*: automatic Let's Encrypt HTTPS for `--domain` on ports `80`/`443`, proxying to `zos:8080`.
+  - `caddy` *(default)*: automatic Let's Encrypt HTTPS for `--domain` on ports `80`/`443`, proxying only `/mcp*`, `/.well-known/*`, `/oauth/*`, `/admin*`, `/connect/*`, and `/actuator` (WebSocket) to `zos:8080`, and returning `404` for everything else (including `/healthz`).
   - `cloudflared`: outbound Cloudflare Tunnel (no open inbound ports required).
   - `none`: binds `127.0.0.1:8787` only (for local machines or rehearsals).
 
@@ -76,13 +76,17 @@ Because `install.sh` is idempotent, it skips already-completed steps, prompts on
 
 ## Step 4 — Verify the Deployment (Agent or Human)
 
-Run from the VPS (replace `http://127.0.0.1:8787` with `https://zos.<your-domain>` once DNS + TLS are active):
+Run from the VPS:
 
-1. **Health & default modules:**
+1. **Local health & default modules** (`/healthz` is intentionally local-only; public `https://zos.<your-domain>/healthz` returns `404`):
    ```bash
    curl -sf http://127.0.0.1:8787/healthz | python3 -m json.tool
    ```
    Confirm `"ok": true` and both `memory` (5 tools) and `inbox` (5 tools) report `"online": true`.
+   When using `--edge caddy`, also confirm public `/healthz` is blocked (`404`):
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}\n" https://zos.<your-domain>/healthz
+   ```
 2. **Non-superuser Postgres check:**
    ```bash
    cd /opt/zos/zos
