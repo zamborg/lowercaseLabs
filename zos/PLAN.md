@@ -1,6 +1,6 @@
 # ZOS — Plan (V1)
 
-Status: **V1 shipped** (2026-11-25). Architecture direction for V2+ (installable modules, files, chat, skills): [V2.md](V2.md). Schema: [SCHEMA.md](SCHEMA.md). Operations & testing runbook: [TESTING.md](TESTING.md). Decision log: [DECISIONS.md](DECISIONS.md). Earlier runtime-shaped notes are archived in `later/`.
+Status: **V3 released** (`zos-v3.0.0`, 2026-11-26). This document describes the original V1 design. In V3, memory and Google moved out of the core into modules, and the core is the control plane only. See the "Final shape" section of [V2.md](V2.md) and [HOSTING.md](HOSTING.md). V1 shipped 2026-11-25. Architecture direction for V2+ (installable modules, files, chat, skills): [V2.md](V2.md). Schema: [SCHEMA.md](SCHEMA.md). Operations & testing runbook: [TESTING.md](TESTING.md). Decision log: [DECISIONS.md](DECISIONS.md). Earlier runtime-shaped notes are archived in `later/`.
 
 ## What ZOS is
 

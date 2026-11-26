@@ -2,7 +2,7 @@
 
 **A personal, self-hosted context and MCP routing layer shared by every AI agent you use.**
 
-> **Status: V1.** One owner per deployment, self-hosted (today: a laptop + Cloudflare Tunnel). It's in daily personal use, not a hosted product. Expect sharp edges.
+> **Status: V3** (`zos-v3.0.0`). One owner per deployment, self-hosted on any small Linux server ([HOSTING.md](HOSTING.md)). It's in daily personal use and is not a hosted product.
 
 ## Why ZOS exists
 
@@ -23,32 +23,43 @@ Most AI tools fragment your workplace: Claude Code has one memory folder, Codex 
                           │
                           │  OAuth 2.1 (PKCE + DCR) · Streamable-HTTP MCP
                           ▼
-             ┌────────────────────────┐
-             │       ZOS Router       │  auth · policy · approvals · audit
-             │    /mcp   ·   /admin   │
-             └──┬────────┬────────┬───┴──────────────┐
-                │        │        │                  │
-                ▼        ▼        ▼                  ▼
-             Hosted    Google    Mac Actuator     Remote MCPs
-             Memory   Calendar   (Messages +      (20-connector
-            (Postgres) & Gmail   tmux shell)       catalog + custom)
-                │
-                ▼
-           Postgres 17 (encrypted vault · append-only audit log)
+             ┌──────────────────────────────┐
+             │     ZOS core (control plane) │  auth · policy · approvals · audit
+             │        /mcp   ·   /admin     │  vault · module lifecycle
+             └──┬──────────────┬─────────┬──┘
+                │              │         │
+                ▼              ▼         ▼
+           Connectors       Modules    Devices
+          (remote MCPs,   (containers  (dial in:
+           catalog of 20)  ZOS runs)    Mac actuator)
+                           memory · inbox · gmail · gcal
 ```
 
-## What you get in V1
+The core holds no domain content. Everything an agent works on reaches it as one of three kinds of upstream, and all three look the same to clients:
 
-- **Shared memory:** Postgres-backed full-text and fuzzy memory (`memory_put`, `memory_get`, `memory_search`, `memory_list`, `memory_delete`) with client authorship, plus a host importer for existing Claude Code and Codex memory files.
-- **Google Calendar & Gmail:** One encrypted Google sign-in powers both `gcal_*` (hot-switchable between Google's Calendar MCP and a REST adapter) and `gmail_*` (search, read, and MIME-threaded send).
-- **Mac actuator:** An optional local macOS daemon that dials out to ZOS over WebSocket to expose read-only iMessage search (with AddressBook contact names) and a persistent isolated `tmux` shell. See [actuator/README.md](actuator/README.md).
-- **Routed remote MCP servers + connector catalog:** Connect any Streamable-HTTP remote MCP server (`none`, `bearer`, or `oauth` auth), or install from 20 verified connector manifests (GitHub, Linear, Notion, Cloudflare, Sentry, Stripe, Vercel, Figma, Supabase, Atlassian, Slack, Asana, and more). Nothing from the catalog is installed by default. See [catalog/README.md](catalog/README.md).
-- **Installable modules:** Run self-contained MCP services alongside ZOS with one click from **`/admin/modules`** (or `zos module install <slug>`). Modules run in locked-down Docker containers with isolated Postgres schemas, signed caller identity, and optional human UIs reverse-proxied under `/admin/m/<slug>/`. The first built-in module is **Inbox** — async, email-like mailboxes shared between you (`owner`), `general`, and each connected agent.
+| Kind | Who runs it | Who does its OAuth | Examples |
+|---|---|---|---|
+| Connector | someone else | the ZOS core (standard MCP OAuth) | Linear, Atlassian, GitHub |
+| Module | ZOS, in a locked-down container | the module itself, if needed | memory, inbox, gmail, gcal |
+| Device | your hardware, which dials in | none (device token) | Mac actuator |
+
+## What you get in V3
+
+- **Shared memory (module, installed by default):** full-text and fuzzy memory (`memory_put/get/search/list/delete`) with client authorship. The owner view at `/admin/m/memory/` lets you browse, search, and delete.
+- **Inbox (module, installed by default):** async, email-like mailboxes shared between you (`owner`), `general`, and each connected agent. The owner view at `/admin/m/inbox/` shows every mailbox.
+- **Gmail & Google Calendar (optional modules):** `gmail_*` and `gcal_*`. Each module connects to Google from its own owner page with narrowly scoped, encrypted credentials.
+- **Routed remote MCP servers + connector catalog:** connect any Streamable-HTTP remote MCP server (`none`, `bearer`, or `oauth` auth), or install one of 20 verified connector manifests. See [catalog/README.md](catalog/README.md).
+- **Mac actuator (device, optional):** a macOS daemon that dials out to ZOS. See [actuator/README.md](actuator/README.md).
+- **Two-layer policy:** visibility (which tools a client sees) plus a per-call allowance chain (allow, escalate to you, or deny).
 - **Async approvals for phones and web clients:** Clients that support MCP elicitation prompt inline; clients that don't (like mobile Claude or ChatGPT) hold approval-gated calls briefly or return a clickable `/admin/approvals/<id>` link so you can inspect the exact arguments on your phone, tap **Approve**, and let the agent retry once.
 - **Owner admin dashboard (`/admin`):** Passphrase-gated, mobile-friendly control panel for provider health, pending approvals, remote MCP servers, clients and tokens, per-tool tiers and per-client policy overrides, and the audit log.
 - **Encrypted nightly backups:** Automated `pg_dump` + AES-256-CBC backups (`deploy/backup/backup.sh`) with a tested restore script and last-backup status on `/admin`.
 
 ## Quickstart
+
+**To host ZOS on a server** (the normal path), follow [HOSTING.md](HOSTING.md). It's written so you can hand it to your coding agent: one installer, a few marked human steps, and memory + inbox installed by default.
+
+The steps below are for running from a local checkout (development).
 
 ### 1. Start ZOS and Postgres
 
@@ -86,9 +97,9 @@ Open **`http://localhost:8787/admin`** and sign in with your owner passphrase.
 
 To connect ChatGPT, mobile Claude, or remote devices at `https://zos.<your-domain>`:
 
-1. In `.env`, set `ZOS_BASE_URL=https://zos.<your-domain>` and (for ChatGPT) `ZOS_ALLOWED_REDIRECT_HOSTS=chatgpt.com`, then recreate `zos`.
-2. Copy `deploy/cloudflared/config.yml.example` to `~/.cloudflared/config.yml` and fill in your `<TUNNEL-UUID>`, `<HOME>`, and `zos.<your-domain>`. Only `/mcp`, `/.well-known/*`, `/oauth/*`, `/admin*`, and `/connect/*` are exposed; `/actuator` and `/healthz` stay strictly local.
-3. Put **Cloudflare Access** (allowing only your email) in front of the browser-only owner paths (`/admin*`, `/oauth/authorize`, `/connect/*`) while leaving `/mcp`, `/.well-known/*`, `/oauth/register`, and `/oauth/token` accessible to MCP clients.
+1. In `.env`, set `ZOS_BASE_URL=https://zos.<your-domain>`, then recreate `zos`. The redirect-host allowlist already includes `chatgpt.com`, `claude.ai`, and `agent.meta.ai`. Other agents that are rejected show up on `/admin/clients` with an **Allow** button.
+2. Copy `deploy/cloudflared/config.yml.example` to `~/.cloudflared/config.yml` and fill in your `<TUNNEL-UUID>`, `<HOME>`, and `zos.<your-domain>`. Only ZOS's own paths are exposed, and `/healthz` stays local.
+3. Optionally, put **Cloudflare Access** in front of the browser-only owner paths (`/admin*`, `/oauth/authorize`) as defense in depth. ZOS's own passphrase, signed cookie, CSRF, and rate limits already protect them.
 
 ### 3. Connect your clients
 
@@ -111,16 +122,17 @@ Point every client at `https://zos.<your-domain>/mcp` (or `http://localhost:8787
 
 ### 4. Optional add-ons
 
-- **Google Calendar & Gmail:** add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env`, recreate `zos`, and open `/connect/google`.
-- **Mac actuator:** run `./deploy/launchd/install.sh` — see [actuator/README.md](actuator/README.md).
+- **Modules (memory, inbox, gmail, gcal):** open `/admin/modules` and click **Install**, or run `zos module install <slug>`. For Gmail and Calendar, see the Google appendix in [HOSTING.md](HOSTING.md). After installing, click **Connect** on `/admin/m/gmail/` and `/admin/m/gcal/`.
 - **Remote MCP connectors:** open `/admin/upstreams` and click **Install** on any connector, or run `zos catalog list`.
-- **Container modules (e.g. Inbox):** open `/admin/modules` and click **Install**, or run `zos module install inbox`.
+- **Mac actuator:** run `./deploy/launchd/install.sh`. See [actuator/README.md](actuator/README.md).
+
+New tools appear in clients after they refresh or reconnect their ZOS connector.
 
 ## Modules
 
 A ZOS module is a standalone MCP server (in any language) with a manifest in `catalog/modules/<slug>.toml`. ZOS owns authentication, policy, approvals, audit logging, Postgres schema provisioning, and reverse-proxying the module's human UI under `/admin/m/<slug>/`. Modules never see client OAuth/bearer tokens or core ZOS tables.
 
-- **Isolation:** When running on Docker (`ZOS_MODULE_HOST=docker`, auto-enabled when `/var/run/docker.sock` is mounted), ZOS builds or pulls only catalog-pinned images and writes the container spec itself (`CapDrop: ALL`, `no-new-privileges`, no host mounts, memory limit, internal `zos_modules` network with egress disabled by default). Each module that requests Postgres receives its own `mod_<slug>` role and schema with zero read access to core tables (`credentials`, `events`, `memories`, `tokens`).
+- **Isolation:** When running on Docker (`ZOS_MODULE_HOST=docker`, auto-enabled when `/var/run/docker.sock` is mounted), ZOS builds or pulls only catalog-pinned images and writes the container spec itself (`CapDrop: ALL`, `no-new-privileges`, no host mounts, memory limit, internal `zos_modules` network with egress disabled by default). Each module that requests Postgres receives its own `mod_<slug>` role and schema with zero read access to core tables (`credentials`, `events`, `tokens`). Modules may request trusted extensions (e.g. `pg_trgm`), which live in a shared `extensions` schema.
 - **Signed caller identity:** Every `tools/call` forwarded to a module carries an HMAC-SHA256-signed `params._meta["zos/caller"]` envelope (`principal_id`, `client_id`, `client_name`, `tool`, `args_digest`, `ts`) signed with the module's per-module `ZOS_MODULE_SECRET`. Unsigned calls (like `tools/list`) are system calls. Proxied UI requests under `/admin/m/<slug>/` strip the owner admin cookie and send signed `X-ZOS-Caller` + `X-ZOS-Caller-Signature` headers (`client_name = "owner"`) plus `X-Forwarded-Prefix`.
 - **Manual host fallback:** Without a Docker socket (or with `ZOS_MODULE_HOST=manual`), `zos module install <slug>` prints container run instructions and a coding-agent prompt; finish with `zos module attach <slug> --url <mcp-url> [--ui-url <ui-url>]`.
 - **How to write a module:** Create a standalone server that exposes Streamable-HTTP MCP on `MCP_PORT` (and optionally a mobile-friendly HTML UI on `UI_PORT`), copy the stdlib-only verifier [zos_module_sdk/caller.py](zos_module_sdk/caller.py) to verify `_meta["zos/caller"]` and `X-ZOS-Caller`, read `ZOS_MODULE_DATABASE_URL` and `ZOS_MODULE_SECRET` from env, and add a manifest under `catalog/modules/<slug>.toml`. **Owner visibility rule:** every module that stores data must provide an owner view under `/admin/m/<slug>` covering **all** of its underlying state (e.g. Inbox shows every mailbox and client-to-client thread, and owner reads never mutate clients' read state). See `modules/inbox/` for a complete reference implementation and [catalog/README.md](catalog/README.md) for the manifest schema.
@@ -135,10 +147,11 @@ A ZOS module is a standalone MCP server (in any language) with a manifest in `ca
 
 ## Further reading
 
-- [PLAN.md](PLAN.md) — V1 architecture and component design
-- [V2.md](V2.md) — Future direction (installable modules, chat, whiteboard, app hosting, skills)
-- [INVARIANTS.md](INVARIANTS.md) — Architectural and security invariants mapped to enforcing tests
-- [MODULES.md](MODULES.md) — Module Contract v1 specification
+- [HOSTING.md](HOSTING.md): host your own ZOS (agent-executable)
+- [V2.md](V2.md): architecture direction and the V3 final shape (core, connectors, modules, devices)
+- [PLAN.md](PLAN.md): original V1 architecture and component design
+- [INVARIANTS.md](INVARIANTS.md): architectural and security invariants, mapped to the tests that enforce them
+- [MODULES.md](MODULES.md): Module Contract v1.1
 - [TESTING.md](TESTING.md) — Full operations, host migration, backup/restore, and testing runbook
 - [SCHEMA.md](SCHEMA.md) — Postgres schema reference
 - [DECISIONS.md](DECISIONS.md) — Append-only architectural decision log
