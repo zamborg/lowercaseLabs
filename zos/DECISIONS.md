@@ -191,6 +191,15 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Completes the M12 control-plane separation: zero domain providers remain in `src/zos/`.
 - **Impact:** Core has no Google code or routes; `gmail` and `gcal` run as isolated egress modules with independent scopes, encrypted module-local credentials, and owner UIs under `/admin/m/gmail` and `/admin/m/gcal`.
 
+## 2026-11-26 — M12b: Hosting packaging, DB-backed redirect allowlist, and GHCR publish workflow
+- **Decision:**
+  1. **Postgres-backed redirect host allowlist (`migrations/0010_m12b_redirect_hosts.sql`):** Moved external HTTPS OAuth DCR redirect hosts into `allowed_redirect_hosts` (seeded by default with `chatgpt.com` and `claude.ai`, plus any extra hosts from `ZOS_ALLOWED_REDIRECT_HOSTS` on startup). Unlisted external HTTPS hosts rejected by `/oauth/register` are upserted into `dcr_rejected_attempts (host, client_name, created_at)` (never recording malformed/non-HTTPS schemes or other request data) and surfaced on `/admin/clients` with audited **Allow** (`redirect_host.allowed`) and **Dismiss** (`redirect_host.dismissed`) actions.
+  2. **Idempotent single-VPS installer (`deploy/install.sh`):** Targets fresh Ubuntu 24.04 root hosts (≥2 GB RAM), installs Docker Engine + Compose plugin, fetches source at `--ref` (or uses digest-pinned `ZOS_IMAGE_*` images via `deploy/docker-compose.images.yml` without rebuilding), generates all secrets into `0600` `.env` without echoing, enforces non-superuser `zos_app` role, installs `memory` and `inbox` by default, prompts interactively for the owner passphrase (with `--skip-passphrase` for agent hand-off), supports `--edge caddy|cloudflared|none` (default `caddy` auto-HTTPS via `deploy/docker-compose.caddy.yml`), installs nightly encrypted backup systemd timer (`zos-backup.timer`, off-box via `ZOS_BACKUP_POST_HOOK` with documented `rclone` example), and supports `--update` with pre-update backup.
+  3. **Tag-triggered GHCR publish workflow (`.github/workflows/zos-publish.yml`):** Builds and pushes `zos`, `zos-inbox`, `zos-memory`, and `zos-google` multi-arch images only on `zos-v*` tags and records `@sha256:` digests in the job summary. Created but intentionally not triggered yet.
+- **Why:** Makes self-hosting ZOS repeatable from scratch by a human or context-free agent with minimal manual steps and zero custom cloud SDKs.
+- **Impact:** Verified end-to-end on a clean OrbStack Ubuntu 24.04 VM (`install.sh --edge none`), then torn down cleanly.
+
+
 
 
 

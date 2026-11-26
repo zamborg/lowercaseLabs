@@ -43,35 +43,11 @@ From the `zos/` directory:
 
 ---
 
-## 2. Google Calendar & Gmail
+## 2. Google Calendar & Gmail (Modules)
 
-Both `gcal` and `gmail` share one encrypted Google OAuth credential.
+`gmail` and `gcal` run as standalone container modules (`catalog/modules/gmail.toml`, `catalog/modules/gcal.toml`, built from the shared `modules/google` image) with `[network] egress = true`, isolated Postgres schemas (`mod_gmail`, `mod_gcal`), and narrower per-service Google OAuth scopes.
 
-1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and enable:
-   - **Gmail API** (`gmail.googleapis.com`)
-   - **Google Calendar API** (`calendar-json.googleapis.com`) and/or **Google Calendar MCP** (`calendarmcp.googleapis.com`)
-2. Under **Google Auth Platform → Audience**, choose **External** and publish to production (or use **Testing** mode with your account listed as a Test User; note 7-day refresh token expiry in Testing mode).
-3. Under **Data Access**, add scopes:
-   - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
-   - `https://www.googleapis.com/auth/calendar.events.freebusy`
-   - `https://www.googleapis.com/auth/calendar.events.readonly`
-   - `https://www.googleapis.com/auth/calendar.events`
-   - `https://www.googleapis.com/auth/gmail.readonly`
-   - `https://www.googleapis.com/auth/gmail.send`
-4. Under **Clients → Create Client → Web application**, add Authorized Redirect URI:
-   - Local: `http://localhost:8787/connect/google/callback`
-   - Public tunnel: `https://zos.<your-domain>/connect/google/callback`
-   - *(Tick "Use this client for an AI-powered agent" if using Google's Calendar MCP backend.)*
-5. Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` and recreate the container:
-   ```bash
-   docker compose --env-file .env -f deploy/docker-compose.yml up -d --force-recreate zos
-   ```
-6. Open `/connect/google`, enter your owner passphrase, and complete Google consent. Both `gcal_*` and `gmail_*` appear immediately via `notifications/tools/list_changed`.
-7. **Hot-switching `gcal` backend (`api` vs `mcp`) with zero restart:** use the toggle on `/admin` Overview, or run:
-   ```bash
-   docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
-     uv run --no-sync zos provider set-backend gcal api   # or mcp
-   ```
+See [HOSTING.md — Appendix: Optional Google Modules](HOSTING.md#appendix--optional-google-modules-gmail--gcal) for the full Google Cloud Console setup, redirect URIs (`/admin/m/gmail/callback` and `/admin/m/gcal/callback`), install commands, and live `api|mcp` backend switching on `/admin/m/gcal/`.
 
 ---
 
@@ -316,8 +292,9 @@ Verified end-to-end portability runbook (non-superuser Postgres role + encrypted
      ZOS_DB_USER=zos_app
      ZOS_DB_PASSWORD=<strong-app-password>
      ```
-     On an empty Postgres volume, `deploy/postgres/01-init-app-role.sh` creates `zos_app` with `LOGIN CREATEROLE NOSUPERUSER NOCREATEDB`, transfers ownership of `zos` and schema `public` to `zos_app`, and installs `pg_trgm` owned by `zos_app`.
-   - *(On hosted Postgres such as Neon, Fly, or RDS: create a database owned by a role with `CREATEROLE`, enable the trusted `pg_trgm` extension once, and set `DATABASE_URL` directly.)*
+     On an empty Postgres volume, `deploy/postgres/01-init-app-role.sh` creates `zos_app` with `LOGIN CREATEROLE NOSUPERUSER NOCREATEDB`, transfers ownership of `zos` and schema `public` to `zos_app`, and installs `pg_trgm` in the shared `extensions` schema owned by `zos_app`.
+   - *(On pre-M12 volumes where `pg_trgm` was originally installed in `public`, relocating `pg_trgm` into schema `extensions` requires Postgres superuser privileges once; `deploy/postgres/migrate-existing-to-app-role.sh` performs this automatically on bundled Postgres.)*
+   - *(On hosted Postgres such as Neon, Fly, or RDS: create a database owned by a role with `CREATEROLE`, enable the trusted `pg_trgm` extension in schema `extensions`, and set `DATABASE_URL` directly.)*
 
 3. **Start Postgres on the new host and restore the encrypted backup:**
    ```bash
@@ -364,4 +341,6 @@ uv run ruff check
 uv run pytest
 (cd actuator && uv run ruff check && uv run pytest)
 (cd modules/inbox && uv run ruff check && uv run pytest)
+(cd modules/memory && uv run ruff check && uv run pytest)
+(cd modules/google && uv run ruff check && uv run pytest)
 ```
