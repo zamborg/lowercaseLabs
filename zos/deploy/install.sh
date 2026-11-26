@@ -333,14 +333,14 @@ done
 unset PG_SUPER_PW
 
 # Ensure non-superuser zos_app role & extensions schema exist (idempotent for both fresh and existing volumes)
-"${ZOS_DIR}/deploy/postgres/migrate-existing-to-app-role.sh" --env-file "${ENV_FILE}"
+"${ZOS_DIR}/deploy/postgres/migrate-existing-to-app-role.sh" --env-file "${ENV_FILE}" </dev/null
 
 echo "[install] Building/starting ZOS stack..."
 if [ -n "${ZOS_IMAGE_CORE:-}" ]; then
-  docker compose "${COMPOSE_ARGS[@]}" pull zos
-  docker compose "${COMPOSE_ARGS[@]}" up -d
+  docker compose "${COMPOSE_ARGS[@]}" pull zos </dev/null
+  docker compose "${COMPOSE_ARGS[@]}" up -d </dev/null
 else
-  docker compose "${COMPOSE_ARGS[@]}" up -d --build
+  docker compose "${COMPOSE_ARGS[@]}" up -d --build </dev/null
 fi
 
 for _ in $(seq 1 40); do
@@ -351,22 +351,22 @@ for _ in $(seq 1 40); do
 done
 
 # ── 6. Initialize ZOS principal/space & install default modules ────────────
-docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos init --principal owner
+docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos init --principal owner </dev/null
 
 install_or_upgrade_module() {
   local slug="$1"
   local listed
-  listed="$(docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos module list 2>/dev/null || true)"
+  listed="$(docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos module list </dev/null 2>/dev/null || true)"
   if printf "%s\n" "${listed}" | grep -Eq "^${slug}[[:space:]]"; then
     if [ "${UPDATE_MODE}" -eq 1 ]; then
       echo "[update] Upgrading module '${slug}'..."
-      docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos module upgrade "${slug}"
+      docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos module upgrade "${slug}" </dev/null
     else
       echo "[install] Module '${slug}' already installed."
     fi
   else
     echo "[install] Installing module '${slug}'..."
-    docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos module install "${slug}"
+    docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos module install "${slug}" </dev/null
   fi
 }
 
@@ -375,20 +375,20 @@ install_or_upgrade_module inbox
 
 if [ "${UPDATE_MODE}" -eq 1 ]; then
   # Upgrade any other user-installed modules (e.g. gmail, gcal) while preserving their data & secrets
-  ALL_INSTALLED="$(docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos module list 2>/dev/null | awk '{print $1}' || true)"
+  ALL_INSTALLED="$(docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos module list </dev/null 2>/dev/null | awk '{print $1}' || true)"
   for extra_slug in ${ALL_INSTALLED}; do
     case "${extra_slug}" in
       ""|No|memory|inbox) continue ;;
       *)
         echo "[update] Upgrading installed module '${extra_slug}'..."
-        docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos module upgrade "${extra_slug}"
+        docker compose "${COMPOSE_ARGS[@]}" exec -T zos uv run --no-sync zos module upgrade "${extra_slug}" </dev/null
         ;;
     esac
   done
 fi
 
 # Restart zos so in-process UpstreamManager loads newly installed/upgraded modules
-docker compose "${COMPOSE_ARGS[@]}" restart zos
+docker compose "${COMPOSE_ARGS[@]}" restart zos </dev/null
 for _ in $(seq 1 30); do
   if curl -sf "http://127.0.0.1:$(get_env_val ZOS_PORT)/healthz" >/dev/null 2>&1; then
     break
