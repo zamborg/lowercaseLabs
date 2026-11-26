@@ -1,8 +1,7 @@
-"""Integration tests for V1 client soft-disable preserving audit and memory authorship."""
+"""Integration tests for V1 client soft-disable preserving audit history."""
 
 from __future__ import annotations
 
-import json
 import re
 
 import httpx
@@ -14,11 +13,9 @@ from tests.e2e.helpers import free_port, run_asgi_server
 from zos.admin_service import AdminService
 from zos.app import create_app
 from zos.auth.bearer import verify_client_bearer_token
-from zos.auth.context import CallContext
 from zos.cli import app as cli_app
 from zos.config import Settings
 from zos.db.queries import init_principal_and_space
-from zos.providers.memory import MemoryProvider
 from zos.vault import generate_secret_key
 
 
@@ -29,10 +26,10 @@ def _extract_csrf(html_text: str) -> str:
 
 
 async def test_client_disable_preserves_audit_and_memory_authorship(db_pool) -> None:
-    init = await init_principal_and_space(db_pool, principal_slug="owner")
+    await init_principal_and_space(db_pool, principal_slug="owner")
     svc = AdminService(db_pool)
 
-    # Register bearer client and write a memory + audit event as that client
+    # Register bearer client and verify its token
     reg = await svc.register_bearer_client(name="smoke-client", trust_ceiling="owner")
     client_id = reg["client"]["id"]
     raw_token = reg["token"]
@@ -40,14 +37,6 @@ async def test_client_disable_preserves_audit_and_memory_authorship(db_pool) -> 
     ctx = await verify_client_bearer_token(db_pool, raw_token)
     assert ctx is not None
     assert ctx.client_id == client_id
-
-    mem = MemoryProvider(db_pool)
-    put_res = await mem.call_tool(
-        "put",
-        {"key": "authored-note", "content": "Written by smoke client"},
-        ctx,
-    )
-    assert not put_res.is_error
 
     # Disable client via AdminService
     disabled = await svc.disable_client(client_identifier="smoke-client")
@@ -68,26 +57,7 @@ async def test_client_disable_preserves_audit_and_memory_authorship(db_pool) -> 
     assert "client.registered" in ev_types
     assert all(e["client_name"] == "smoke-client" for e in events["events"])
 
-    # 4. Memory authorship survives intact!
-    other_reg = await svc.register_bearer_client(name="reader-client", trust_ceiling="owner")
-    reader_ctx = CallContext(
-        principal_id=init["principal"]["id"],
-        principal_slug="owner",
-        space_id=init["space"]["id"],
-        space_slug="main",
-        client_id=other_reg["client"]["id"],
-        client_name="reader-client",
-        client_kind="bearer",
-        trust_ceiling="owner",
-        token_id=other_reg["token_id"],
-        scopes=("mcp",),
-    )
-    get_res = await mem.call_tool("get", {"key": "authored-note"}, reader_ctx)
-    payload = json.loads(get_res.content[0].text)
-    assert payload["found"] is True
-    assert payload["memory"]["author"] == "smoke-client"
-
-    # 5. Re-registering a new bearer client with the same name succeeds (partial unique index)
+    # 4. Re-registering a new bearer client with the same name succeeds (partial unique index)
     reg2 = await svc.register_bearer_client(name="smoke-client", trust_ceiling="owner")
     assert reg2["client"]["id"] != client_id
 

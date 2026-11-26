@@ -393,8 +393,8 @@ async def test_m9a_all_three_auth_modes_tiers_hot_reload_and_oauth_lifecycle(db_
                 )
             ).status_code == 403
 
-            # Reject reserved slug 'zos' and built-in slug 'memory' cleanly
-            for bad_slug in ("zos", "memory", "Bad_Slug"):
+            # Reject reserved slug 'zos' and built-in slug 'gcal' cleanly
+            for bad_slug in ("zos", "gcal", "Bad_Slug"):
                 r_bad = await web.post(
                     "/admin/upstreams/add",
                     data={
@@ -628,7 +628,6 @@ async def test_m9a_offline_upstream_does_not_break_startup(db_pool) -> None:
         hz = (await client.get("/healthz")).json()
         assert hz["ok"] is True
         by_ns = {p["namespace"]: p for p in hz["providers"]}
-        assert by_ns["memory"]["online"] is True
         assert by_ns["downmcp"]["online"] is False
         assert by_ns["downmcp"]["status"] == "offline"
         assert by_ns["downmcp"]["tool_count"] == 0

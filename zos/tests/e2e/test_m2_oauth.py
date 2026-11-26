@@ -130,13 +130,9 @@ async def test_m2_full_oauth_flow_refresh_rotation_reuse_revocation_and_401(db_p
             ClientSession(read_s, write_s) as session,
         ):
             await session.initialize()
-            put_res = await session.call_tool(
-                "memory_put",
-                {"key": "oauth-hello", "content": "Authenticated via OAuth 2.1!"},
-            )
-            assert not put_res.is_error
-            get_res = await session.call_tool("memory_get", {"key": "oauth-hello"})
-            assert json.loads(get_res.content[0].text)["found"] is True
+            status_res = await session.call_tool("zos_status", {})
+            assert not status_res.is_error
+            assert "providers" in json.loads(status_res.content[0].text)
 
         assert storage.tokens is not None
         assert storage.client_info is not None

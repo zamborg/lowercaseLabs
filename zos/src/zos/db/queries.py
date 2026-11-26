@@ -14,11 +14,6 @@ from psycopg_pool import AsyncConnectionPool
 
 V0_TIER_SEEDS: dict[str, str] = {
     "zos_status": "read",
-    "memory_get": "read",
-    "memory_search": "read",
-    "memory_list": "read",
-    "memory_put": "write",
-    "memory_delete": "write",
     "mac_messages_search": "read",
     "mac_shell_run": "external",
     "gcal_list_events": "read",
@@ -56,7 +51,7 @@ async def init_principal_and_space(
     space_slug: str = "main",
     space_name: str = "Main",
 ) -> dict[str, Any]:
-    """Idempotently initialize principal, single space, memory provider, and V0 tool tier seeds."""
+    """Idempotently initialize principal, single space, and built-in tool tier seeds."""
     async with pool.connection() as conn, conn.transaction():
         cur = await conn.execute(
             """
@@ -82,19 +77,6 @@ async def init_principal_and_space(
         )
         space = await cur.fetchone()
         assert space is not None
-        space_id: UUID = space["id"]
-
-        cur = await conn.execute(
-            """
-                INSERT INTO providers (principal_id, space_id, slug, kind, config, enabled)
-                VALUES (%s, %s, 'memory', 'hosted', %s, true)
-                ON CONFLICT (principal_id, slug) DO UPDATE SET enabled = true
-                RETURNING id, slug, kind
-                """,
-            (principal_id, space_id, Jsonb({})),
-        )
-        provider = await cur.fetchone()
-        assert provider is not None
 
         for pattern, tier in V0_TIER_SEEDS.items():
             await conn.execute(
@@ -109,7 +91,6 @@ async def init_principal_and_space(
     return {
         "principal": dict(principal),
         "space": dict(space),
-        "memory_provider": dict(provider),
         "tier_seed_count": len(V0_TIER_SEEDS),
     }
 

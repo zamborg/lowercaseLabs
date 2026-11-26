@@ -189,7 +189,6 @@ async def test_admin_pages_mutations_audit_privacy_pagination_and_cli_parity(db_
         # 1. Overview page shows providers, backend, active sessions, and /connect/google
         r_ov = await client.get("/admin")
         assert r_ov.status_code == 200
-        assert "memory" in r_ov.text
         assert "gcal" in r_ov.text
         assert "mcp" in r_ov.text
         assert "/connect/google" in r_ov.text
@@ -230,7 +229,7 @@ async def test_admin_pages_mutations_audit_privacy_pagination_and_cli_parity(db_
         # 3. Tools & Policy: view matrix, set override, clear override -> audited
         r_pol = await client.get("/admin/policy")
         assert r_pol.status_code == 200
-        assert "memory_put" in r_pol.text
+        assert "zos_status" in r_pol.text
         assert "mac_shell_run" in r_pol.text
         assert "web-client" in r_pol.text
 

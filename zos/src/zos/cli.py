@@ -76,7 +76,7 @@ def init_cmd(
     space: Annotated[str, typer.Option("--space", help="Default space slug")] = "main",
     space_name: Annotated[str, typer.Option("--space-name", help="Default space name")] = "Main",
 ) -> None:
-    """Initialize principal, single space, memory provider, and V0 tool tier seeds."""
+    """Initialize principal, single space, and built-in tool tier seeds."""
 
     async def _run() -> dict:
         s = _settings()
@@ -94,7 +94,6 @@ def init_cmd(
     typer.echo(
         f"Initialized principal={res['principal']['slug']} "
         f"space={res['space']['slug']} "
-        f"provider={res['memory_provider']['slug']} "
         f"tiers={res['tier_seed_count']}"
     )
 

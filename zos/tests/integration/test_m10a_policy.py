@@ -36,7 +36,10 @@ class _ShellStubProvider:
         return True
 
     async def list_tools(self) -> list[ProviderTool]:
-        return [ProviderTool(name="shell_run", description="Stub shell")]
+        return [
+            ProviderTool(name="shell_run", description="Stub shell"),
+            ProviderTool(name="delete", description="Stub delete", destructive_hint=True),
+        ]
 
     async def call_tool(self, name: str, args: dict[str, Any], ctx: CallContext) -> types.CallToolResult:
         self.calls.append(str(args.get("command", "")))
@@ -69,8 +72,8 @@ async def test_audit_events_record_engine_name_across_layers(db_pool: Any) -> No
     client_id = reg["client"]["id"]
     # Allow stub_shell_run in table so guard can override it on rm
     await svc.set_policy(pattern="stub_shell_run", decision="allow", client_identifier="m10a-client")
-    # Explicitly deny memory_delete so visibility hides it
-    await svc.set_policy(pattern="memory_delete", decision="deny", client_identifier="m10a-client")
+    # Explicitly deny stub_delete so visibility hides it
+    await svc.set_policy(pattern="stub_delete", decision="deny", client_identifier="m10a-client")
 
     stub = _ShellStubProvider()
     seen_by_judge: list[str] = []
@@ -107,9 +110,9 @@ async def test_audit_events_record_engine_name_across_layers(db_pool: Any) -> No
     async with app.router.lifespan_context(app):
         rt = app.state.zos
         # 1) Hidden tool -> rejected by visibility, never hits judge
-        r_hidden = await rt.router.call_tool("memory_delete", {"key": "k"}, ctx)
+        r_hidden = await rt.router.call_tool("stub_delete", {"key": "k"}, ctx)
         assert r_hidden.is_error
-        assert "memory_delete" not in seen_by_judge
+        assert "stub_delete" not in seen_by_judge
 
         # 2) Guard denies rm command even though table allows stub_shell_run
         r_rm = await rt.router.call_tool("stub_shell_run", {"command": "rm -rf /tmp/test"}, ctx)
@@ -138,7 +141,7 @@ async def test_audit_events_record_engine_name_across_layers(db_pool: Any) -> No
             ).fetchall()
 
     assert [(r["tool"], r["decision"], r["outcome"], r["payload"]["engine"]) for r in rows] == [
-        ("memory_delete", "deny", "denied", "visibility"),
+        ("stub_delete", "deny", "denied", "visibility"),
         ("stub_shell_run", "deny", "denied", "deny_rm_in_shell"),
         ("stub_shell_run", "allow", "ok", "judge_v1"),
         ("stub_shell_run", "allow", "ok", "table"),

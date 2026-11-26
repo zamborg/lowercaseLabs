@@ -172,6 +172,16 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Eliminates hidden laptop assumptions (Postgres superuser, macOS-only `stat`/`openssl` paths, hardcoded single-host container/network names, implicit single-process assumptions) before moving ZOS to a hosted target.
 - **Impact:** ZOS core, migrations, backups/restores, and digest-pinned container modules run portably on non-superuser Postgres and standard Linux/Docker hosts, verified by CI and an end-to-end portability rehearsal.
 
+## 2026-11-26 — M12a: Memory extracted into standalone module & Module Contract v1.1 (`storage.extensions`)
+- **Decision:**
+  1. **Module Contract v1.1 (`[storage] extensions`):** Added optional `storage.extensions` allowlist (`{"pg_trgm"}`) to `manifest_version = 2`. `ModuleStorageProvisioner.provision_postgres` ensures allowlisted trusted extensions live in a shared `extensions` schema (`REVOKE ALL ON SCHEMA extensions FROM PUBLIC`), grants `USAGE ON SCHEMA extensions` to `mod_<slug>`, and sets `ALTER ROLE mod_<slug> SET search_path TO mod_<slug>, extensions`. Fresh deploys (`01-init-app-role.sh`, `0001_init.sql`) install `pg_trgm` directly into `extensions`; existing volumes use `migrate-existing-to-app-role.sh` (running as Postgres superuser) to relocate `pg_trgm` from `public` to `extensions` because Postgres requires superuser to `ALTER EXTENSION ... SET SCHEMA` on extension C functions.
+  2. **Drop `principal_id`/`space_id` in `modules/memory`:** ZOS is single-owner / single-space per deployment (`spaces` was never multi-space). `mod_memory.memories` stores `id`, `key` (unique), `content`, `tags`, `fts`, `created_by_client_id TEXT NULL`, `created_by_client_name TEXT NULL`, `created_at`, `updated_at` with zero foreign keys into `public.*` and no change to the v1 caller contract. Storing `created_by_client_name` directly preserves `author` even if a client is later disabled or pruned.
+  3. **Retire hosted `memory` provider, keep legacy `public.memories` table:** Added `migrations/0008_m12a_retire_hosted_memory_provider.sql` (`DELETE FROM providers WHERE slug = 'memory' AND kind = 'hosted'`) so the `memory` module can claim the `'memory'` slug cleanly while preserving all `events` rows (`ON DELETE SET NULL`) and owner `tool_tiers` rows. Legacy `public.memories` is left intact after the one-time checksum-verified copy (`deploy/scripts/migrate-memory-to-module.py`); dropping it is deferred to a follow-up migration after live verification.
+  4. **Host memory import:** Updated `deploy/scripts/import-memories.sh` to pipe `zos memory export` JSONL directly into `zos-mod-memory` (`python -m zos_memory.import_cli`), keeping host file discovery outside the container.
+- **Why:** Moves the first domain provider out of ZOS core while preserving exact `memory_*` tool names, schemas, owner policy tiers, FTS+trigram search quality, and non-superuser Postgres portability.
+- **Impact:** Core starts and routes cleanly with zero modules installed (`zos_status` only); `memory` runs as an isolated container module with its own `mod_memory` schema and `/admin/m/memory` owner UI (browse, search, tag filter, delete — no editing).
+
+
 
 
 

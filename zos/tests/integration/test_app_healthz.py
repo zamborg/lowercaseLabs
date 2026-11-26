@@ -23,7 +23,7 @@ async def test_app_healthz_and_mcp_401(db_pool) -> None:
             assert r.status_code == 200
             body = r.json()
             assert body["ok"] is True
-            assert any(p["namespace"] == "memory" and p["online"] for p in body["providers"])
+            assert isinstance(body["providers"], list)
 
             r_mcp = await client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
             assert r_mcp.status_code == 401

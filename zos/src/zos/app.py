@@ -54,7 +54,6 @@ from zos.providers.google import (
     GoogleServiceHub,
 )
 from zos.providers.mcp_upstream import HttpClientFactory, McpUpstreamProvider
-from zos.providers.memory import MemoryProvider
 from zos.providers.upstream_manager import UpstreamManager
 from zos.router import ProviderRegistry, SessionTracker, ToolRouter
 from zos.web.admin import create_admin_routes
@@ -370,17 +369,6 @@ def create_app(
             if run_migrations_on_startup:
                 await run_migrations(pool, cfg.migrations_dir)
 
-            # Discover hosted memory provider UUID if initialized
-            mem_provider_id = None
-            async with pool.connection() as conn:
-                cur = await conn.execute(
-                    "SELECT id FROM providers WHERE slug = 'memory' AND kind = 'hosted' LIMIT 1"
-                )
-                row = await cur.fetchone()
-                if row is not None:
-                    mem_provider_id = row["id"]
-
-            registry.register(MemoryProvider(pool, provider_id=mem_provider_id))
             await actuator_manager.load_registered_actuators()
             await google_hub.load_existing_connection()
 

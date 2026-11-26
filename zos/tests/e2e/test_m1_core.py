@@ -48,20 +48,73 @@ class FakeExternalProvider:
         )
 
 
+class FakeKVProvider:
+    namespace = "kv"
+    kind = "hosted"
+    provider_id = None
+
+    def __init__(self) -> None:
+        self._data: dict[str, dict[str, Any]] = {}
+
+    def is_online(self) -> bool:
+        return True
+
+    async def list_tools(self) -> list[ProviderTool]:
+        return [
+            ProviderTool(name="put", description="Store key", destructive_hint=False, idempotent_hint=True),
+            ProviderTool(name="get", description="Get key", destructive_hint=False, idempotent_hint=True),
+            ProviderTool(name="search", description="Search keys", destructive_hint=False, idempotent_hint=True),
+            ProviderTool(name="delete", description="Delete key", destructive_hint=True, idempotent_hint=True),
+        ]
+
+    async def call_tool(self, name: str, args: dict[str, Any], ctx: CallContext) -> types.CallToolResult:
+        if name == "put":
+            self._data[str(args["key"])] = {"key": str(args["key"]), "content": str(args["content"])}
+            return types.CallToolResult(content=[types.TextContent(type="text", text=json.dumps({"ok": True}))])
+        if name == "get":
+            row = self._data.get(str(args["key"]))
+            payload = {"found": row is not None, "item": row}
+            return types.CallToolResult(content=[types.TextContent(type="text", text=json.dumps(payload))])
+        if name == "search":
+            q = str(args.get("query", "")).lower()
+            matches = [v for v in self._data.values() if q in v["content"].lower()]
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text=json.dumps({"matches": matches}))]
+            )
+        if name == "delete":
+            deleted = self._data.pop(str(args["key"]), None) is not None
+            return types.CallToolResult(content=[types.TextContent(type="text", text=json.dumps({"deleted": deleted}))])
+        return types.CallToolResult(content=[types.TextContent(type="text", text="unknown")], is_error=True)
+
+
 async def test_m1_e2e_shared_memory_annotations_elicitation_and_audit(db_pool) -> None:
     init = await init_principal_and_space(db_pool, principal_slug="zubin")
     p_id = init["principal"]["id"]
     s_id = init["space"]["id"]
 
+    async with db_pool.connection() as conn:
+        for pat, tier in (
+            ("kv_get", "read"),
+            ("kv_search", "read"),
+            ("kv_put", "write"),
+            ("kv_delete", "write"),
+        ):
+            await conn.execute(
+                "INSERT INTO tool_tiers (principal_id, tool_pattern, tier) VALUES (%s, %s, %s)",
+                (p_id, pat, tier),
+            )
+        await conn.commit()
+
     client_a = await create_bearer_client(db_pool, principal_id=p_id, space_id=s_id, name="claude-code")
     client_b = await create_bearer_client(db_pool, principal_id=p_id, space_id=s_id, name="codex")
 
+    fake_kv = FakeKVProvider()
     fake_ext = FakeExternalProvider()
     cfg = Settings(
         database_url=get_test_database_url(),
         zos_base_url="http://127.0.0.1:0",
     )
-    app = create_app(cfg, extra_providers=[fake_ext], run_migrations_on_startup=False)
+    app = create_app(cfg, extra_providers=[fake_kv, fake_ext], run_migrations_on_startup=False)
 
     elicited_messages: list[str] = []
 
@@ -88,39 +141,39 @@ async def test_m1_e2e_shared_memory_annotations_elicitation_and_audit(db_pool) -
             # 1. Verify tools & annotations
             tools_a = {t.name: t for t in (await sess_a.list_tools()).tools}
             assert "zos_status" in tools_a
-            assert "memory_put" in tools_a
-            assert "memory_get" in tools_a
-            assert "memory_search" in tools_a
-            assert "memory_delete" in tools_a
+            assert "kv_put" in tools_a
+            assert "kv_get" in tools_a
+            assert "kv_search" in tools_a
+            assert "kv_delete" in tools_a
             assert "demo_action" in tools_a
 
-            assert tools_a["memory_get"].annotations is not None
-            assert tools_a["memory_get"].annotations.read_only_hint is True
-            assert tools_a["memory_get"].annotations.open_world_hint is False
+            assert tools_a["kv_get"].annotations is not None
+            assert tools_a["kv_get"].annotations.read_only_hint is True
+            assert tools_a["kv_get"].annotations.open_world_hint is False
 
-            assert tools_a["memory_delete"].annotations is not None
-            assert tools_a["memory_delete"].annotations.destructive_hint is True
-            assert tools_a["memory_delete"].annotations.read_only_hint is False
+            assert tools_a["kv_delete"].annotations is not None
+            assert tools_a["kv_delete"].annotations.destructive_hint is True
+            assert tools_a["kv_delete"].annotations.read_only_hint is False
 
             assert tools_a["demo_action"].annotations is not None
             assert tools_a["demo_action"].annotations.open_world_hint is True
             assert tools_a["demo_action"].annotations.destructive_hint is True
 
-            # 2. Client A puts memory; Client B gets & searches it
+            # 2. Client A puts item; Client B gets & searches it
             key = f"shared-{uuid.uuid4().hex[:8]}"
             put_res = await sess_a.call_tool(
-                "memory_put",
-                {"key": key, "content": "Unifying memories across Claude Code and Codex.", "tags": ["marquee"]},
+                "kv_put",
+                {"key": key, "content": "Unifying memories across Claude Code and Codex."},
             )
             assert not put_res.is_error
 
-            get_res = await sess_b.call_tool("memory_get", {"key": key})
+            get_res = await sess_b.call_tool("kv_get", {"key": key})
             assert not get_res.is_error
             get_payload = json.loads(get_res.content[0].text)
             assert get_payload["found"] is True
-            assert "Claude Code and Codex" in get_payload["memory"]["content"]
+            assert "Claude Code and Codex" in get_payload["item"]["content"]
 
-            search_res = await sess_b.call_tool("memory_search", {"query": "Unifying memories"})
+            search_res = await sess_b.call_tool("kv_search", {"query": "Unifying memories"})
             assert not search_res.is_error
             search_payload = json.loads(search_res.content[0].text)
             assert any(m["key"] == key for m in search_payload["matches"])
@@ -150,9 +203,9 @@ async def test_m1_e2e_shared_memory_annotations_elicitation_and_audit(db_pool) -
     assert len(events) == 5
     summary = [(e["tool"], e["decision"], e["outcome"]) for e in events]
     assert summary == [
-        ("memory_put", "allow", "ok"),
-        ("memory_get", "allow", "ok"),
-        ("memory_search", "allow", "ok"),
+        ("kv_put", "allow", "ok"),
+        ("kv_get", "allow", "ok"),
+        ("kv_search", "allow", "ok"),
         ("demo_action", "require_approval", "ok"),
         ("demo_action", "require_approval", "denied"),
     ]
@@ -164,6 +217,13 @@ async def test_m1_e2e_untrusted_trust_ceiling_denies_external_without_elicitatio
     p_id = init["principal"]["id"]
     s_id = init["space"]["id"]
 
+    async with db_pool.connection() as conn:
+        await conn.execute(
+            "INSERT INTO tool_tiers (principal_id, tool_pattern, tier) VALUES (%s, 'kv_put', 'write')",
+            (p_id,),
+        )
+        await conn.commit()
+
     untrusted = await create_bearer_client(
         db_pool,
         principal_id=p_id,
@@ -172,9 +232,10 @@ async def test_m1_e2e_untrusted_trust_ceiling_denies_external_without_elicitatio
         trust_ceiling="untrusted",
     )
 
+    fake_kv = FakeKVProvider()
     fake_ext = FakeExternalProvider()
     cfg = Settings(database_url=get_test_database_url(), zos_base_url="http://127.0.0.1:0")
-    app = create_app(cfg, extra_providers=[fake_ext], run_migrations_on_startup=False)
+    app = create_app(cfg, extra_providers=[fake_kv, fake_ext], run_migrations_on_startup=False)
 
     elicit_called = False
 
@@ -196,7 +257,7 @@ async def test_m1_e2e_untrusted_trust_ceiling_denies_external_without_elicitatio
             # External tool resolves to deny for untrusted -> hidden from tools/list
             tool_names = {t.name for t in (await sess.list_tools()).tools}
             assert "demo_action" not in tool_names
-            assert "memory_put" in tool_names
+            assert "kv_put" in tool_names
 
             # Direct call to external tool is denied immediately without invoking elicitation
             res = await sess.call_tool("demo_action", {"target": "nope"})
@@ -206,7 +267,7 @@ async def test_m1_e2e_untrusted_trust_ceiling_denies_external_without_elicitatio
             assert fake_ext.calls == []
 
             # Read/write tools remain allowed
-            put_res = await sess.call_tool("memory_put", {"key": "u-k", "content": "ok"})
+            put_res = await sess.call_tool("kv_put", {"key": "u-k", "content": "ok"})
             assert not put_res.is_error
 
     async with db_pool.connection() as conn:
@@ -214,4 +275,4 @@ async def test_m1_e2e_untrusted_trust_ceiling_denies_external_without_elicitatio
             "SELECT tool, decision, outcome FROM events WHERE type = 'tool.called' ORDER BY id ASC"
         )
         rows = [(r["tool"], r["decision"], r["outcome"]) for r in await cur.fetchall()]
-    assert rows == [("demo_action", "deny", "denied"), ("memory_put", "allow", "ok")]
+    assert rows == [("demo_action", "deny", "denied"), ("kv_put", "allow", "ok")]
