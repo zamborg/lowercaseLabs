@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
+import subprocess
 import uuid
+from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
 
 import psycopg
 import pytest
 
 from tests.conftest import get_test_database_url
+from zos.app import create_app
 from zos.config import Settings
 from zos.db import create_pool, run_migrations
 from zos.db.queries import init_principal_and_space
@@ -121,4 +125,89 @@ async def test_non_superuser_core_role_migrations_and_module_isolation() -> None
             )
             await admin.execute(f"DROP DATABASE IF EXISTS {test_db}")
             await admin.execute(f"DROP ROLE IF EXISTS mod_{mod_slug}")
+            await admin.execute(f"DROP ROLE IF EXISTS {app_role}")
+
+
+async def test_startup_warns_when_connected_as_superuser_and_migrate_script_is_idempotent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Core logs a startup WARNING for Postgres superuser, none for non-superuser; migrate script is idempotent."""
+    admin_url = get_test_database_url()
+    suffix = uuid.uuid4().hex[:8]
+    app_role = f"zos_warn_{suffix}"
+    app_pw = f"pw_{uuid.uuid4().hex}"
+    test_db = f"zos_warn_{suffix}"
+
+    # 1. Superuser connection emits WARNING
+    cfg_super = Settings(database_url=admin_url, zos_secret_key=generate_secret_key())
+    app_super = create_app(cfg_super, run_migrations_on_startup=False)
+    with caplog.at_level(logging.WARNING, logger="zos.app"):
+        async with app_super.router.lifespan_context(app_super):
+            pass
+    assert any("connected to Postgres as superuser" in r.message for r in caplog.records)
+
+    # 2. Create a superuser-owned DB with migrations applied, then migrate to non-superuser role
+    async with await psycopg.AsyncConnection.connect(admin_url, autocommit=True) as admin:
+        await admin.execute(f"CREATE DATABASE {test_db}")
+    admin_db_url = _replace_db_and_user(
+        admin_url,
+        user=urlparse(admin_url).username or "zos",
+        password=urlparse(admin_url).password or "zos",
+        dbname=test_db,
+    )
+    super_pool = create_pool(admin_db_url, min_size=1, max_size=2)
+    await super_pool.open()
+    try:
+        await run_migrations(super_pool, Settings(database_url=admin_db_url).migrations_dir)
+    finally:
+        await super_pool.close()
+
+    script = Path(__file__).resolve().parents[2] / "deploy" / "postgres" / "migrate-existing-to-app-role.sh"
+    has_pg_container = (
+        subprocess.run(["docker", "inspect", "zos-pg-test"], capture_output=True).returncode == 0
+    )
+    try:
+        if has_pg_container:
+            # Run script TWICE to verify idempotency on existing volumes
+            for _ in range(2):
+                res = subprocess.run(
+                    [
+                        str(script),
+                        "--container", "zos-pg-test",
+                        "--db", test_db,
+                        "--super-user", urlparse(admin_url).username or "zos",
+                        "--super-password", urlparse(admin_url).password or "zos",
+                        "--app-user", app_role,
+                        "--app-password", app_pw,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                assert f"role={app_role}" in res.stdout
+        else:
+            # CI service-container fallback: create equivalent restricted role directly
+            async with await psycopg.AsyncConnection.connect(admin_db_url, autocommit=True) as admin2:
+                await admin2.execute(
+                    f"CREATE ROLE {app_role} WITH LOGIN PASSWORD '{app_pw}' "
+                    "CREATEROLE NOSUPERUSER NOCREATEDB NOREPLICATION"
+                )
+                await admin2.execute(f"ALTER DATABASE {test_db} OWNER TO {app_role}")
+                await admin2.execute(f"ALTER SCHEMA public OWNER TO {app_role}")
+
+        # 3. Non-superuser connection emits NO superuser warning
+        app_url = _replace_db_and_user(admin_url, user=app_role, password=app_pw, dbname=test_db)
+        caplog.clear()
+        app_ns = create_app(Settings(database_url=app_url, zos_secret_key=generate_secret_key()))
+        with caplog.at_level(logging.WARNING, logger="zos.app"):
+            async with app_ns.router.lifespan_context(app_ns):
+                pass
+        assert not any("connected to Postgres as superuser" in r.message for r in caplog.records)
+    finally:
+        async with await psycopg.AsyncConnection.connect(admin_url, autocommit=True) as admin:
+            await admin.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid()",
+                (test_db,),
+            )
+            await admin.execute(f"DROP DATABASE IF EXISTS {test_db}")
             await admin.execute(f"DROP ROLE IF EXISTS {app_role}")

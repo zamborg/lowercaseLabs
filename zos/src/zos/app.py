@@ -355,6 +355,18 @@ def create_app(
         await pool.open()
         extra_closables: list[McpUpstreamProvider] = []
         try:
+            async with pool.connection() as conn:
+                cur = await conn.execute(
+                    "SELECT current_user AS role_name, rolsuper FROM pg_roles WHERE rolname = current_user"
+                )
+                role_row = await cur.fetchone()
+                if role_row is not None and bool(role_row["rolsuper"]):
+                    logger.warning(
+                        "ZOS is connected to Postgres as superuser '%s'; run as a restricted "
+                        "non-superuser role with CREATEROLE (see deploy/postgres/migrate-existing-to-app-role.sh).",
+                        role_row["role_name"],
+                    )
+
             if run_migrations_on_startup:
                 await run_migrations(pool, cfg.migrations_dir)
 

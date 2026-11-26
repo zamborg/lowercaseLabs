@@ -153,8 +153,9 @@ async def test_module_upgrade_preserves_data_secret_overrides_and_audits(
                 await mod_conn.execute("CREATE TABLE notes (id INT PRIMARY KEY, body TEXT)")
                 await mod_conn.execute("INSERT INTO notes (id, body) VALUES (1, 'survives upgrade')")
 
-            # 3. Owner edits a tier override and a client policy override
+            # 3. Owner edits tier overrides (on both write and read inbox tools) and a client policy override
             await svc.set_tool_tier(pattern="inbox_send", tier="external")
+            await svc.set_tool_tier(pattern="inbox_list", tier="write")
             await svc.set_policy(pattern="inbox_archive", decision="deny", client_identifier="upgrade-agent")
 
             # 4. Bump catalog manifest to v0.2.0 and click Upgrade in /admin/modules
@@ -197,6 +198,14 @@ async def test_module_upgrade_preserves_data_secret_overrides_and_audits(
                     )
                 ).fetchone()
                 assert t_send is not None and t_send["tier"] == "external"
+
+                t_list = await (
+                    await conn.execute(
+                        "SELECT tier FROM tool_tiers WHERE principal_id = %s AND tool_pattern = 'inbox_list'",
+                        (principal_id,),
+                    )
+                ).fetchone()
+                assert t_list is not None and t_list["tier"] == "write"
 
                 p_arch = await (
                     await conn.execute(
