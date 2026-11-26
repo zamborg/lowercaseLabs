@@ -19,6 +19,7 @@ from zos.audit import record_event
 from zos.catalog import ModuleManifest, get_module_catalog_entry
 from zos.config import Settings
 from zos.db.queries import (
+    apply_manifest_tiers_for_tools,
     create_remote_upstream,
     delete_remote_upstream,
     get_principal_and_space,
@@ -197,6 +198,33 @@ class ModuleManager:
             resolved[field.name] = val
         return resolved
 
+    async def _seed_exact_manifest_tiers(
+        self,
+        *,
+        principal_id: UUID,
+        provider_id: UUID,
+        manifest: ModuleManifest,
+    ) -> None:
+        """Seed exact (non-wildcard) manifest tier entries immediately without overwriting owner edits."""
+        exact_tools: list[tuple[str, str]] = []
+        prefix = f"{manifest.slug}_"
+        for pattern in manifest.tiers.patterns:
+            if any(ch in pattern for ch in "*?[]"):
+                continue
+            local = pattern[len(prefix) :] if pattern.startswith(prefix) else pattern
+            exact_tools.append((pattern, local))
+        if not exact_tools:
+            return
+        await apply_manifest_tiers_for_tools(
+            self.pool,
+            principal_id=principal_id,
+            provider_id=provider_id,
+            slug=manifest.slug,
+            catalog_slug=manifest.slug,
+            patterns=dict(manifest.tiers.patterns),
+            exposed_tools=exact_tools,
+        )
+
     async def install(
         self,
         slug: str,
@@ -296,6 +324,13 @@ class ModuleManager:
             mod_row = await cur.fetchone()
             await conn.commit()
         assert mod_row is not None
+
+        if upstream_row is not None:
+            await self._seed_exact_manifest_tiers(
+                principal_id=p["id"],
+                provider_id=upstream_row["id"],
+                manifest=manifest,
+            )
 
         if upstream_row is not None and self.upstream_manager is not None:
             await self.upstream_manager.hot_register_from_row(upstream_row, connect=False)
@@ -652,8 +687,32 @@ class ModuleManager:
                 ),
             )
             updated = await cur.fetchone()
+            if mod["upstream_id"] is not None:
+                up_cur = await conn.execute(
+                    "SELECT config FROM providers WHERE id = %s",
+                    (mod["upstream_id"],),
+                )
+                up_existing = await up_cur.fetchone()
+                if up_existing is not None:
+                    up_cfg = dict(up_existing["config"]) if isinstance(up_existing["config"], dict) else {}
+                    existing_managed = list(up_cfg.get("managed_tier_patterns") or [])
+                    up_cfg.update(self._provider_extra_config(manifest))
+                    up_cfg["managed_tier_patterns"] = existing_managed
+                    if installed.mcp_url:
+                        up_cfg["url"] = validate_module_url(installed.mcp_url)
+                    await conn.execute(
+                        "UPDATE providers SET config = %s WHERE id = %s",
+                        (Jsonb(up_cfg), mod["upstream_id"]),
+                    )
             await conn.commit()
         assert updated is not None
+
+        if mod["upstream_id"] is not None:
+            await self._seed_exact_manifest_tiers(
+                principal_id=p["id"],
+                provider_id=mod["upstream_id"],
+                manifest=manifest,
+            )
 
         if mod["upstream_id"] is not None and self.upstream_manager is not None:
             up_row = await get_remote_upstream(self.pool, slug=clean_slug, principal_id=p["id"])

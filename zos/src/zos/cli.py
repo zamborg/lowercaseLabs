@@ -602,9 +602,39 @@ def module_install_cmd(
         f"Installed module slug={mod['slug']} version={mod['version']} "
         f"host={mod['host']} status={mod['status']}"
     )
+    typer.echo("New tools appear in clients after they refresh/reconnect their ZOS connector.")
     if res.get("instructions"):
         typer.echo("")
         typer.echo(res["instructions"])
+
+
+@module_app.command("upgrade")
+def module_upgrade_cmd(
+    slug: Annotated[str, typer.Argument(help="Installed module slug to upgrade")],
+    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
+) -> None:
+    """Upgrade an installed module (rebuilds/pulls image while preserving data, secret, and policy overrides)."""
+
+    async def _run() -> dict:
+        s = _settings()
+        async with open_pool(s.database_url) as pool:
+            return await ModuleManager(pool, s).upgrade(
+                slug,
+                principal_slug=principal,
+                wait_ready=False,
+            )
+
+    try:
+        mod = asyncio.run(_run())
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    typer.echo(
+        f"Upgraded module slug={mod['slug']} version={mod['version']} "
+        f"image_pin={mod['image_pin']}"
+    )
+    typer.echo("New tools appear in clients after they refresh/reconnect their ZOS connector.")
 
 
 @module_app.command("attach")

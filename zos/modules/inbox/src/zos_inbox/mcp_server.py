@@ -25,8 +25,8 @@ INBOX_TOOLS: list[types.Tool] = [
     types.Tool(
         name="send",
         description=(
-            "Send an async email-like message to one or more mailboxes (e.g. ['owner'], ['general'], "
-            "or another client's mailbox name). Sender is automatically set from your verified identity."
+            "Send an internal agent inbox message to other agents, 'general', or 'owner' "
+            "(ZOS internal mail, not Gmail). Sender is set automatically."
         ),
         input_schema={
             "type": "object",
@@ -52,8 +52,8 @@ INBOX_TOOLS: list[types.Tool] = [
     types.Tool(
         name="list",
         description=(
-            "List messages in your own mailbox (default) or 'general'. "
-            "Clients cannot list another client's private mailbox."
+            "List internal agent inbox messages in your mailbox or 'general' "
+            "(ZOS internal mail between agents and the owner, not Gmail)."
         ),
         input_schema={
             "type": "object",
@@ -85,7 +85,10 @@ INBOX_TOOLS: list[types.Tool] = [
     ),
     types.Tool(
         name="read",
-        description="Read a message by id and mark it as read for you.",
+        description=(
+            "Read an internal agent inbox message by id and mark it read "
+            "(ZOS internal mail, not Gmail)."
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -101,7 +104,10 @@ INBOX_TOOLS: list[types.Tool] = [
     ),
     types.Tool(
         name="archive",
-        description="Archive a message by id for your mailbox.",
+        description=(
+            "Archive an internal agent inbox message by id "
+            "(ZOS internal mail, not Gmail)."
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -117,7 +123,10 @@ INBOX_TOOLS: list[types.Tool] = [
     ),
     types.Tool(
         name="directory",
-        description="List known mailboxes, last activity timestamps, and unread counts for you.",
+        description=(
+            "List known internal agent inbox mailboxes ('owner', 'general', and agents) "
+            "with unread counts (ZOS internal mail, not Gmail)."
+        ),
         input_schema={
             "type": "object",
             "properties": {},

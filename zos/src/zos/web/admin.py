@@ -906,11 +906,34 @@ def create_admin_routes(
             if mod["status"] == "pending_attach":
                 notice = f"Prepared manual module '{slug}'. Follow the instructions below to start and attach it."
             else:
-                notice = f"Installed module '{slug}' (v{mod['version']})."
+                notice = (
+                    f"Installed module '{slug}' (v{mod['version']}). "
+                    "New tools appear in clients after they refresh/reconnect their ZOS connector."
+                )
         except Exception as exc:
             error = str(exc)
 
         return await _render_modules(session, notice=notice, error=error, instructions=instructions)
+
+    async def modules_upgrade(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+        slug = data.get("slug", "").strip().lower()
+        notice = None
+        error = None
+        try:
+            mod = await modules.upgrade(slug)
+            notice = (
+                f"Upgraded module '{slug}' (v{mod['version']}). "
+                "New tools appear in clients after they refresh/reconnect their ZOS connector."
+            )
+        except Exception as exc:
+            error = str(exc)
+        return await _render_modules(session, notice=notice, error=error)
 
     async def modules_disable(request: Request) -> Response:
         session = _require_session(request)
@@ -1014,6 +1037,7 @@ def create_admin_routes(
         Route("/admin/approvals/{approval_id}/deny", approval_deny, methods=["POST"]),
         Route("/admin/modules", modules_page, methods=["GET"]),
         Route("/admin/modules/install", modules_install, methods=["POST"]),
+        Route("/admin/modules/upgrade", modules_upgrade, methods=["POST"]),
         Route("/admin/modules/disable", modules_disable, methods=["POST"]),
         Route("/admin/modules/enable", modules_enable, methods=["POST"]),
         Route("/admin/modules/uninstall", modules_uninstall, methods=["POST"]),

@@ -336,3 +336,12 @@ async def test_owner_visibility_all_mailboxes_without_mutating_client_read_state
     assert beta_unread["messages"][0]["read"] is False
     dir_beta = {d["mailbox"]: d["unread_count"] for d in await inbox_store.directory(caller="beta")}
     assert dir_beta["beta"] == 1
+
+
+async def test_inbox_migrations_are_versioned_and_idempotent(inbox_store: InboxStore) -> None:
+    """Re-running init_schema is a no-op and inbox_schema_migrations records 0001_init."""
+    applied_again = await inbox_store.init_schema()
+    assert applied_again == []
+    async with inbox_store.pool.connection() as conn:
+        rows = await (await conn.execute("SELECT version FROM inbox_schema_migrations")).fetchall()
+    assert [r["version"] for r in rows] == ["0001_init"]

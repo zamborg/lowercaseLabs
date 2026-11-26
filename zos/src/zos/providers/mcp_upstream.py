@@ -361,8 +361,12 @@ class McpUpstreamProvider:
                     namespace=self._namespace,
                 )
                 if self._on_tools_updated is not None:
-                    with contextlib.suppress(Exception):
+                    try:
                         await self._on_tools_updated(list(self._tools))
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed applying manifest tiers for '%s': %s", self._namespace, exc
+                        )
                 self._session = session
                 self._last_connect_ok = True
                 self._needs_reconnect = False

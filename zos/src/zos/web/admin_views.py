@@ -1046,6 +1046,12 @@ def render_modules_page(
             ui_title = m.get("ui_title") or slug
             ui_link = f'<a class="btn secondary sm" href="/admin/m/{_e(slug)}/">Open {_e(ui_title)}</a> '
 
+        upgrade_btn = (
+            f'<form class="inline" method="post" action="/admin/modules/upgrade">'
+            f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+            f'<input type="hidden" name="slug" value="{_e(slug)}">'
+            f'<button type="submit" class="secondary sm">Upgrade</button></form>'
+        )
         toggle_btn = (
             f'<form class="inline" method="post" action="/admin/modules/enable">'
             f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
@@ -1087,7 +1093,7 @@ def render_modules_page(
             f"<td data-label=\"Version\"><code>v{_e(m.get('version', ''))}</code></td>"
             f"<td data-label=\"Host\"><code>{_e(m.get('host', ''))}</code></td>"
             f"<td data-label=\"Status\">{badge}</td>"
-            f"<td data-label=\"Actions\" class=\"cell-wide\"><div class=\"cell-controls\"><div class=\"row\">{ui_link}{toggle_btn} {uninstall_btn}</div>{attach_form}</div></td>"
+            f"<td data-label=\"Actions\" class=\"cell-wide\"><div class=\"cell-controls\"><div class=\"row\">{ui_link}{upgrade_btn} {toggle_btn} {uninstall_btn}</div>{attach_form}</div></td>"
             f"</tr>"
         )
 

@@ -10,36 +10,44 @@ from psycopg import AsyncConnection
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import AsyncConnectionPool
 
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS mailboxes (
-    name TEXT PRIMARY KEY,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_activity_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+MIGRATIONS: list[tuple[str, str]] = [
+    (
+        "0001_init",
+        """
+        CREATE TABLE IF NOT EXISTS mailboxes (
+            name TEXT PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            last_activity_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
 
-CREATE TABLE IF NOT EXISTS messages (
-    id BIGSERIAL PRIMARY KEY,
-    thread_id UUID NOT NULL,
-    sender TEXT NOT NULL,
-    recipients TEXT[] NOT NULL,
-    subject TEXT NOT NULL,
-    body TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+        CREATE TABLE IF NOT EXISTS messages (
+            id BIGSERIAL PRIMARY KEY,
+            thread_id UUID NOT NULL,
+            sender TEXT NOT NULL,
+            recipients TEXT[] NOT NULL,
+            subject TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
 
-CREATE INDEX IF NOT EXISTS messages_thread_idx ON messages (thread_id, id);
-CREATE INDEX IF NOT EXISTS messages_recipients_gin ON messages USING GIN (recipients);
+        CREATE INDEX IF NOT EXISTS messages_thread_idx ON messages (thread_id, id);
+        CREATE INDEX IF NOT EXISTS messages_recipients_gin ON messages USING GIN (recipients);
 
-CREATE TABLE IF NOT EXISTS message_states (
-    message_id BIGINT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    reader TEXT NOT NULL,
-    read_at TIMESTAMPTZ NULL,
-    archived_at TIMESTAMPTZ NULL,
-    PRIMARY KEY (message_id, reader)
-);
+        CREATE TABLE IF NOT EXISTS message_states (
+            message_id BIGINT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            reader TEXT NOT NULL,
+            read_at TIMESTAMPTZ NULL,
+            archived_at TIMESTAMPTZ NULL,
+            PRIMARY KEY (message_id, reader)
+        );
 
-CREATE INDEX IF NOT EXISTS message_states_reader_idx ON message_states (reader, message_id);
-"""
+        CREATE INDEX IF NOT EXISTS message_states_reader_idx ON message_states (reader, message_id);
+
+        INSERT INTO mailboxes (name) VALUES ('owner') ON CONFLICT (name) DO NOTHING;
+        INSERT INTO mailboxes (name) VALUES ('general') ON CONFLICT (name) DO NOTHING;
+        """,
+    ),
+]
 
 
 def normalize_mailbox(name: str) -> str:
@@ -91,18 +99,37 @@ class InboxStore:
     def __init__(self, pool: AsyncConnectionPool[AsyncConnection[DictRow]]) -> None:
         self.pool = pool
 
-    async def init_schema(self) -> None:
+    async def init_schema(self) -> list[str]:
+        """Run idempotent, versioned schema migrations inside the module's own schema."""
+        applied_now: list[str] = []
         async with self.pool.connection() as conn:
-            for stmt in SCHEMA_SQL.split(";"):
-                s = stmt.strip()
-                if s:
-                    await conn.execute(s)
-            for seed in ("owner", "general"):
-                await conn.execute(
-                    "INSERT INTO mailboxes (name) VALUES (%s) ON CONFLICT (name) DO NOTHING",
-                    (seed,),
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS inbox_schema_migrations (
+                    version TEXT PRIMARY KEY,
+                    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
+                """
+            )
             await conn.commit()
+
+            cur = await conn.execute("SELECT version FROM inbox_schema_migrations")
+            already = {str(r["version"]) for r in await cur.fetchall()}
+
+            for version, sql_body in MIGRATIONS:
+                if version in already:
+                    continue
+                async with conn.transaction():
+                    for stmt in sql_body.split(";"):
+                        s = stmt.strip()
+                        if s:
+                            await conn.execute(s)
+                    await conn.execute(
+                        "INSERT INTO inbox_schema_migrations (version) VALUES (%s) ON CONFLICT DO NOTHING",
+                        (version,),
+                    )
+                applied_now.append(version)
+        return applied_now
 
     async def ensure_mailbox(self, name: str) -> str:
         clean = normalize_mailbox(name)
