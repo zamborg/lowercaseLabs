@@ -1002,8 +1002,30 @@ def render_modules_page(
     pending_approvals: int = 0,
     ui_modules: list[dict[str, Any]] | None = None,
     nav: dict[str, Any] | None = None,
+    devices: list[dict[str, Any]] | None = None,
+    new_device_token: dict[str, str] | None = None,
 ) -> str:
     banners = _notices(notice, error)
+    if new_device_token:
+        d_slug = new_device_token["slug"]
+        d_tok = new_device_token["token"]
+        d_ws = new_device_token["ws_url"]
+        one_liner = f"zos-device --url {d_ws} --token {d_tok} -- <command...>"
+        toml_snippet = (
+            f'url = "{d_ws}"\n'
+            f'token = "{d_tok}"\n'
+            'command = ["your-mcp-server"]'
+        )
+        banners += (
+            '<div class="notice notice-token"><div>'
+            f'Device token for <strong>{_e(d_slug)}</strong>. Copy it now — it won\'t be shown again.'
+            f'<div class="token-box">{_e(d_tok)}</div>'
+            '<p class="small" style="margin:0.75rem 0 0.25rem">Run any stdio MCP server as this device:</p>'
+            f'<pre class="code">{_e(one_liner)}</pre>'
+            '<p class="small" style="margin:0.75rem 0 0.25rem">Or save as <code>config.toml</code> and run <code>zos-device --config config.toml</code>:</p>'
+            f'<pre class="code">{_e(toml_snippet)}</pre>'
+            "</div></div>"
+        )
     if instructions:
         banners += _section("Manual setup", f'<pre class="code">{_e(instructions)}</pre>', desc="Run this where the module lives, then attach it below.")
 
@@ -1085,14 +1107,76 @@ def render_modules_page(
             f'{f"<div class=foot>{action}</div>" if action else ""}</div>'
         )
 
+    device_list = devices or []
+    device_rows: list[str] = []
+    for d in device_list:
+        d_slug = str(d["slug"])
+        is_enabled = bool(d.get("enabled", True))
+        if not is_enabled:
+            d_badge = _badge("disabled")
+        elif d.get("online"):
+            d_badge = _badge("online", "ok")
+        else:
+            d_badge = _badge("offline", "warn")
+        d_tools = int(d.get("tool_count", 0) or 0)
+        d_toggle = "disable" if is_enabled else "enable"
+        d_actions = [
+            _post(
+                "/admin/devices/rotate",
+                csrf_token,
+                '<button type="submit" class="ghost sm">Rotate token</button>',
+                slug=d_slug,
+            ),
+            _post(
+                f"/admin/devices/{d_toggle}",
+                csrf_token,
+                f'<button type="submit" class="ghost sm">{d_toggle.title()}</button>',
+                slug=d_slug,
+            ),
+            _confirm("Remove", "/admin/devices/remove", csrf_token, "Remove device", slug=d_slug),
+        ]
+        device_rows.append(
+            "<tr>"
+            f'<td class="lead" data-label="Device"><code>{_e(d_slug)}</code></td>'
+            f'<td data-label="Status">{d_badge}</td>'
+            f'<td data-label="Last seen" class="num muted">{_ts(d.get("last_seen_at"))}</td>'
+            f'<td data-label="Tools" class="num">{d_tools if d_tools else "<span class=faint>—</span>"}</td>'
+            f'<td class="actions"><div class="row">{"".join(d_actions)}</div></td>'
+            "</tr>"
+        )
+
+    add_device_form = f"""
+    <div class="panel" style="margin-top:0.75rem"><div class="panel-body">
+      <form class="form-row" method="post" action="/admin/devices/add">
+        {_csrf(csrf_token)}
+        <label class="field grow">Device slug
+          <input type="text" name="slug" placeholder="mac" pattern="[a-z][a-z0-9-]{{1,31}}" required>
+        </label>
+        <button type="submit">Add device</button>
+      </form>
+    </div></div>"""
+
+    devices_section = _section(
+        "Runs on your machine",
+        _table(
+            ["Device", "Status", ("Last seen", "num"), ("Tools", "num"), ("", "actions")],
+            device_rows,
+            empty="No devices registered yet. Add a device below to get a one-time token and zos-device command.",
+        )
+        + add_device_form,
+        meta=str(len(device_list)),
+        desc="Local stdio MCP servers that dial into zos via <code>zos-device</code>. Their tools appear while connected and default to <code>read</code> (if readOnlyHint) or <code>external</code> (approval required).",
+    )
+
     body = (
-        _head("Modules", f"Containers that add tools and apps to zos. Host: <code>{_e(host_kind)}</code>")
+        _head("Modules", f"Containers and local devices that add tools and apps to zos. Host: <code>{_e(host_kind)}</code>")
         + banners
         + _section(
             "Installed",
             _table(["Module", "Host", "Status", ("Tools", "num"), ("", "actions")], rows, empty="No modules installed yet."),
             meta=str(len(installed)),
         )
+        + devices_section
         + _section(
             "Catalog",
             f'<div class="tiles">{"".join(tiles)}</div>' if tiles else '<div class="panel"><p class="empty">No module manifests found in <code>catalog/modules/</code>.</p></div>',

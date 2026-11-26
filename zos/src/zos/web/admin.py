@@ -21,6 +21,7 @@ from zos.catalog import load_catalog, load_module_catalog
 from zos.config import Settings
 from zos.modules import ModuleManager
 from zos.policy import ApprovalError, ApprovalManager
+from zos.providers.actuator import ActuatorManager
 from zos.providers.upstream_manager import UpstreamManager
 from zos.router import ProviderRegistry, SessionTracker
 from zos.web.admin_auth import (
@@ -88,6 +89,7 @@ def create_admin_routes(
     upstream_manager: UpstreamManager | None = None,
     approval_manager: ApprovalManager | None = None,
     module_manager: ModuleManager | None = None,
+    actuator_manager: ActuatorManager | None = None,
 ) -> list[Route]:
     """Create passphrase-gated, CSRF-protected /admin dashboard routes."""
     service = AdminService(pool)
@@ -857,14 +859,24 @@ def create_admin_routes(
     def _module_catalog_entries():
         return load_module_catalog(settings.modules_catalog_dir)
 
+    def _device_ws_url() -> str:
+        base = settings.zos_base_url.rstrip("/")
+        if base.startswith("https://"):
+            return "wss://" + base[len("https://") :] + "/actuator"
+        if base.startswith("http://"):
+            return "ws://" + base[len("http://") :] + "/actuator"
+        return f"{base}/actuator"
+
     async def _render_modules(
         session: AdminSession,
         *,
         notice: str | None = None,
         error: str | None = None,
         instructions: str | None = None,
+        new_device_token: dict[str, str] | None = None,
     ) -> Response:
         installed = await modules.list_modules()
+        devices = await service.list_devices(registry=registry)
         ui_mods = [
             {
                 "slug": str(m["slug"]),
@@ -886,6 +898,8 @@ def create_admin_routes(
                 error=error,
                 instructions=instructions,
                 ui_modules=ui_mods,
+                devices=devices,
+                new_device_token=new_device_token,
             )
         )
 
@@ -1022,6 +1036,117 @@ def create_admin_routes(
             error = str(exc)
         return await _render_modules(session, notice=notice, error=error)
 
+    async def devices_add(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+        slug = data.get("slug", "").strip().lower()
+        notice = None
+        error = None
+        new_device_token: dict[str, str] | None = None
+        try:
+            res = await service.add_device(slug=slug, actuator_manager=actuator_manager)
+            clean_slug = str(res["provider"]["slug"])
+            notice = f"Added device '{clean_slug}'."
+            new_device_token = {
+                "slug": clean_slug,
+                "token": str(res["token"]),
+                "ws_url": _device_ws_url(),
+                "action": "created",
+            }
+        except Exception as exc:
+            error = str(exc)
+        return await _render_modules(
+            session,
+            notice=notice,
+            error=error,
+            new_device_token=new_device_token,
+        )
+
+    async def devices_rotate(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+        slug = data.get("slug", "").strip().lower()
+        notice = None
+        error = None
+        new_device_token: dict[str, str] | None = None
+        try:
+            res = await service.rotate_device_token(slug=slug, actuator_manager=actuator_manager)
+            clean_slug = str(res["provider"]["slug"])
+            notice = f"Rotated token for device '{clean_slug}' (revoked {res['revoked_tokens']} old token(s))."
+            new_device_token = {
+                "slug": clean_slug,
+                "token": str(res["token"]),
+                "ws_url": _device_ws_url(),
+                "action": "rotated",
+            }
+        except Exception as exc:
+            error = str(exc)
+        return await _render_modules(
+            session,
+            notice=notice,
+            error=error,
+            new_device_token=new_device_token,
+        )
+
+    async def devices_disable(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+        slug = data.get("slug", "").strip().lower()
+        notice = None
+        error = None
+        try:
+            await service.disable_device(slug=slug, actuator_manager=actuator_manager)
+            notice = f"Disabled device '{slug}'. Its tools are hidden until re-enabled."
+        except Exception as exc:
+            error = str(exc)
+        return await _render_modules(session, notice=notice, error=error)
+
+    async def devices_enable(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+        slug = data.get("slug", "").strip().lower()
+        notice = None
+        error = None
+        try:
+            await service.enable_device(slug=slug, actuator_manager=actuator_manager)
+            notice = f"Enabled device '{slug}'."
+        except Exception as exc:
+            error = str(exc)
+        return await _render_modules(session, notice=notice, error=error)
+
+    async def devices_remove(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+        slug = data.get("slug", "").strip().lower()
+        notice = None
+        error = None
+        try:
+            res = await service.remove_device(slug=slug, actuator_manager=actuator_manager)
+            notice = f"Removed device '{res['slug']}' (revoked {res['revoked_tokens']} token(s))."
+        except Exception as exc:
+            error = str(exc)
+        return await _render_modules(session, notice=notice, error=error)
+
     async def module_ui_proxy(request: Request) -> Response:
         session = _require_session(request)
         if session is None:
@@ -1077,6 +1202,11 @@ def create_admin_routes(
         Route("/admin/modules/enable", modules_enable, methods=["POST"]),
         Route("/admin/modules/uninstall", modules_uninstall, methods=["POST"]),
         Route("/admin/modules/attach", modules_attach, methods=["POST"]),
+        Route("/admin/devices/add", devices_add, methods=["POST"]),
+        Route("/admin/devices/rotate", devices_rotate, methods=["POST"]),
+        Route("/admin/devices/disable", devices_disable, methods=["POST"]),
+        Route("/admin/devices/enable", devices_enable, methods=["POST"]),
+        Route("/admin/devices/remove", devices_remove, methods=["POST"]),
         Route(
             "/admin/m/{slug:str}",
             module_ui_proxy,

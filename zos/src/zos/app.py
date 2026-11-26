@@ -361,6 +361,7 @@ def create_app(
             upstream_manager=upstream_manager,
             approval_manager=approval_manager,
             module_manager=module_manager,
+            actuator_manager=actuator_manager,
         ),
     ]
     if extra_routes_factory is not None:
