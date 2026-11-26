@@ -1,0 +1,69 @@
+name: ZOS CI
+
+on:
+  push:
+    paths:
+      - "zos/**"
+      - ".github/workflows/zos.yml"
+  pull_request:
+    paths:
+      - "zos/**"
+      - ".github/workflows/zos.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: zos
+          POSTGRES_PASSWORD: zos
+          POSTGRES_DB: zos_test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd="pg_isready -U zos -d zos_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Core — lint and test
+        working-directory: zos
+        env:
+          ZOS_TEST_DATABASE_URL: postgresql://zos:zos@127.0.0.1:55432/zos_test
+        run: |
+          uv sync --frozen
+          uv run ruff check
+          uv run pytest
+
+      - name: Actuator — lint and test
+        working-directory: zos/actuator
+        run: |
+          uv sync --frozen
+          uv run ruff check
+          uv run pytest
+
+      - name: Inbox module — lint and test
+        working-directory: zos/modules/inbox
+        env:
+          ZOS_TEST_DATABASE_URL: postgresql://zos:zos@127.0.0.1:55432/zos_test
+        run: |
+          uv sync --frozen
+          uv run ruff check
+          uv run pytest

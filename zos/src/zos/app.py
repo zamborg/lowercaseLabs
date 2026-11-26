@@ -33,7 +33,7 @@ from zos.auth import BearerAuthASGIMiddleware, CallContext, current_call_context
 from zos.auth.oauth import create_oauth_routes
 from zos.auth.rate_limit import GlobalPassphraseRateLimiter, GlobalSlidingWindowLimiter
 from zos.config import Settings
-from zos.db import create_pool, run_migrations
+from zos.db import InstanceAdvisoryLock, create_pool, run_migrations
 from zos.instructions import load_mcp_instructions
 from zos.modules import ModuleHost, ModuleManager
 from zos.policy import (
@@ -151,6 +151,7 @@ def create_app(
     upstream_connect_timeout_s: float = 15.0,
     policy_engines: Sequence[PolicyEngine] | None = None,
     module_host: ModuleHost | None = None,
+    enforce_single_instance: bool = True,
 ) -> Starlette:
     """Create the ZOS Starlette ASGI application."""
     cfg = settings or Settings.from_env()
@@ -347,6 +348,10 @@ def create_app(
 
     @contextlib.asynccontextmanager
     async def lifespan(starlette_app: Starlette) -> AsyncIterator[None]:
+        instance_lock: InstanceAdvisoryLock | None = None
+        if enforce_single_instance:
+            instance_lock = InstanceAdvisoryLock(cfg.database_url)
+            await instance_lock.acquire()
         await pool.open()
         extra_closables: list[McpUpstreamProvider] = []
         try:
@@ -395,6 +400,8 @@ def create_app(
                 with contextlib.suppress(Exception):
                     await upstream.aclose()
             await pool.close()
+            if instance_lock is not None:
+                await instance_lock.release()
 
     async def healthz(request: Request) -> JSONResponse:
         async with pool.connection() as conn:
