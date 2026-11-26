@@ -6,8 +6,8 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from zos_actuator.messages import APPLE_EPOCH, MessagesIndex, apple_timestamp_to_iso
-from zos_actuator.typedstream import build_typedstream_attributed_body, decode_attributed_body
+from zos_mac.messages import APPLE_EPOCH, MessagesIndex, apple_timestamp_to_iso
+from zos_mac.typedstream import build_typedstream_attributed_body, decode_attributed_body
 
 
 def _apple_ns(dt: datetime) -> int:

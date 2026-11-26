@@ -1,15 +1,14 @@
 [project]
-name = "zos-actuator"
-version = "0.1.0"
-description = "Standalone macOS actuator daemon for ZOS"
+name = "zos-device"
+version = "0.2.0"
+description = "Generic stdio-to-WebSocket MCP device bridge for ZOS"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp>=1.9.0",
     "websockets>=14.0",
 ]
 
 [project.scripts]
-zos-actuator = "zos_actuator.main:main"
+zos-device = "zos_device.main:main"
 
 [dependency-groups]
 dev = [
@@ -23,7 +22,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/zos_actuator"]
+packages = ["src/zos_device"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

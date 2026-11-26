@@ -52,8 +52,15 @@ jobs:
           uv run ruff check
           uv run pytest
 
-      - name: Actuator — lint and test
-        working-directory: zos/actuator
+      - name: Device bridge — lint and test
+        working-directory: zos/device
+        run: |
+          uv sync --frozen
+          uv run ruff check
+          uv run pytest
+
+      - name: Mac device — lint and test
+        working-directory: zos/devices/mac
         run: |
           uv sync --frozen
           uv run ruff check

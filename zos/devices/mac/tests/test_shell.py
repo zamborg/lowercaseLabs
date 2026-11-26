@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from zos_actuator.shell import TmuxShellRunner, cap_output_bytes
+from zos_mac.shell import TmuxShellRunner, cap_output_bytes
 
 pytestmark = pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux binary not installed")
 

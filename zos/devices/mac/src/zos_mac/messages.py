@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from zos_actuator.contacts import ContactsIndex
-from zos_actuator.typedstream import decode_attributed_body
+from zos_mac.contacts import ContactsIndex
+from zos_mac.typedstream import decode_attributed_body
 
 APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=UTC)
 MAX_SEARCH_LIMIT = 50

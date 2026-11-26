@@ -6,8 +6,8 @@ import os
 import sqlite3
 from pathlib import Path
 
-from zos_actuator.contacts import ContactsIndex, normalize_email, normalize_phone
-from zos_actuator.messages import MessagesIndex
+from zos_mac.contacts import ContactsIndex, normalize_email, normalize_phone
+from zos_mac.messages import MessagesIndex
 
 
 def _create_fixture_abcddb(path: Path, contacts: list[tuple[int, str | None, str | None, str | None, list[str], list[str]]]) -> None:

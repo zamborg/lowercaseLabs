@@ -1,4 +1,7 @@
-"""Standalone macOS ZOS actuator daemon: dials out over WebSocket and serves MCP."""
+"""Standalone macOS stdio MCP server exposing Messages search and persistent tmux shell.
+
+Works directly with any stdio MCP client (e.g. Claude Desktop) or relayed to ZOS via `zos-device`.
+"""
 
 from __future__ import annotations
 
@@ -8,62 +11,73 @@ import contextlib
 import json
 import logging
 import os
-import random
 import tomllib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import anyio
 import mcp_types as types
-import websockets
 from mcp.server.lowlevel.server import Server
-from mcp.shared._context_streams import create_context_streams
-from mcp.shared.message import SessionMessage
-from mcp_types import jsonrpc_message_adapter
+from mcp.server.stdio import stdio_server
 
-from zos_actuator.messages import MessagesIndex
-from zos_actuator.shell import DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S, TmuxShellRunner
+from zos_mac.messages import MessagesIndex
+from zos_mac.shell import DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S, TmuxShellRunner
 
-logger = logging.getLogger("zos_actuator")
+logger = logging.getLogger("zos_mac")
 
-DEFAULT_CONFIG_PATH = Path("~/.zos-actuator/config.toml")
 DEFAULT_CHAT_DB_PATH = Path("~/Library/Messages/chat.db")
 DEFAULT_INDEX_DB_PATH = Path("~/.zos-actuator/messages.db")
 
 
 @dataclass(frozen=True, slots=True)
-class ActuatorConfig:
-    url: str
-    token: str
+class MacDeviceConfig:
     chat_db_path: Path = DEFAULT_CHAT_DB_PATH
     index_db_path: Path = DEFAULT_INDEX_DB_PATH
     tmux_socket: str = "zos"
     tmux_session: str = "zos"
 
     @classmethod
-    def from_file(cls, path: Path) -> ActuatorConfig:
-        resolved = path.expanduser()
-        raw = tomllib.loads(resolved.read_text(encoding="utf-8"))
-        url = str(raw.get("url", "")).strip()
-        token = str(raw.get("token", "")).strip()
-        if not url or not token:
-            raise ValueError(f"Config {resolved} must define non-empty 'url' and 'token'")
+    def resolve(
+        cls,
+        *,
+        config_path: Path | None = None,
+        chat_db_path: Path | None = None,
+        index_db_path: Path | None = None,
+        tmux_socket: str | None = None,
+        tmux_session: str | None = None,
+    ) -> MacDeviceConfig:
+        raw: dict[str, Any] = {}
+        if config_path is not None:
+            resolved = config_path.expanduser()
+            if resolved.is_file():
+                raw = tomllib.loads(resolved.read_text(encoding="utf-8"))
+
+        final_chat_db = (
+            chat_db_path
+            if chat_db_path is not None
+            else Path(str(raw.get("chat_db_path", str(DEFAULT_CHAT_DB_PATH))))
+        ).expanduser()
+        final_index_db = (
+            index_db_path
+            if index_db_path is not None
+            else Path(str(raw.get("index_db_path", str(DEFAULT_INDEX_DB_PATH))))
+        ).expanduser()
+        final_socket = tmux_socket or str(raw.get("tmux_socket", "zos"))
+        final_session = tmux_session or str(raw.get("tmux_session", "zos"))
         return cls(
-            url=url,
-            token=token,
-            chat_db_path=Path(raw.get("chat_db_path", str(DEFAULT_CHAT_DB_PATH))).expanduser(),
-            index_db_path=Path(raw.get("index_db_path", str(DEFAULT_INDEX_DB_PATH))).expanduser(),
-            tmux_socket=str(raw.get("tmux_socket", "zos")),
-            tmux_session=str(raw.get("tmux_session", "zos")),
+            chat_db_path=final_chat_db,
+            index_db_path=final_index_db,
+            tmux_socket=final_socket,
+            tmux_session=final_session,
         )
 
 
-def build_actuator_mcp_server(
+def build_mac_mcp_server(
     messages_index: MessagesIndex,
     shell_runner: TmuxShellRunner,
 ) -> Server[Any]:
-    """Create the low-level MCP server exposing exactly two V0 tools: messages_search and shell_run."""
+    """Create the low-level stdio MCP server exposing messages_search and shell_run."""
 
     async def on_list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
         return types.ListToolsResult(
@@ -162,114 +176,60 @@ def build_actuator_mcp_server(
                 )
 
         return types.CallToolResult(
-            content=[types.TextContent(type="text", text=f"Unknown actuator tool: {params.name}")],
+            content=[types.TextContent(type="text", text=f"Unknown mac tool: {params.name}")],
             is_error=True,
         )
 
     return Server(
-        "zos-actuator",
-        version="0.1.0",
+        "zos-mac",
+        version="0.2.0",
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,
     )
 
 
-async def run_once(
-    url: str,
-    token: str,
-    server: Server[Any],
-) -> None:
-    """Connect once to ZOS /actuator WebSocket and serve MCP until disconnect."""
-    async with websockets.connect(
-        url,
-        additional_headers={"Authorization": f"Bearer {token}"},
-        ping_interval=20,
-        ping_timeout=10,
-        max_size=10 * 1024 * 1024,
-    ) as ws:
-        logger.info("Connected to ZOS actuator endpoint %s", url)
-        read_writer, read_stream = create_context_streams[SessionMessage | Exception](32)
-        write_stream, write_reader = create_context_streams[SessionMessage](32)
-
-        async def ws_reader() -> None:
-            try:
-                async for raw_msg in ws:
-                    text = raw_msg if isinstance(raw_msg, str) else raw_msg.decode("utf-8")
-                    msg = jsonrpc_message_adapter.validate_json(text, by_name=False)
-                    await read_writer.send(SessionMessage(msg))
-            except Exception as exc:
-                logger.debug("Actuator ws_reader ended: %s", exc)
-            finally:
-                with contextlib.suppress(Exception):
-                    await read_writer.aclose()
-
-        async def ws_writer() -> None:
-            try:
-                async for session_msg in write_reader:
-                    payload = session_msg.message.model_dump_json(by_alias=True, exclude_none=True)
-                    await ws.send(payload)
-            except Exception as exc:
-                logger.debug("Actuator ws_writer ended: %s", exc)
-            finally:
-                with contextlib.suppress(Exception):
-                    await write_reader.aclose()
-
-        async with (
-            read_writer,
-            read_stream,
-            write_stream,
-            write_reader,
-            anyio.create_task_group() as tg,
-        ):
-            tg.start_soon(ws_reader)
-            tg.start_soon(ws_writer)
-            try:
-                await server.run(read_stream, write_stream, server.create_initialization_options())
-            finally:
-                tg.cancel_scope.cancel()
-
-
-async def run_forever(config: ActuatorConfig) -> None:
-    """Maintain persistent outbound connection to ZOS with jittered exponential backoff."""
+async def run_stdio(config: MacDeviceConfig) -> None:
+    """Serve the macOS MCP server over stdin/stdout."""
     messages_index = MessagesIndex(config.chat_db_path, config.index_db_path)
     shell_runner = TmuxShellRunner(
         socket_name=config.tmux_socket,
         session_name=config.tmux_session,
     )
-    server = build_actuator_mcp_server(messages_index, shell_runner)
-
-    attempt = 0
-    while True:
-        started_at = asyncio.get_running_loop().time()
-        try:
-            await run_once(config.url, config.token, server)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.warning("Actuator connection lost: %s", exc)
-
-        elapsed = asyncio.get_running_loop().time() - started_at
-        attempt = 0 if elapsed > 10.0 else min(attempt + 1, 6)
-
-        base_delay = min(30.0, float(2 ** max(0, attempt - 1)))
-        delay = base_delay * random.uniform(0.75, 1.25)
-        logger.info("Reconnecting in %.2fs...", delay)
-        await asyncio.sleep(delay)
+    server = build_mac_mcp_server(messages_index, shell_runner)
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(read_stream, write_stream, server.create_initialization_options())
 
 
-def main() -> None:
-    logging.basicConfig(level=os.environ.get("ZOS_ACTUATOR_LOG_LEVEL", "INFO"))
-    parser = argparse.ArgumentParser(description="ZOS macOS actuator daemon")
+def parse_args(argv: Sequence[str] | None = None) -> MacDeviceConfig:
+    parser = argparse.ArgumentParser(
+        prog="zos-mac",
+        description="Standalone macOS stdio MCP server (Messages search + tmux shell).",
+    )
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path(os.environ.get("ZOS_ACTUATOR_CONFIG", str(DEFAULT_CONFIG_PATH))),
-        help="Path to config.toml (default: ~/.zos-actuator/config.toml)",
+        default=None,
+        help="Optional TOML config file (reads chat_db_path, index_db_path, tmux_socket, tmux_session)",
     )
-    args = parser.parse_args()
-    cfg = ActuatorConfig.from_file(args.config)
+    parser.add_argument("--chat-db", type=Path, default=None, help="Override Messages chat.db path")
+    parser.add_argument("--index-db", type=Path, default=None, help="Override local FTS5 index path")
+    parser.add_argument("--tmux-socket", type=str, default=None, help="Override tmux socket name (default: zos)")
+    parser.add_argument("--tmux-session", type=str, default=None, help="Override tmux session name (default: zos)")
+    ns = parser.parse_args(argv)
+    return MacDeviceConfig.resolve(
+        config_path=ns.config,
+        chat_db_path=ns.chat_db,
+        index_db_path=ns.index_db,
+        tmux_socket=ns.tmux_socket,
+        tmux_session=ns.tmux_session,
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    logging.basicConfig(level=os.environ.get("ZOS_MAC_LOG_LEVEL", "WARNING"))
+    cfg = parse_args(argv)
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(run_forever(cfg))
+        asyncio.run(run_stdio(cfg))
 
 
 if __name__ == "__main__":
