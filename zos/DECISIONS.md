@@ -209,7 +209,7 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** The previous UI was card-per-section with stacked select+Set forms and raw status enums; the owner asked for a tidy, high-taste home for ZOS. No routes, form fields, or auth/CSRF behaviour changed.
 - **Impact:** Copy changed in a few places tests asserted (`Last backup`, `Available connectors`, `Redirect host`, `needs reconnect`/`not configured`, `Delete memory`, `Calendar backend`); tests updated accordingly.
 
-## 2026-11-26 — v3.0.1: Shared `edge-filter`, `--edge exe`, and network-isolated `cloudflared`
+## 2026-11-26 — v3.1.1: Shared `edge-filter`, `--edge exe`, and network-isolated `cloudflared`
 - **Decision:**
   1. **Single-source path allowlist (`deploy/caddy/Caddyfile.allowlist`):** Extracted the public path allowlist (`/mcp`, `/mcp/*`, `/.well-known/*`, `/oauth/*`, `/admin`, `/admin/*`, `/connect/*`, `/actuator` → `zos:8080`, catch-all `404`) into one file imported by both `deploy/caddy/Caddyfile.template` (TLS edge) and `deploy/caddy/Caddyfile.filter` (plain-HTTP `:8000` `edge-filter` with `auto_https off` and `admin off`). Pinned both to `caddy:2.11.9-alpine` and added `tests/unit/test_edge_filter_config.py` to prevent allowlist drift.
   2. **`--edge exe` (`deploy/docker-compose.filter.yml` + `deploy/docker-compose.exe.yml`):** Publishes `edge-filter` on `8000:8000` for exe.dev's HTTPS proxy, defaults `ZOS_BASE_URL=https://$(hostname -s).exe.xyz` unless `--domain` is passed, keeps all installer health checks on `127.0.0.1` (exe.dev VMs cannot hairpin `<vm>.exe.xyz`), persists the edge in `.env`, and prints `ssh exe.dev share set-public <vm>` in the summary.

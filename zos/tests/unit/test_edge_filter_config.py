@@ -126,20 +126,20 @@ def test_install_script_syntax_and_exe_edge_persistence(tmp_path: Path) -> None:
         return dict(part.split("=", 1) for part in out.split("|"))
 
     # Fresh --edge exe with tag
-    r1 = _resolve(None, ["--edge", "exe", "--ref", "zos-v3.0.1"])
-    assert r1 == {"EDGE": "exe", "DOMAIN": "", "REF": "zos-v3.0.1", "SOURCE": ""}
+    r1 = _resolve(None, ["--edge", "exe", "--ref", "zos-v3.1.1"])
+    assert r1 == {"EDGE": "exe", "DOMAIN": "", "REF": "zos-v3.1.1", "SOURCE": ""}
 
     # Re-run Step 3 without flags preserves exe edge and tag (never moves to main)
-    r2 = _resolve("ZOS_INSTALL_EDGE=exe\nZOS_INSTALL_DOMAIN=\nZOS_INSTALL_REF=zos-v3.0.1\n", [])
-    assert r2 == {"EDGE": "exe", "DOMAIN": "", "REF": "zos-v3.0.1", "SOURCE": ""}
+    r2 = _resolve("ZOS_INSTALL_EDGE=exe\nZOS_INSTALL_DOMAIN=\nZOS_INSTALL_REF=zos-v3.1.1\n", [])
+    assert r2 == {"EDGE": "exe", "DOMAIN": "", "REF": "zos-v3.1.1", "SOURCE": ""}
 
     # Custom domain with --edge exe persists across re-run
-    r3 = _resolve("ZOS_INSTALL_EDGE=exe\nZOS_INSTALL_DOMAIN=zos.custom.dev\nZOS_INSTALL_REF=zos-v3.0.1\n", [])
-    assert r3 == {"EDGE": "exe", "DOMAIN": "zos.custom.dev", "REF": "zos-v3.0.1", "SOURCE": ""}
+    r3 = _resolve("ZOS_INSTALL_EDGE=exe\nZOS_INSTALL_DOMAIN=zos.custom.dev\nZOS_INSTALL_REF=zos-v3.1.1\n", [])
+    assert r3 == {"EDGE": "exe", "DOMAIN": "zos.custom.dev", "REF": "zos-v3.1.1", "SOURCE": ""}
 
     # Switching caddy -> exe without --domain clears prior caddy domain
     r4 = _resolve(
-        "ZOS_INSTALL_EDGE=caddy\nZOS_INSTALL_DOMAIN=old.example.com\nZOS_INSTALL_REF=zos-v3.0.1\n",
+        "ZOS_INSTALL_EDGE=caddy\nZOS_INSTALL_DOMAIN=old.example.com\nZOS_INSTALL_REF=zos-v3.1.1\n",
         ["--edge", "exe"],
     )
-    assert r4 == {"EDGE": "exe", "DOMAIN": "", "REF": "zos-v3.0.1", "SOURCE": ""}
+    assert r4 == {"EDGE": "exe", "DOMAIN": "", "REF": "zos-v3.1.1", "SOURCE": ""}
