@@ -42,7 +42,7 @@ async def test_admin_overview_displays_last_backup_time_and_size(db_pool) -> Non
         assert (await client.post("/admin/login", data={"passphrase": owner_pw})).status_code == 303
         r_before = await client.get("/admin")
         assert r_before.status_code == 200
-        assert "Last Backup" in r_before.text
+        assert "Last backup" in r_before.text
         assert "Never" in r_before.text
 
         # Record a completed backup via AdminService

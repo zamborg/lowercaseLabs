@@ -280,7 +280,7 @@ async def test_m7_dcr_redirect_allowlist_and_approve_page_host(db_pool) -> None:
             },
         )
         assert r_auth.status_code == 200
-        assert "Redirect Host" in r_auth.text
+        assert "Redirect host" in r_auth.text
         assert '<dd class="host-callout">chatgpt.com</dd>' in r_auth.text
 
 

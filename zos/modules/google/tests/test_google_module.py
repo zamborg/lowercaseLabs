@@ -479,7 +479,7 @@ async def test_gcal_api_and_mcp_backends_and_ui_switch() -> None:
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=ui_app), base_url="http://gcal.local") as ui:
                 r_idx = await ui.get("/", headers=ui_hdrs)
                 assert r_idx.status_code == 200
-                assert "Calendar Backend" in r_idx.text
+                assert "Calendar backend" in r_idx.text
                 assert "gcal-access-tok" not in r_idx.text
                 assert "gcal-refresh-tok" not in r_idx.text
                 csrf = re.search(r'name="csrf_token"\s+value="([^"]+)"', r_idx.text).group(1)

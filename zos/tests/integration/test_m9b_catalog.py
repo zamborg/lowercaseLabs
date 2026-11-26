@@ -236,7 +236,7 @@ async def test_catalog_install_tiers_list_changed_owner_override_as_and_csrf(db_
             assert (await web.post("/admin/login", data={"passphrase": owner_pw})).status_code == 303
             r_up = await web.get("/admin/upstreams")
             assert r_up.status_code == 200
-            assert "Available Connectors" in r_up.text
+            assert "Available connectors" in r_up.text
             assert "Demo MCP" in r_up.text
             csrf = _extract_csrf(r_up.text)
 

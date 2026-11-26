@@ -1,7 +1,7 @@
 manifest_version = 2
 slug = "memory"
 name = "Memory"
-version = "0.1.0"
+version = "0.2.0"
 description = "Postgres full-text and trigram memory store shared across your agents."
 
 [runtime]

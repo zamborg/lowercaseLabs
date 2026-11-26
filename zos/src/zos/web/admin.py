@@ -196,6 +196,14 @@ def create_admin_routes(
             if m.get("ui_url") and m.get("disabled_at") is None and m.get("status") != "disabled"
         ]
 
+    async def _nav() -> dict[str, Any]:
+        """Sidebar context shared by every admin page: module apps and pending approvals."""
+        try:
+            pending = await approvals.count_pending()
+        except Exception:
+            pending = 0
+        return {"ui_modules": await _ui_modules(), "pending": pending}
+
     async def overview_page(request: Request) -> Response:
         session = _require_session(request)
         if session is None:
@@ -207,6 +215,7 @@ def create_admin_routes(
             render_overview_page(
                 overview=overview,
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 ui_modules=ui_mods,
             )
         )
@@ -225,6 +234,7 @@ def create_admin_routes(
             render_clients_page(
                 clients=clients,
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 notice=notice,
                 error=error,
                 new_token_info=new_token_info,
@@ -399,7 +409,7 @@ def create_admin_routes(
         if session is None:
             return _redirect("/admin/login")
         matrix = await service.get_policy_matrix(registry)
-        return _html(render_policy_page(matrix=matrix, csrf_token=session.csrf_token))
+        return _html(render_policy_page(matrix=matrix, csrf_token=session.csrf_token, nav=await _nav()))
 
     async def policy_set(request: Request) -> Response:
         session = _require_session(request)
@@ -429,6 +439,7 @@ def create_admin_routes(
             render_policy_page(
                 matrix=matrix,
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 notice=notice,
                 error=error,
             )
@@ -460,6 +471,7 @@ def create_admin_routes(
             render_policy_page(
                 matrix=matrix,
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 notice=notice,
                 error=error,
             )
@@ -488,6 +500,7 @@ def create_admin_routes(
             render_policy_page(
                 matrix=matrix,
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 notice=notice,
                 error=error,
             )
@@ -518,6 +531,7 @@ def create_admin_routes(
                 upstreams=upstreams,
                 catalog=_catalog_entries(),
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
             )
         )
 
@@ -553,6 +567,7 @@ def create_admin_routes(
                 upstreams=upstreams,
                 catalog=_catalog_entries(),
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 notice=notice,
                 error=error,
             )
@@ -599,6 +614,7 @@ def create_admin_routes(
                 upstreams=upstreams,
                 catalog=_catalog_entries(),
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 notice=notice,
                 error=error,
             )
@@ -633,6 +649,7 @@ def create_admin_routes(
                 upstreams=upstreams,
                 catalog=_catalog_entries(),
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 notice=notice,
                 error=error,
             )
@@ -670,6 +687,7 @@ def create_admin_routes(
                 upstreams=upstreams,
                 catalog=_catalog_entries(),
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 notice=notice,
                 error=error,
             )
@@ -701,6 +719,7 @@ def create_admin_routes(
                 upstreams=upstreams,
                 catalog=_catalog_entries(),
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 notice=notice,
                 error=error,
             )
@@ -732,6 +751,7 @@ def create_admin_routes(
                 upstreams=upstreams,
                 catalog=_catalog_entries(),
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 notice=notice,
                 error=error,
             )
@@ -766,14 +786,14 @@ def create_admin_routes(
             "type": event_type,
             "outcome": outcome,
         }
-        return _html(render_activity_page(data=data, filters=filters, csrf_token=session.csrf_token))
+        return _html(render_activity_page(data=data, filters=filters, csrf_token=session.csrf_token, nav=await _nav()))
 
     async def approvals_page(request: Request) -> Response:
         session = _require_session(request)
         if session is None:
             return _redirect(f"/admin/login?next={quote(request.url.path, safe='/')}")
         data = await approvals.list_approvals()
-        return _html(render_approvals_page(approvals=data, csrf_token=session.csrf_token))
+        return _html(render_approvals_page(approvals=data, csrf_token=session.csrf_token, nav=await _nav()))
 
     async def approval_detail_page(request: Request) -> Response:
         session = _require_session(request)
@@ -787,6 +807,7 @@ def create_admin_routes(
             render_approval_detail_page(
                 approval=item,
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 pending_approvals=pending_count,
             ),
             status_code=status_code,
@@ -819,6 +840,7 @@ def create_admin_routes(
             render_approval_detail_page(
                 approval=item,
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 pending_approvals=pending_count,
                 notice=notice,
                 error=error,
@@ -859,6 +881,7 @@ def create_admin_routes(
                 catalog=_module_catalog_entries(),
                 host_kind=modules.host.kind,
                 csrf_token=session.csrf_token,
+                nav=await _nav(),
                 notice=notice,
                 error=error,
                 instructions=instructions,

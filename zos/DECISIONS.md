@@ -204,15 +204,8 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Both `mod_memory.memories` (100/100 checksum-verified) and the `gmail`/`gcal` module OAuth connections were verified live before dropping legacy core data, completing the control-plane-only final shape.
 - **Impact:** Fresh and upgraded databases contain zero legacy domain tables or core Google OAuth credentials while keeping all owner-configured `tool_tiers` and module schemas intact.
 
-
-
-
-
-
-
-
-
-
-
-
+## 2026-11-26 — Admin + module UI redesign (zos-v3.1.0)
+- **Decision:** Rebuilt the shared design system (`src/zos/web/theme.py`) and every server-rendered page: sidebar shell with grouped nav (pending-approval count and module apps on every page via a `nav` context from `admin.py`), warm-neutral tokens with dark mode, dot-badges, relative timestamps with exact UTC on hover, and a one-click segmented allow/ask/deny control for the policy matrix (one form per cell, `formaction` for clear). Destructive actions use no-JS `<details>` two-step confirms because the admin CSP (`default-src 'none'`) already blocked the old inline `confirm()` handlers. Module UIs share a generated copy of the theme (`python -m zos.web.theme`), guarded by `tests/unit/test_theme_sync.py`, since modules must not import `zos`. Module manifests bumped to 0.2.0.
+- **Why:** The previous UI was card-per-section with stacked select+Set forms and raw status enums; the owner asked for a tidy, high-taste home for ZOS. No routes, form fields, or auth/CSRF behaviour changed.
+- **Impact:** Copy changed in a few places tests asserted (`Last backup`, `Available connectors`, `Redirect host`, `needs reconnect`/`not configured`, `Delete memory`, `Calendar backend`); tests updated accordingly.
 

@@ -465,7 +465,7 @@ async def test_m9a_all_three_auth_modes_tiers_hot_reload_and_oauth_lifecycle(db_
                 },
             )
             assert r_add_b.status_code == 200
-            assert "not_configured" in r_add_b.text
+            assert "not configured" in r_add_b.text
 
             list_changed_ev = anyio.Event()
             r_tok_b = await web.post(
@@ -572,7 +572,7 @@ async def test_m9a_all_three_auth_modes_tiers_hot_reload_and_oauth_lifecycle(db_
             assert "/connect/linear" in res_rev.content[0].text
 
             r_up_after = await web.get("/admin/upstreams")
-            assert "needs_reconnect" in r_up_after.text
+            assert "needs reconnect" in r_up_after.text
             assert "Reconnect" in r_up_after.text
 
             hz = (await web.get("/healthz")).json()

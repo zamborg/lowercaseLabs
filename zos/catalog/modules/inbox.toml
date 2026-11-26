@@ -1,7 +1,7 @@
 manifest_version = 2
 slug = "inbox"
 name = "Inbox"
-version = "0.1.0"
+version = "0.2.0"
 description = "Async email-like mailboxes shared between you and your agents (one mailbox per client plus general and owner)."
 
 [runtime]

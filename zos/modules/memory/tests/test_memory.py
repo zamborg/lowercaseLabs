@@ -298,7 +298,7 @@ async def test_memory_ui_browse_search_xss_and_csrf_delete(memory_store: MemoryS
         r_det = await client.get(m_link.group(1), headers=auth_headers)
         assert r_det.status_code == 200
         assert "<textarea" not in r_det.text
-        assert "Delete Memory" in r_det.text
+        assert "Delete memory" in r_det.text
         assert "claude-desktop" in r_det.text
         assert "<script>alert(1)</script>" not in r_det.text
 
