@@ -235,7 +235,7 @@ async def test_module_postgres_role_isolation_and_purge(db_pool: Any, tmp_path: 
             assert row == ("hello",)
 
             # 2. CANNOT read core ZOS tables!
-            for core_table in ("credentials", "events", "memories", "tokens"):
+            for core_table in ("credentials", "events", "clients", "tokens"):
                 with pytest.raises(psycopg.errors.InsufficientPrivilege):
                     await mod_conn.execute(f"SELECT COUNT(*) FROM public.{core_table}")
 

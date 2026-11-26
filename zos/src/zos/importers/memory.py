@@ -5,10 +5,18 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from zos.memory_service import MemoryImportItem
+
+@dataclass(frozen=True, slots=True)
+class MemoryImportItem:
+    """Normalized memory record produced by a MemoryImporter."""
+
+    key: str
+    content: str
+    tags: tuple[str, ...] = ()
 
 _SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 _MULTI_DASH_RE = re.compile(r"-{2,}")

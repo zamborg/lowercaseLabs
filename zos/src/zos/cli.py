@@ -21,8 +21,7 @@ from zos.catalog import load_catalog, load_module_catalog
 from zos.config import Settings
 from zos.db import open_pool, run_migrations
 from zos.db.queries import init_principal_and_space
-from zos.importers import IMPORTERS, dumps_jsonl, loads_jsonl
-from zos.memory_service import MemoryService
+from zos.importers import IMPORTERS, dumps_jsonl
 from zos.modules import ModuleManager
 
 app = typer.Typer(name="zos", help="ZOS MCP router administration CLI.", no_args_is_help=True)
@@ -34,7 +33,7 @@ provider_app = typer.Typer(help="Manage upstream providers.")
 upstream_app = typer.Typer(help="Manage routed remote MCP servers.")
 catalog_app = typer.Typer(help="Browse and install connectors from the built-in catalog.")
 module_app = typer.Typer(help="Manage installable ZOS container modules.")
-memory_app = typer.Typer(help="Import and export agent memories.")
+memory_app = typer.Typer(help="Export host agent memories for the memory module.")
 backup_app = typer.Typer(help="Record encrypted backup status.")
 
 app.add_typer(client_app, name="client")
@@ -723,58 +722,6 @@ def memory_export_cmd(
         raise typer.Exit(code=2)
     items = importer.discover(root)
     sys.stdout.write(dumps_jsonl(items))
-
-
-@memory_app.command("import")
-def memory_import_cmd(
-    source: Annotated[
-        str,
-        typer.Argument(help="Importer source: claude-code | codex | - (read JSONL from stdin)"),
-    ],
-    root: Annotated[Path | None, typer.Option("--root", help="Override source root directory")] = None,
-    source_label: Annotated[
-        str,
-        typer.Option("--source-label", help="Source label for audit events when reading from stdin ('-')"),
-    ] = "stdin",
-    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
-) -> None:
-    """Idempotently import agent memories into ZOS (prints counts only)."""
-    clean_source = source.strip().lower()
-    if clean_source == "-":
-        raw = sys.stdin.read()
-        try:
-            items = loads_jsonl(raw)
-        except Exception as exc:
-            typer.echo(f"Error: invalid JSONL input: {exc}", err=True)
-            raise typer.Exit(code=2) from exc
-        audit_source = source_label
-    else:
-        importer = IMPORTERS.get(clean_source)
-        if importer is None:
-            typer.echo(
-                f"Error: unknown source '{source}' (supported: {', '.join(sorted(IMPORTERS))}, -)",
-                err=True,
-            )
-            raise typer.Exit(code=2)
-        items = importer.discover(root)
-        audit_source = importer.source
-
-    async def _run():
-        s = _settings()
-        async with open_pool(s.database_url) as pool:
-            return await MemoryService(pool).import_items(
-                items,
-                source=audit_source,
-                principal_slug=principal,
-            )
-
-    summary = asyncio.run(_run())
-    typer.echo(
-        f"discovered={summary.discovered} "
-        f"created={summary.created} "
-        f"updated={summary.updated} "
-        f"unchanged={summary.unchanged}"
-    )
 
 
 @backup_app.command("record")

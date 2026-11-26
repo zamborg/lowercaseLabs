@@ -124,7 +124,7 @@ async def test_non_superuser_core_role_migrations_and_module_isolation() -> None
             row = await cur.fetchone()
             assert row is not None and row[0] == "isolated memory note" and float(row[1]) > 0.2
 
-            for core_table in ("credentials", "events", "memories", "tokens"):
+            for core_table in ("credentials", "events", "clients", "tokens"):
                 with pytest.raises(psycopg.errors.InsufficientPrivilege):
                     await mod_conn.execute(f"SELECT COUNT(*) FROM public.{core_table}")
 

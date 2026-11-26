@@ -199,6 +199,11 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Makes self-hosting ZOS repeatable from scratch by a human or context-free agent with minimal manual steps and zero custom cloud SDKs.
 - **Impact:** Verified end-to-end on a clean OrbStack Ubuntu 24.04 VM (`install.sh --edge none`), then torn down cleanly.
 
+## 2026-11-26 — M12 final cleanup: drop legacy `public.memories` and old core Google vault rows
+- **Decision:** Added `migrations/0011_m12_drop_legacy_memory_and_google_creds.sql` (`DROP TABLE IF EXISTS public.memories; DELETE FROM credentials WHERE issuer = 'google';`), removed the obsolete `src/zos/memory_service.py` and `zos memory import` CLI subcommand (keeping `zos memory export` and `src/zos/importers/` for `deploy/scripts/import-memories.sh` → `zos-mod-memory`), and preserved name-keyed `tool_tiers` rows intact.
+- **Why:** Both `mod_memory.memories` (100/100 checksum-verified) and the `gmail`/`gcal` module OAuth connections were verified live before dropping legacy core data, completing the control-plane-only final shape.
+- **Impact:** Fresh and upgraded databases contain zero legacy domain tables or core Google OAuth credentials while keeping all owner-configured `tool_tiers` and module schemas intact.
+
 
 
 

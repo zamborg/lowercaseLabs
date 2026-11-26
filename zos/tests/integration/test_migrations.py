@@ -57,11 +57,14 @@ async def test_fresh_db_migrates_and_second_run_is_noop() -> None:
                 "providers",
                 "tool_tiers",
                 "client_policies",
-                "memories",
                 "events",
+                "modules",
+                "allowed_redirect_hosts",
+                "dcr_rejected_attempts",
                 "schema_migrations",
             }
             assert expected.issubset(tables)
+            assert "memories" not in tables
     finally:
         async with await psycopg.AsyncConnection.connect(admin_url, autocommit=True) as admin:
             await admin.execute(
@@ -171,3 +174,101 @@ async def test_key_schema_constraints(db_pool) -> None:
                 (principal_id,),
             )
         await conn.rollback()
+
+
+async def test_migration_0011_drops_legacy_memories_and_google_creds_keeping_tiers(tmp_path) -> None:
+    """Upgrading from pre-0011 drops public.memories and issuer='google' creds while preserving tiers & other creds."""
+    base_url = get_test_database_url()
+    temp_db = f"zos_m12_clean_{uuid.uuid4().hex[:8]}"
+    admin_url = _replace_db_name(base_url, "postgres")
+    temp_url = _replace_db_name(base_url, temp_db)
+
+    async with await psycopg.AsyncConnection.connect(admin_url, autocommit=True) as admin:
+        await admin.execute(f"CREATE DATABASE {temp_db}")
+
+    try:
+        all_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+        pre_files = [p for p in all_files if not p.name.startswith("0011_")]
+        mig_0011 = next(p for p in all_files if p.name.startswith("0011_"))
+        for mf in pre_files:
+            (tmp_path / mf.name).write_text(mf.read_text(encoding="utf-8"), encoding="utf-8")
+
+        async with open_pool(temp_url) as pool:
+            # Apply 0001..0010 via run_migrations to simulate an existing live DB right before 0011
+            await run_migrations(pool, tmp_path)
+
+            async with pool.connection() as conn:
+                # Seed principal, legacy public.memories row, google + non-google credentials, and memory_put tier
+                p_id = (
+                    await (
+                        await conn.execute(
+                            "INSERT INTO principals (slug, display_name) VALUES ('owner', 'Owner') RETURNING id"
+                        )
+                    ).fetchone()
+                )["id"]
+                s_id = (
+                    await (
+                        await conn.execute(
+                            "INSERT INTO spaces (principal_id, slug, name) VALUES (%s, 'main', 'Main') RETURNING id",
+                            (p_id,),
+                        )
+                    ).fetchone()
+                )["id"]
+                await conn.execute(
+                    "INSERT INTO public.memories (principal_id, space_id, key, content) VALUES (%s, %s, 'k1', 'v1')",
+                    (p_id, s_id),
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO credentials (principal_id, issuer, account, ciphertext, nonce)
+                    VALUES (%s, 'google', 'primary', %s, %s),
+                           (%s, 'module:memory', 'db_dsn', %s, %s)
+                    """,
+                    (p_id, b"\x01" * 16, b"\x02" * 12, p_id, b"\x03" * 16, b"\x04" * 12),
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO tool_tiers (principal_id, tool_pattern, tier)
+                    VALUES (%s, 'memory_put', 'write')
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (p_id,),
+                )
+                await conn.commit()
+
+            # Apply 0011 via run_migrations
+            applied = await run_migrations(pool, MIGRATIONS_DIR)
+            assert applied == [mig_0011.name]
+
+            async with pool.connection() as conn:
+                reg = (await (await conn.execute("SELECT to_regclass('public.memories') AS r")).fetchone())["r"]
+                assert reg is None
+                g_cnt = (
+                    await (
+                        await conn.execute("SELECT COUNT(*) AS cnt FROM credentials WHERE issuer = 'google'")
+                    ).fetchone()
+                )["cnt"]
+                assert g_cnt == 0
+                m_cnt = (
+                    await (
+                        await conn.execute("SELECT COUNT(*) AS cnt FROM credentials WHERE issuer = 'module:memory'")
+                    ).fetchone()
+                )["cnt"]
+                assert m_cnt == 1
+                tier = (
+                    await (
+                        await conn.execute("SELECT tier FROM tool_tiers WHERE tool_pattern = 'memory_put'")
+                    ).fetchone()
+                )
+                assert tier is not None and tier["tier"] == "write"
+    finally:
+        async with await psycopg.AsyncConnection.connect(admin_url, autocommit=True) as admin:
+            await admin.execute(
+                """
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = %s AND pid <> pg_backend_pid()
+                """,
+                (temp_db,),
+            )
+            await admin.execute(f"DROP DATABASE IF EXISTS {temp_db}")

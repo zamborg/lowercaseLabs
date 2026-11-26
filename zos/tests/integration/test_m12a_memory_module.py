@@ -108,7 +108,24 @@ async def test_migrate_memory_script_copies_with_checksum_and_is_idempotent(db_p
         name="claude-migrator",
     )
 
+    # Simulate a pre-M12 database that still has the legacy public.memories table
     async with db_pool.connection() as conn:
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS public.memories (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                principal_id UUID NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+                space_id UUID NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+                key TEXT NOT NULL,
+                content TEXT NOT NULL,
+                tags TEXT[] NOT NULL DEFAULT '{}',
+                created_by_client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE (principal_id, space_id, key)
+            )
+            """
+        )
         await conn.execute(
             """
             INSERT INTO public.memories (principal_id, space_id, key, content, tags, created_by_client_id)
@@ -178,3 +195,6 @@ async def test_migrate_memory_script_copies_with_checksum_and_is_idempotent(db_p
             assert legacy_cnt is not None and legacy_cnt["cnt"] == 2
     finally:
         await prov.purge_storage(principal_id=p_id, slug="memory")
+        async with db_pool.connection() as conn:
+            await conn.execute("DROP TABLE IF EXISTS public.memories")
+            await conn.commit()
