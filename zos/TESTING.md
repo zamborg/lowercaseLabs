@@ -309,7 +309,7 @@ Verified end-to-end portability runbook (non-superuser Postgres role + encrypted
    ```
 
 5. **Bring up installed container modules on the new host:**
-   - For each installed module in `modules` (e.g. `inbox`), point its manifest in `catalog/modules/<slug>.toml` at a digest-pinned registry image (`image = "ghcr.io/<owner>/zos-<slug>@sha256:<64-hex>"`, or local `build = "modules/<slug>"`), then run **Upgrade** from `/admin/modules` (or via CLI followed by a `zos` restart):
+   - For each installed module in `modules` (e.g. `inbox`), point its manifest in `catalog/modules/<slug>.toml` at a digest-pinned registry image (`image = "ghcr.io/zamborg/zos-<slug>@sha256:<64-hex>"`, or local `build = "modules/<slug>"`), then run **Upgrade** from `/admin/modules` (or via CLI followed by a `zos` restart):
      ```bash
      docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
        uv run --no-sync zos module upgrade inbox

@@ -21,7 +21,7 @@ docs_url = ""                      # optional https:// URL
 [runtime]
 kind = "container"
 # Set EXACTLY ONE of `image` (production/hosted) or `build` (first-party local dev):
-image = "ghcr.io/<owner>/zos-inbox@sha256:<64-hex>"
+image = "ghcr.io/zamborg/zos-inbox@sha256:<64-hex>"
 # build = "modules/inbox"          # relative path under modules/<slug>
 mcp_port = 8081                    # required: Streamable-HTTP MCP port
 mcp_path = "/mcp"                  # optional, default "/mcp"
@@ -56,7 +56,7 @@ default = "write"                  # read | write | external (default: external)
 ### Image pinning & publishing
 - Registry images **must** be digest-pinned (`<repo>@sha256:<64-hex>`). Unpinned tags (`:latest`, `:v1`) are rejected at manifest load time.
 - First-party in-repo modules may set `build = "modules/<slug>"` for local development; `DockerModuleHost` builds the context and records the resulting image ID as `image_pin`.
-- Production/hosted first-party images are published to GHCR via a tag-triggered CI workflow (`ghcr.io/<owner>/zos-<slug>:<tag>`) and pinned by `@sha256:<digest>` in `catalog/modules/<slug>.toml`.
+- Production/hosted first-party images are published to GHCR via a tag-triggered CI workflow (`ghcr.io/zamborg/zos-<slug>:<tag>`) and pinned by `@sha256:<digest>` in `catalog/modules/<slug>.toml`.
 
 ---
 

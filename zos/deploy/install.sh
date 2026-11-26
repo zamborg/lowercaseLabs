@@ -11,7 +11,7 @@ set -euo pipefail
 EDGE="caddy"
 DOMAIN=""
 INSTALL_DIR="/opt/zos"
-REPO_URL="${ZOS_REPO_URL:-https://github.com/lowercase-labs/lowercaseLabs.git}"
+REPO_URL="${ZOS_REPO_URL:-https://github.com/zamborg/lowercaseLabs.git}"
 GIT_REF="${ZOS_GIT_REF:-main}"
 LOCAL_SOURCE=""
 UPDATE_MODE=0

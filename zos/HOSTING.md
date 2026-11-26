@@ -35,21 +35,23 @@ Self-contained deployment guide for running ZOS on a single Linux server (Ubuntu
 
 ## Step 2 — Run the Installer (Agent or Human)
 
-SSH into the server as `root` and run `deploy/install.sh`:
+SSH into the server as `root` and run `deploy/install.sh` pinned to the release tag (`zos-v3.0.0`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lowercase-labs/lowercaseLabs/main/zos/deploy/install.sh -o /tmp/zos-install.sh
+curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.0.0/zos/deploy/install.sh -o /tmp/zos-install.sh
 sudo bash /tmp/zos-install.sh \
   --domain zos.<your-domain> \
   --edge caddy \
-  --ref main
+  --ref zos-v3.0.0
 ```
+
+*(To track the latest development branch instead of a release tag, use `main` in the URL and `--ref main`.)*
 
 ### What `install.sh` does (idempotent)
 
 1. Installs Docker Engine and the Docker Compose plugin on Ubuntu 24.04 (if not already present).
-2. Clones ZOS into `/opt/zos` at `--ref` (or copies from `--local-source <path>` for offline/rehearsal installs).
-   - **Prebuilt digest-pinned images (optional):** Set `ZOS_IMAGE_CORE` (and optionally `ZOS_IMAGE_MEMORY`, `ZOS_IMAGE_INBOX`, `ZOS_IMAGE_GMAIL`, `ZOS_IMAGE_GCAL`) to `<repo>@sha256:<64-hex>` before running `install.sh` to pull published GHCR images by digest instead of building from source.
+2. Clones `https://github.com/zamborg/lowercaseLabs.git` into `/opt/zos` at `--ref` (or copies from `--local-source <path>` for offline/rehearsal installs).
+   - **Prebuilt digest-pinned images (optional):** Set `ZOS_IMAGE_CORE` (e.g. `ghcr.io/zamborg/zos@sha256:<64-hex>`) and optionally `ZOS_IMAGE_MEMORY`, `ZOS_IMAGE_INBOX`, `ZOS_IMAGE_GMAIL`, `ZOS_IMAGE_GCAL` (`ghcr.io/zamborg/zos-<slug>@sha256:<64-hex>`) before running `install.sh` to pull published GHCR images by digest instead of building from source.
 3. Generates strong random secrets (`POSTGRES_PASSWORD`, `ZOS_DB_PASSWORD`, `ZOS_SECRET_KEY`, `ZOS_BACKUP_KEY`) into `/opt/zos/zos/.env` (`chmod 600`) without ever printing them.
 4. Starts Postgres 17, provisions the restricted non-superuser `zos_app` role (`CREATEROLE`, `NOSUPERUSER`) and shared `extensions` schema (`pg_trgm`), starts ZOS + Caddy (auto-HTTPS), runs `zos init`, and installs the `memory` and `inbox` modules.
 5. Enables the nightly encrypted backup systemd timer (`zos-backup.timer` → `/var/backups/zos`).
@@ -155,8 +157,9 @@ sudo bash /opt/zos/zos/deploy/install.sh \
   --update \
   --domain zos.<your-domain> \
   --edge caddy \
-  --ref main
+  --ref zos-v3.0.0
 ```
+*(Replace `zos-v3.0.0` with the new release tag when upgrading, or `--ref main` for the development branch.)*
 
 ---
 
