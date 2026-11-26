@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 # Nightly encrypted Postgres backup for ZOS.
-# Dumps compose Postgres (`pg_dump -Fc`), encrypts via macOS LibreSSL
-# (`/usr/bin/openssl enc -aes-256-cbc -pbkdf2 -salt`), saves to iCloud Drive
-# keeping the 14 newest files, and records metadata in ZOS for /admin Overview.
+# Dumps compose Postgres (`pg_dump -Fc`), encrypts with OpenSSL AES-256-CBC + PBKDF2,
+# saves to ZOS_BACKUP_DIR keeping the newest N files, runs optional ZOS_BACKUP_POST_HOOK
+# (e.g. for syncing to S3/R2/Backblaze), and records metadata in ZOS for /admin Overview.
 set -euo pipefail
 umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZOS_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 ENV_FILE="${ZOS_ENV_FILE:-${ZOS_DIR}/.env}"
-OPENSSL_BIN="/usr/bin/openssl"
+OPENSSL_BIN="${ZOS_OPENSSL_BIN:-$(command -v openssl || echo /usr/bin/openssl)}"
+COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-}"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --env-file) ENV_FILE="$2"; shift 2 ;;
+    --project) COMPOSE_PROJECT="$2"; shift 2 ;;
+    *) echo "Unknown option: $1" >&2; exit 2 ;;
+  esac
+done
 
 if [ ! -f "${ENV_FILE}" ]; then
   echo "Error: env file not found at ${ENV_FILE}" >&2
@@ -40,11 +49,20 @@ print(val, end="")
 PY
 }
 
+if [ "$(uname -s)" = "Darwin" ]; then
+  DEFAULT_BACKUP_DIR="${HOME}/Library/Mobile Documents/com~apple~CloudDocs/zos-backups"
+else
+  DEFAULT_BACKUP_DIR="${ZOS_DIR}/backups"
+fi
+
 ZOS_BACKUP_KEY="${ZOS_BACKUP_KEY:-$(read_env_var ZOS_BACKUP_KEY "")}"
 POSTGRES_USER="${POSTGRES_USER:-$(read_env_var POSTGRES_USER zos)}"
+ZOS_DB_USER="${ZOS_DB_USER:-$(read_env_var ZOS_DB_USER "${POSTGRES_USER}")}"
+ZOS_DB_PASSWORD="${ZOS_DB_PASSWORD:-$(read_env_var ZOS_DB_PASSWORD "$(read_env_var POSTGRES_PASSWORD zos)")}"
 POSTGRES_DB="${POSTGRES_DB:-$(read_env_var POSTGRES_DB zos)}"
-BACKUP_DIR="${ZOS_BACKUP_DIR:-$(read_env_var ZOS_BACKUP_DIR "${HOME}/Library/Mobile Documents/com~apple~CloudDocs/zos-backups")}"
-RETAIN_COUNT="${ZOS_BACKUP_RETAIN:-14}"
+BACKUP_DIR="${ZOS_BACKUP_DIR:-$(read_env_var ZOS_BACKUP_DIR "${DEFAULT_BACKUP_DIR}")}"
+RETAIN_COUNT="${ZOS_BACKUP_RETAIN:-$(read_env_var ZOS_BACKUP_RETAIN 14)}"
+POST_HOOK="${ZOS_BACKUP_POST_HOOK:-$(read_env_var ZOS_BACKUP_POST_HOOK "")}"
 
 if [ -z "${ZOS_BACKUP_KEY}" ]; then
   echo "Error: ZOS_BACKUP_KEY is not set in ${ENV_FILE}" >&2
@@ -66,15 +84,25 @@ cleanup() {
 }
 trap cleanup EXIT
 
+COMPOSE_CMD=(docker compose --env-file "${ENV_FILE}" -f deploy/docker-compose.yml)
+if [ -n "${COMPOSE_PROJECT}" ]; then
+  COMPOSE_CMD+=(-p "${COMPOSE_PROJECT}")
+fi
+
 cd "${ZOS_DIR}"
-docker compose --env-file "${ENV_FILE}" -f deploy/docker-compose.yml exec -T postgres \
-  pg_dump -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -Fc \
+"${COMPOSE_CMD[@]}" exec -T -e "PGPASSWORD=${ZOS_DB_PASSWORD}" postgres \
+  pg_dump -U "${ZOS_DB_USER}" -d "${POSTGRES_DB}" -Fc --no-owner --no-privileges \
   | "${OPENSSL_BIN}" enc -aes-256-cbc -pbkdf2 -salt -pass env:ZOS_BACKUP_KEY -out "${TMP_PATH}"
 
 chmod 600 "${TMP_PATH}"
 mv "${TMP_PATH}" "${FINAL_PATH}"
 
-SIZE_BYTES="$(stat -f%z "${FINAL_PATH}")"
+SIZE_BYTES="$(wc -c < "${FINAL_PATH}" | tr -d ' ')"
+
+# Optional external upload hook (e.g. aws s3 cp / rclone copy to R2/S3/Backblaze)
+if [ -n "${POST_HOOK}" ]; then
+  ZOS_BACKUP_FILE="${FINAL_PATH}" ZOS_BACKUP_FILENAME="${FILENAME}" sh -c "${POST_HOOK}"
+fi
 
 # Keep only the newest RETAIN_COUNT backup files
 REMOVED=0
@@ -87,7 +115,7 @@ done < <(ls -1t "${BACKUP_DIR}"/zos-backup-*.dump.enc 2>/dev/null | tail -n +"$(
 RETAINED="$(ls -1 "${BACKUP_DIR}"/zos-backup-*.dump.enc 2>/dev/null | wc -l | tr -d ' ')"
 
 # Record metadata in ZOS so /admin Overview shows last backup time & size
-docker compose --env-file "${ENV_FILE}" -f deploy/docker-compose.yml exec -T zos \
+"${COMPOSE_CMD[@]}" exec -T zos \
   uv run --no-sync zos backup record \
   --filename "${FILENAME}" \
   --size-bytes "${SIZE_BYTES}" \

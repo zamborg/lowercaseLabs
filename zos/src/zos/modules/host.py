@@ -81,8 +81,8 @@ class ModuleHost(Protocol):
     ) -> InstalledModule: ...
 
 
-def container_name_for(slug: str) -> str:
-    return f"zos-mod-{slug}"
+def container_name_for(slug: str, *, prefix: str = "zos-mod") -> str:
+    return f"{prefix}-{slug}"
 
 
 def _build_context_tar(build_dir: Path, *, sdk_dir: Path | None = None) -> bytes:
@@ -150,6 +150,7 @@ class DockerModuleHost:
         docker_socket: str = DEFAULT_DOCKER_SOCKET,
         network_internal: str = NETWORK_INTERNAL,
         network_egress: str = NETWORK_EGRESS,
+        container_prefix: str = "zos-mod",
         memory_limit_bytes: int = DEFAULT_MODULE_MEMORY_BYTES,
         repo_root: Path | None = None,
         http_client_factory: Callable[[], httpx.AsyncClient] | None = None,
@@ -157,9 +158,13 @@ class DockerModuleHost:
         self.docker_socket = docker_socket
         self.network_internal = network_internal
         self.network_egress = network_egress
+        self.container_prefix = container_prefix
         self.memory_limit_bytes = memory_limit_bytes
         self.repo_root = repo_root
         self._http_client_factory = http_client_factory
+
+    def _cname(self, slug: str) -> str:
+        return container_name_for(slug, prefix=self.container_prefix)
 
     def _client(self, *, timeout_s: float = 60.0) -> httpx.AsyncClient:
         if self._http_client_factory is not None:
@@ -209,7 +214,7 @@ class DockerModuleHost:
             "NetworkingConfig": {
                 "EndpointsConfig": {
                     self.network_internal: {
-                        "Aliases": [container_name_for(slug)],
+                        "Aliases": [self._cname(slug)],
                     }
                 }
             },
@@ -255,6 +260,17 @@ class DockerModuleHost:
                     raise RuntimeError(
                         f"Failed pulling module image '{image_ref}': {pull.status_code} {pull.text}"
                     )
+                for line in pull.text.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        evt = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if "error" in evt or "errorDetail" in evt:
+                        detail = evt.get("error") or str(evt.get("errorDetail"))
+                        raise RuntimeError(f"Failed pulling module image '{image_ref}': {detail}")
             elif inspect.status_code != 200:
                 raise RuntimeError(
                     f"Docker image inspect failed for '{image_ref}': {inspect.status_code} {inspect.text}"
@@ -265,7 +281,7 @@ class DockerModuleHost:
         build_dir = _resolve_build_context(manifest.runtime.build, repo_root=self.repo_root)
         sdk_dir = _resolve_sdk_dir(repo_root=self.repo_root)
         tar_bytes = _build_context_tar(build_dir, sdk_dir=sdk_dir)
-        tag = f"zos-mod-{manifest.slug}:local"
+        tag = f"{self._cname(manifest.slug)}:local"
         build_resp = await client.post(
             "/build",
             params={"t": tag, "rm": "true"},
@@ -306,7 +322,7 @@ class DockerModuleHost:
         env: dict[str, str],
     ) -> InstalledModule:
         slug = manifest.slug
-        cname = container_name_for(slug)
+        cname = self._cname(slug)
         full_env = {
             **config,
             **env,
@@ -369,21 +385,21 @@ class DockerModuleHost:
         )
 
     async def stop(self, slug: str) -> None:
-        cname = container_name_for(slug)
+        cname = self._cname(slug)
         async with self._client(timeout_s=30.0) as client:
             resp = await client.post(f"/containers/{quote(cname, safe='')}/stop", params={"t": "10"})
             if resp.status_code not in (204, 304, 404):
                 raise RuntimeError(f"Failed stopping '{cname}': {resp.status_code} {resp.text}")
 
     async def start(self, slug: str) -> None:
-        cname = container_name_for(slug)
+        cname = self._cname(slug)
         async with self._client(timeout_s=30.0) as client:
             resp = await client.post(f"/containers/{quote(cname, safe='')}/start")
             if resp.status_code not in (204, 304):
                 raise RuntimeError(f"Failed starting '{cname}': {resp.status_code} {resp.text}")
 
     async def uninstall(self, slug: str, *, purge: bool = False) -> None:
-        cname = container_name_for(slug)
+        cname = self._cname(slug)
         async with self._client(timeout_s=30.0) as client:
             await client.post(f"/containers/{quote(cname, safe='')}/stop", params={"t": "5"})
             resp = await client.delete(
@@ -394,7 +410,7 @@ class DockerModuleHost:
                 raise RuntimeError(f"Failed removing '{cname}': {resp.status_code} {resp.text}")
 
     async def status(self, slug: str) -> ModuleRuntimeStatus:
-        cname = container_name_for(slug)
+        cname = self._cname(slug)
         try:
             async with self._client(timeout_s=10.0) as client:
                 resp = await client.get(f"/containers/{quote(cname, safe='')}/json")
@@ -527,11 +543,17 @@ def create_module_host(settings: Settings) -> ModuleHost:
     if mode == "docker":
         return DockerModuleHost(
             docker_socket=sock,
+            network_internal=settings.module_network_internal,
+            network_egress=settings.module_network_egress,
+            container_prefix=settings.module_container_prefix,
             memory_limit_bytes=settings.module_memory_bytes,
         )
     if Path(sock).exists():
         return DockerModuleHost(
             docker_socket=sock,
+            network_internal=settings.module_network_internal,
+            network_egress=settings.module_network_egress,
+            container_prefix=settings.module_container_prefix,
             memory_limit_bytes=settings.module_memory_bytes,
         )
     return ManualModuleHost()

@@ -6,8 +6,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-zos}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zos}
       POSTGRES_DB: ${POSTGRES_DB:-zos}
+      # On fresh volumes, 01-init-app-role.sh creates ZOS_DB_USER with CREATEROLE (non-superuser)
+      # and transfers ownership of POSTGRES_DB and schema public to it.
+      ZOS_DB_USER: ${ZOS_DB_USER:-${POSTGRES_USER:-zos}}
+      ZOS_DB_PASSWORD: ${ZOS_DB_PASSWORD:-${POSTGRES_PASSWORD:-zos}}
     volumes:
       - zos_pgdata:/var/lib/postgresql/data
+      - ./postgres:/docker-entrypoint-initdb.d:ro
     networks:
       - default
       - zos_modules
@@ -39,9 +44,12 @@ services:
     environment:
       # Override DATABASE_URL for internal compose network; secrets come verbatim from env_file
       # (avoids Docker Compose `$` interpolation corrupting Argon2 hashes).
-      DATABASE_URL: postgresql://${POSTGRES_USER:-zos}:${POSTGRES_PASSWORD:-zos}@postgres:5432/${POSTGRES_DB:-zos}
+      DATABASE_URL: postgresql://${ZOS_DB_USER:-${POSTGRES_USER:-zos}}:${ZOS_DB_PASSWORD:-${POSTGRES_PASSWORD:-zos}}@postgres:5432/${POSTGRES_DB:-zos}
       ZOS_BASE_URL: ${ZOS_BASE_URL:-http://localhost:${ZOS_PORT:-8787}}
       ZOS_LOG_LEVEL: ${ZOS_LOG_LEVEL:-INFO}
+      ZOS_MODULE_NETWORK_INTERNAL: ${ZOS_MODULE_NETWORK_INTERNAL:-zos_modules}
+      ZOS_MODULE_NETWORK_EGRESS: ${ZOS_MODULE_NETWORK_EGRESS:-zos_modules_egress}
+      ZOS_MODULE_CONTAINER_PREFIX: ${ZOS_MODULE_CONTAINER_PREFIX:-zos-mod}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
       interval: 15s
@@ -50,10 +58,10 @@ services:
 
 networks:
   zos_modules:
-    name: zos_modules
+    name: ${ZOS_MODULE_NETWORK_INTERNAL:-zos_modules}
     internal: true
   zos_modules_egress:
-    name: zos_modules_egress
+    name: ${ZOS_MODULE_NETWORK_EGRESS:-zos_modules_egress}
 
 volumes:
   zos_pgdata:

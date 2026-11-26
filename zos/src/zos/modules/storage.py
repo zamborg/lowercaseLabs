@@ -6,6 +6,7 @@ import secrets
 from urllib.parse import quote, urlparse, urlunparse
 from uuid import UUID
 
+import psycopg.errors
 from psycopg import AsyncConnection, sql
 from psycopg.rows import DictRow
 from psycopg_pool import AsyncConnectionPool
@@ -201,6 +202,18 @@ class ModuleStorageProvisioner:
                     ).format(role=role_id, pw=sql.Literal(password))
                 )
 
+            # In Postgres 16+, a non-superuser CREATEROLE core role must be a member of
+            # `mod_<slug>` to run `CREATE/ALTER SCHEMA ... AUTHORIZATION mod_<slug>` and to
+            # include module tables in `pg_dump` backups. `mod_<slug>` itself has NOINHERIT
+            # and receives zero membership in the core role.
+            try:
+                async with conn.transaction():
+                    await conn.execute(
+                        sql.SQL("GRANT {role} TO CURRENT_USER").format(role=role_id)
+                    )
+            except psycopg.errors.InsufficientPrivilege:
+                pass
+
             await conn.execute(
                 sql.SQL("CREATE SCHEMA IF NOT EXISTS {schema} AUTHORIZATION {role}").format(
                     schema=schema_id,
@@ -258,15 +271,21 @@ class ModuleStorageProvisioner:
         schema_id = sql.Identifier(schema_name)
 
         async with self.pool.connection() as conn:
-            # Terminate any lingering module DB sessions so DROP SCHEMA / DROP ROLE succeeds
-            await conn.execute(
-                """
-                SELECT pg_terminate_backend(pid)
-                FROM pg_stat_activity
-                WHERE usename = %s AND pid <> pg_backend_pid()
-                """,
-                (role_name,),
-            )
+            # Best-effort termination of lingering module DB sessions (requires superuser or
+            # pg_signal_backend; skip cleanly when running under a restricted non-superuser role).
+            try:
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        SELECT pg_terminate_backend(pid)
+                        FROM pg_stat_activity
+                        WHERE usename = %s AND pid <> pg_backend_pid()
+                        """,
+                        (role_name,),
+                    )
+            except psycopg.errors.InsufficientPrivilege:
+                pass
+
             await conn.execute(
                 sql.SQL("DROP SCHEMA IF EXISTS {schema} CASCADE").format(schema=schema_id)
             )

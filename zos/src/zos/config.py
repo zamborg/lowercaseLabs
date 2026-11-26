@@ -105,6 +105,9 @@ class Settings:
     module_host: str = ""
     docker_socket: str = "/var/run/docker.sock"
     module_memory_bytes: int = 268435456
+    module_network_internal: str = "zos_modules"
+    module_network_egress: str = "zos_modules_egress"
+    module_container_prefix: str = "zos-mod"
     instructions_file: str = ""
     migrations_dir: Path = field(default_factory=_default_migrations_dir)
     catalog_dir: Path = field(default_factory=_default_catalog_dir)
@@ -153,6 +156,18 @@ class Settings:
             or "/var/run/docker.sock",
             module_memory_bytes=_parse_positive_int(
                 os.environ.get("ZOS_MODULE_MEMORY_BYTES", ""), 268435456
+            ),
+            module_network_internal=(
+                os.environ.get("ZOS_MODULE_NETWORK_INTERNAL", "zos_modules").strip()
+                or "zos_modules"
+            ),
+            module_network_egress=(
+                os.environ.get("ZOS_MODULE_NETWORK_EGRESS", "zos_modules_egress").strip()
+                or "zos_modules_egress"
+            ),
+            module_container_prefix=(
+                os.environ.get("ZOS_MODULE_CONTAINER_PREFIX", "zos-mod").strip()
+                or "zos-mod"
             ),
             instructions_file=os.environ.get("ZOS_INSTRUCTIONS_FILE", "").strip(),
             migrations_dir=Path(mig_override) if mig_override else _default_migrations_dir(),

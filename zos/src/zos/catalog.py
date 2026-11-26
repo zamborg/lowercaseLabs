@@ -21,7 +21,8 @@ from zos.router.naming import BUILTIN_PROVIDER_SLUGS, validate_upstream_slug
 logger = logging.getLogger(__name__)
 
 _DIGEST_IMAGE_RE = re.compile(
-    r"^[a-zA-Z0-9][a-zA-Z0-9._/-]*(?::[a-zA-Z0-9._-]+)?@sha256:[0-9a-f]{64}$"
+    r"^(?:[a-zA-Z0-9][a-zA-Z0-9._-]*(?::[0-9]{1,5})?/)?"
+    r"[a-zA-Z0-9][a-zA-Z0-9._/-]*(?::[a-zA-Z0-9._-]+)?@sha256:[0-9a-f]{64}$"
 )
 _CONFIG_FIELD_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 
