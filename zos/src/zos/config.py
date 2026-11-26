@@ -91,10 +91,6 @@ class Settings:
     zos_base_url: str = "http://localhost:8080"
     zos_secret_key: str = ""
     zos_owner_password_hash: str = ""
-    google_client_id: str = ""
-    google_client_secret: str = ""
-    gcal_backend: str = ""
-    gcal_mcp_url: str = ""
     allowed_redirect_hosts: tuple[str, ...] = ()
     dcr_max_per_hour: int = 10
     max_oauth_clients: int = 50
@@ -132,10 +128,6 @@ class Settings:
             zos_base_url=base_url,
             zos_secret_key=os.environ.get("ZOS_SECRET_KEY", "").strip(),
             zos_owner_password_hash=os.environ.get("ZOS_OWNER_PASSWORD_HASH", "").strip(),
-            google_client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
-            google_client_secret=os.environ.get("GOOGLE_CLIENT_SECRET", "").strip(),
-            gcal_backend=os.environ.get("ZOS_GCAL_BACKEND", "").strip().lower(),
-            gcal_mcp_url=os.environ.get("ZOS_GCAL_MCP_URL", "").strip(),
             allowed_redirect_hosts=_parse_host_list(
                 os.environ.get("ZOS_ALLOWED_REDIRECT_HOSTS", "")
             ),

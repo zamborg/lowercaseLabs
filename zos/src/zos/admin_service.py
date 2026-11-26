@@ -5,7 +5,6 @@ Every mutation goes through this service and writes the exact audit events to `e
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -34,7 +33,6 @@ from zos.db.queries import (
     mint_bearer_token_for_client,
     revoke_token,
     set_client_policy,
-    set_provider_backend,
     set_tool_tier,
     unmark_managed_tier_pattern,
 )
@@ -51,13 +49,6 @@ from zos.providers.upstream_manager import (
 from zos.router import ZOS_STATUS_TOOL_NAME, ProviderRegistry, SessionTracker, format_tool_name
 from zos.router.naming import BUILTIN_PROVIDER_SLUGS, validate_upstream_slug
 from zos.vault import CredentialStore, CredentialVault
-
-SWITCHABLE_PROVIDER_BACKENDS: dict[str, tuple[str, ...]] = {
-    "gcal": ("api", "mcp"),
-}
-_DEFAULT_PROVIDER_CONFIGS: dict[str, dict[str, Any]] = {
-    "gcal": {"transport": "mcp", "url": "https://calendarmcp.googleapis.com/mcp/v1"},
-}
 
 
 class AdminService:
@@ -353,53 +344,6 @@ class AdminService:
             provider_id=res["provider"]["id"],
             event_type="token.issued",
             payload={"token_id": str(res["token_id"]), "kind": "actuator", "slug": slug},
-        )
-        return res
-
-    async def set_provider_backend(
-        self,
-        *,
-        slug: str,
-        backend: str,
-        principal_slug: str | None = None,
-        on_switch: Callable[[str, str], Awaitable[Any]] | None = None,
-    ) -> dict[str, Any]:
-        clean_slug = slug.strip().lower()
-        clean_backend = backend.strip().lower()
-        allowed = SWITCHABLE_PROVIDER_BACKENDS.get(clean_slug)
-        if allowed is None:
-            supported = ", ".join(sorted(SWITCHABLE_PROVIDER_BACKENDS))
-            raise ValueError(f"Provider '{clean_slug}' does not support backend switching (supported: {supported})")
-        if clean_backend not in allowed:
-            raise ValueError(
-                f"Invalid backend '{clean_backend}' for '{clean_slug}' (allowed: {', '.join(allowed)})"
-            )
-
-        p, sp = await get_principal_and_space(self.pool, principal_slug)
-        res = await set_provider_backend(
-            self.pool,
-            principal_id=p["id"],
-            space_id=sp["id"],
-            slug=clean_slug,
-            backend=clean_backend,
-            default_config=_DEFAULT_PROVIDER_CONFIGS.get(clean_slug),
-        )
-        if on_switch is not None:
-            await on_switch(clean_slug, clean_backend)
-
-        await record_event(
-            self.pool,
-            principal_id=p["id"],
-            space_id=sp["id"],
-            provider_id=res["id"],
-            event_type="provider.backend_changed",
-            outcome="ok",
-            payload={
-                "slug": clean_slug,
-                "from": res["previous_backend"],
-                "to": clean_backend,
-                "hot_reloaded": on_switch is not None,
-            },
         )
         return res
 
@@ -839,17 +783,6 @@ class AdminService:
 
             cur = await conn.execute(
                 """
-                SELECT issuer, account, scopes, access_expires_at, updated_at
-                FROM credentials
-                WHERE issuer = 'google'
-                ORDER BY updated_at DESC
-                LIMIT 1
-                """
-            )
-            cred_row = await cur.fetchone()
-
-            cur = await conn.execute(
-                """
                 SELECT created_at, payload
                 FROM events
                 WHERE type = 'backup.completed' AND outcome = 'ok'
@@ -878,7 +811,6 @@ class AdminService:
                     "namespace": p.namespace,
                     "kind": p.kind,
                     "backend": getattr(p, "backend", None),
-                    "switchable_backends": list(SWITCHABLE_PROVIDER_BACKENDS.get(p.namespace, ())),
                     "online": p.is_online(),
                     "last_seen_at": db_row["last_seen_at"] if db_row else None,
                 }
@@ -892,21 +824,10 @@ class AdminService:
                     "namespace": slug,
                     "kind": db_row["kind"],
                     "backend": cfg.get("backend") if isinstance(cfg, dict) else None,
-                    "switchable_backends": list(SWITCHABLE_PROVIDER_BACKENDS.get(slug, ())),
                     "online": False,
                     "last_seen_at": db_row["last_seen_at"],
                 }
             )
-
-        google_credential = None
-        if cred_row is not None:
-            google_credential = {
-                "issuer": cred_row["issuer"],
-                "account": cred_row["account"],
-                "scopes": list(cred_row["scopes"] or []),
-                "access_expires_at": cred_row["access_expires_at"],
-                "updated_at": cred_row["updated_at"],
-            }
 
         last_backup = None
         if backup_row is not None:
@@ -921,7 +842,6 @@ class AdminService:
         return {
             "active_sessions": sessions.count,
             "providers": providers,
-            "google_credential": google_credential,
             "last_backup": last_backup,
             "pending_approvals_count": int(pending_approvals_row["cnt"]) if pending_approvals_row is not None else 0,
         }

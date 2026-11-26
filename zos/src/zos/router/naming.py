@@ -7,7 +7,7 @@ import re
 
 MAX_TOOL_NAME_LENGTH = 48
 RESERVED_PREFIXES = frozenset({"zos"})
-BUILTIN_PROVIDER_SLUGS = frozenset({"zos", "gcal", "gmail", "mac"})
+BUILTIN_PROVIDER_SLUGS = frozenset({"zos", "mac"})
 _PREFIX_RE = re.compile(r"^[a-zA-Z0-9-]+$")
 _UPSTREAM_SLUG_RE = re.compile(r"^[a-z][a-z0-9]{1,15}$")
 _TOOL_RE = re.compile(r"^[a-zA-Z0-9_-]+$")

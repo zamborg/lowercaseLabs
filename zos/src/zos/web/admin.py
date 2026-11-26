@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import html
-from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import quote
 from uuid import UUID
@@ -86,7 +85,6 @@ def create_admin_routes(
     *,
     session_manager: AdminSessionManager | None = None,
     passphrase_limiter: GlobalPassphraseRateLimiter | None = None,
-    switch_provider_backend: Callable[[str, str], Awaitable[Any]] | None = None,
     upstream_manager: UpstreamManager | None = None,
     approval_manager: ApprovalManager | None = None,
     module_manager: ModuleManager | None = None,
@@ -210,38 +208,6 @@ def create_admin_routes(
                 overview=overview,
                 csrf_token=session.csrf_token,
                 ui_modules=ui_mods,
-            )
-        )
-
-    async def provider_set_backend(request: Request) -> Response:
-        session = _require_session(request)
-        if session is None:
-            return _redirect("/admin/login")
-        data = await _require_csrf(request, session)
-        if data is None:
-            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
-
-        slug = data.get("slug", "").strip()
-        backend = data.get("backend", "").strip()
-        notice = None
-        error = None
-        try:
-            res = await service.set_provider_backend(
-                slug=slug,
-                backend=backend,
-                on_switch=switch_provider_backend,
-            )
-            notice = f"Switched provider '{res['slug']}' backend to '{res['backend']}'."
-        except Exception as exc:
-            error = str(exc)
-
-        overview = await service.get_overview(registry, sessions)
-        return _html(
-            render_overview_page(
-                overview=overview,
-                csrf_token=session.csrf_token,
-                notice=notice,
-                error=error,
             )
         )
 
@@ -1052,7 +1018,6 @@ def create_admin_routes(
 
     return [
         Route("/admin", overview_page, methods=["GET"]),
-        Route("/admin/providers/backend", provider_set_backend, methods=["POST"]),
         Route("/admin/login", login, methods=["GET", "POST"]),
         Route("/admin/logout", logout, methods=["POST"]),
         Route("/admin/approvals", approvals_page, methods=["GET"]),

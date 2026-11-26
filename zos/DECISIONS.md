@@ -181,6 +181,17 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Moves the first domain provider out of ZOS core while preserving exact `memory_*` tool names, schemas, owner policy tiers, FTS+trigram search quality, and non-superuser Postgres portability.
 - **Impact:** Core starts and routes cleanly with zero modules installed (`zos_status` only); `memory` runs as an isolated container module with its own `mod_memory` schema and `/admin/m/memory` owner UI (browse, search, tag filter, delete — no editing).
 
+## 2026-11-26 — M12c: Gmail and Google Calendar extracted into shared container module (`modules/google`)
+- **Decision:**
+  1. **Two modules (`gmail`, `gcal`), one shared image (`modules/google`):** Exposed MCP tool names remain `<slug>_<tool>` (`gmail_search`, `gmail_read`, `gmail_send`, `gcal_*`). Both `catalog/modules/gmail.toml` and `catalog/modules/gcal.toml` build from `modules/google` (`[network] egress = true`, `[storage] postgres = true`) and select their service from `ZOS_MODULE_SLUG`. Each module has its own narrower Google OAuth scopes, its own `mod_<slug>` schema, and its own Connect/Reconnect/Disconnect UI at `/admin/m/<slug>` (plus `api|mcp` backend switcher in `/admin/m/gcal`).
+  2. **Public callback URL via UI proxy Contract v1.1 (`X-Forwarded-Host`):** Extended `src/zos/web/module_proxy.py` to strip client-supplied `X-Forwarded-Host` and inject `X-Forwarded-Host` (derived from `ZOS_BASE_URL`) alongside `X-Forwarded-Proto` and `X-Forwarded-Prefix`, so modules derive `<proto>://<host>/admin/m/<slug>/callback` with zero duplicated URL config.
+  3. **`SameSite=Strict` cross-site OAuth callback interstitial:** Kept `zos_admin_session` at `SameSite=Strict`. On `/admin/m/*`, a cookieless top-level `GET` carrying `Sec-Fetch-Site: cross-site` receives a minimal same-origin `<meta http-equiv="refresh" content="0;url=...">` page to the exact same path and query; the browser's immediate same-origin follow-up carries the `SameSite=Strict` cookie (and unauthenticated same-origin requests still redirect cleanly to `/admin/login` with no loop).
+  4. **Encrypted module-owned token storage:** Each Google module encrypts its access/refresh tokens in `mod_<slug>.google_credentials` using AES-256-GCM with an HKDF-SHA256 key derived from `ZOS_MODULE_SECRET`. The core AEAD vault holds core and remote connector secrets only (documented in `INVARIANTS.md`).
+  5. **Retire core Google provider, keep legacy vault rows until verified:** Removed `src/zos/providers/google/`, `/connect/google`, `ZOS_GCAL_BACKEND`, and Google-specific admin/CLI wiring. Added `migrations/0009_m12c_retire_core_google_providers.sql` to retire legacy core `providers` rows for `gcal`/`gmail` while keeping legacy `credentials` (`issuer='google'`) rows intact until Zubin connects and verifies the live modules.
+- **Why:** Completes the M12 control-plane separation: zero domain providers remain in `src/zos/`.
+- **Impact:** Core has no Google code or routes; `gmail` and `gcal` run as isolated egress modules with independent scopes, encrypted module-local credentials, and owner UIs under `/admin/m/gmail` and `/admin/m/gcal`.
+
+
 
 
 

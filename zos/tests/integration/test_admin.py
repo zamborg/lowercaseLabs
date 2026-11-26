@@ -186,12 +186,11 @@ async def test_admin_pages_mutations_audit_privacy_pagination_and_cli_parity(db_
         r_login = await client.post("/admin/login", data={"passphrase": owner_pw})
         assert r_login.status_code == 303
 
-        # 1. Overview page shows providers, backend, active sessions, and /connect/google
+        # 1. Overview page renders cleanly with Providers and Active Sessions
         r_ov = await client.get("/admin")
         assert r_ov.status_code == 200
-        assert "gcal" in r_ov.text
-        assert "mcp" in r_ov.text
-        assert "/connect/google" in r_ov.text
+        assert "Overview" in r_ov.text
+        assert "Providers" in r_ov.text
         csrf = _extract_csrf(r_ov.text)
 
         # 2. Clients: create bearer client -> token shown ONCE, audited

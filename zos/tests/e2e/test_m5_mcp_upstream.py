@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import anyio
 import httpx
@@ -28,10 +27,11 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from tests.conftest import get_test_database_url
 from tests.e2e.helpers import free_port, run_asgi_server
 from zos.app import create_app
+from zos.audit import DatabaseAuditRecorder
 from zos.config import Settings
 from zos.db.queries import create_bearer_client, init_principal_and_space
-from zos.providers.google import GOOGLE_SCOPES
 from zos.providers.mcp_upstream import McpUpstreamProvider
+from zos.router import SessionTracker
 from zos.vault import generate_secret_key
 
 
@@ -268,6 +268,25 @@ async def test_m5_e2e_mcp_upstream_proxy_full_behavior(db_pool) -> None:
     p_id = init["principal"]["id"]
     s_id = init["space"]["id"]
 
+    # Seed tiers for the test upstream provider
+    async with db_pool.connection() as conn:
+        for pat, tier in (
+            ("gcal_list_events", "read"),
+            ("gcal_get_event", "read"),
+            ("gcal_list_calendars", "read"),
+            ("gcal_suggest_time", "read"),
+            ("gcal_search_events", "read"),
+            ("gcal_create_event", "external"),
+            ("gcal_update_event", "external"),
+            ("gcal_delete_event", "external"),
+            ("gcal_respond_to_event", "external"),
+        ):
+            await conn.execute(
+                "INSERT INTO tool_tiers (principal_id, tool_pattern, tier) VALUES (%s, %s, %s)",
+                (p_id, pat, tier),
+            )
+        await conn.commit()
+
     client_a = await create_bearer_client(db_pool, principal_id=p_id, space_id=s_id, name="agent-a")
     client_b = await create_bearer_client(db_pool, principal_id=p_id, space_id=s_id, name="agent-b")
 
@@ -286,25 +305,26 @@ async def test_m5_e2e_mcp_upstream_proxy_full_behavior(db_pool) -> None:
         zos_base_url=zos_base,
         zos_secret_key=generate_secret_key(),
         zos_owner_password_hash=PasswordHasher().hash("owner-pw"),
-        google_client_id="fake-cid",
-        google_client_secret="fake-csecret",
         approval_wait_seconds=0.05,
     )
 
     async with run_asgi_server(upstream_app, port=upstream_port):
-        # Create ZOS app with gcal configured to backend=mcp pointing at our fake upstream
+        audit_rec = DatabaseAuditRecorder(db_pool)
+        gcal_provider = McpUpstreamProvider(
+            namespace="gcal",
+            url=upstream_url,
+            token_source=token_src,
+            sessions=SessionTracker(),
+            audit_elicitation=audit_rec.record_elicitation,
+        )
         app = create_app(
             cfg,
+            extra_providers=[gcal_provider],
             run_migrations_on_startup=False,
-            gcal_backend="mcp",
-            gcal_mcp_url=upstream_url,
         )
 
-        # Swap gcal's token source to our FakeTokenSource so we test 401->refresh->retry cleanly
         async with run_asgi_server(app, port=zos_port):
-            gcal_provider = app.state.zos.registry.get("gcal")
-            assert isinstance(gcal_provider, McpUpstreamProvider)
-            gcal_provider.token_source = token_src  # type: ignore[assignment]
+            gcal_provider.sessions = app.state.zos.sessions
 
             # 1. Lazy connect triggers 401 on tok-stale -> refreshes once -> succeeds on tok-fresh!
             connected = await gcal_provider.ensure_connected(broadcast_on_change=False)
@@ -317,18 +337,6 @@ async def test_m5_e2e_mcp_upstream_proxy_full_behavior(db_pool) -> None:
                 hz = (await web.get(f"{zos_base}/healthz")).json()
                 gcal_hz = next(p for p in hz["providers"] if p["namespace"] == "gcal")
                 assert gcal_hz == {"namespace": "gcal", "kind": "upstream", "online": True, "backend": "mcp"}
-
-                # Also verify /connect/google requests ALL unioned Calendar MCP + Gmail scopes
-                r_conn = await web.post(
-                    f"{zos_base}/connect/google",
-                    data={"passphrase": "owner-pw"},
-                    follow_redirects=False,
-                )
-                assert r_conn.status_code == 302
-                qs = parse_qs(urlparse(r_conn.headers["location"]).query)
-                assert set(qs["scope"][0].split()) == set(GOOGLE_SCOPES)
-                assert qs["access_type"] == ["offline"]
-                assert qs["prompt"] == ["consent"]
 
             list_changed_ev = anyio.Event()
 
@@ -467,19 +475,20 @@ async def test_m5_upstream_down_goes_offline_with_clean_error(db_pool) -> None:
     zos_port = free_port()
     zos_base = f"http://127.0.0.1:{zos_port}"
     cfg = Settings(database_url=get_test_database_url(), zos_base_url=zos_base)
+    gcal_provider = McpUpstreamProvider(
+        namespace="gcal",
+        url=f"http://127.0.0.1:{dead_port}/mcp/v1",
+        token_source=FakeTokenSource(["tok-1"]),
+        sessions=SessionTracker(),
+        connect_timeout_s=2.0,
+    )
     app = create_app(
         cfg,
+        extra_providers=[gcal_provider],
         run_migrations_on_startup=False,
-        gcal_backend="mcp",
-        gcal_mcp_url=f"http://127.0.0.1:{dead_port}/mcp/v1",
     )
 
     async with run_asgi_server(app, port=zos_port):
-        gcal_provider = app.state.zos.registry.get("gcal")
-        assert isinstance(gcal_provider, McpUpstreamProvider)
-        gcal_provider.token_source = FakeTokenSource(["tok-1"])  # type: ignore[assignment]
-        gcal_provider._connect_timeout_s = 2.0
-
         ok = await gcal_provider.ensure_connected(broadcast_on_change=False)
         assert ok is False
         assert gcal_provider.is_online() is False

@@ -1,4 +1,4 @@
-"""Minimal server-rendered HTML pages for owner OAuth approval and Google connect."""
+"""Minimal server-rendered HTML pages for owner OAuth approval and connector connect."""
 
 from __future__ import annotations
 
@@ -61,45 +61,6 @@ def render_authorize_page(
           <button class="primary" type="submit" name="decision" value="approve">Approve</button>
           <button class="secondary" type="submit" name="decision" value="deny">Deny</button>
         </div>
-      </form>
-    </div>
-  </main>
-</body>
-</html>
-"""
-
-
-def render_google_connect_page(*, error: str | None = None, status_message: str | None = None) -> str:
-    """Render minimal HTML form for owner passphrase verification before connecting Google."""
-    error_html = (
-        f'<div class="notice notice-err" role="alert">{html.escape(error)}</div>' if error else ""
-    )
-    status_html = (
-        f'<div class="notice notice-ok" role="status">{html.escape(status_message)}</div>'
-        if status_message
-        else ""
-    )
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <title>ZOS — Connect Google</title>
-  <style>{_CSS}</style>
-</head>
-<body>
-  <main class="narrow">
-    <div class="card">
-      <h1>Connect Google</h1>
-      <p class="muted">Enter your ZOS owner passphrase to authorize Google Calendar and Gmail access.</p>
-      {error_html}
-      {status_html}
-      <form class="auth-form" method="post" action="/connect/google">
-        <label class="field" for="passphrase">Owner passphrase
-          <input id="passphrase" name="passphrase" type="password" autocomplete="current-password" required autofocus>
-        </label>
-        <button type="submit" class="block">Continue to Google</button>
       </form>
     </div>
   </main>

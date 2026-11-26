@@ -83,8 +83,6 @@ async def test_m7_shared_passphrase_limiter_across_all_three_forms_and_auth_fail
         zos_base_url="http://localhost:8787",
         zos_secret_key=generate_secret_key(),
         zos_owner_password_hash=PasswordHasher().hash(owner_pw),
-        google_client_id="fake-cid",
-        google_client_secret="fake-csec",
     )
     app = create_app(cfg, run_migrations_on_startup=False)
 
@@ -117,19 +115,18 @@ async def test_m7_shared_passphrase_limiter_across_all_three_forms_and_auth_fail
             "decision": "approve",
         }
 
-        # Spread 5 failures across ALL THREE forms (even with different X-Forwarded-For headers)
+        # Spread 5 failures across /admin/login and /oauth/authorize (even with different X-Forwarded-For headers)
         r1 = await client.post("/admin/login", data={"passphrase": wrong_pw}, headers={"X-Forwarded-For": "1.1.1.1"})
         r2 = await client.post("/admin/login", data={"passphrase": wrong_pw}, headers={"X-Forwarded-For": "2.2.2.2"})
         r3 = await client.post("/oauth/authorize", data={**oauth_form, "passphrase": wrong_pw}, headers={"X-Forwarded-For": "3.3.3.3"})
         r4 = await client.post("/oauth/authorize", data={**oauth_form, "passphrase": wrong_pw}, headers={"X-Forwarded-For": "4.4.4.4"})
-        r5 = await client.post("/connect/google", data={"passphrase": wrong_pw}, headers={"X-Forwarded-For": "5.5.5.5"})
+        r5 = await client.post("/admin/login", data={"passphrase": wrong_pw}, headers={"X-Forwarded-For": "5.5.5.5"})
         assert [r1.status_code, r2.status_code, r3.status_code, r4.status_code, r5.status_code] == [401, 401, 401, 401, 401]
 
-        # 6th attempt on ANY of the three forms (even with the valid owner passphrase!) returns 429 + Retry-After
+        # 6th attempt on ANY form (even with the valid owner passphrase!) returns 429 + Retry-After
         for resp in (
             await client.post("/admin/login", data={"passphrase": owner_pw}),
             await client.post("/oauth/authorize", data={**oauth_form, "passphrase": owner_pw}),
-            await client.post("/connect/google", data={"passphrase": owner_pw}),
         ):
             assert resp.status_code == 429
             assert "retry-after" in resp.headers
@@ -148,7 +145,7 @@ async def test_m7_shared_passphrase_limiter_across_all_three_forms_and_auth_fail
         assert row["outcome"] == "denied"
         assert wrong_pw not in row["payload_text"]
         assert owner_pw not in row["payload_text"]
-        for route in ("/admin/login", "/oauth/authorize", "/connect/google"):
+        for route in ("/admin/login", "/oauth/authorize"):
             if route in row["payload_text"]:
                 routes_logged.append(route)
     assert routes_logged == [
@@ -156,7 +153,7 @@ async def test_m7_shared_passphrase_limiter_across_all_three_forms_and_auth_fail
         "/admin/login",
         "/oauth/authorize",
         "/oauth/authorize",
-        "/connect/google",
+        "/admin/login",
     ]
 
 
@@ -391,8 +388,6 @@ async def test_m7_public_https_base_url_readiness(db_pool) -> None:
         zos_base_url=public_base,
         zos_secret_key=generate_secret_key(),
         zos_owner_password_hash=owner_hash,
-        google_client_id="google-cid",
-        google_client_secret="google-csec",
         allowed_redirect_hosts=("chatgpt.com",),
     )
     app = create_app(cfg, run_migrations_on_startup=False)
@@ -506,13 +501,7 @@ async def test_m7_public_https_base_url_readiness(db_pool) -> None:
         assert "Secure" in set_cookie
         assert "HttpOnly" in set_cookie
 
-        # 5. Google connect uses https://zos.example.com/connect/google/callback
-        r_g = await client.post("/connect/google", data={"passphrase": owner_pw})
-        assert r_g.status_code == 302
-        g_qs = parse_qs(urlparse(r_g.headers["location"]).query)
-        assert g_qs["redirect_uri"] == [f"{public_base}/connect/google/callback"]
-
-        # 6. Behind TLS-terminating tunnel (plain HTTP into app with public Host header),
+        # 5. Behind TLS-terminating tunnel (plain HTTP into app with public Host header),
         #    Starlette trailing-slash 307 redirects emit https:// (while loopback stays http://)
         async with (
             httpx.AsyncClient(

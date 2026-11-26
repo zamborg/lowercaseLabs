@@ -71,9 +71,9 @@ async def test_owner_routes_protected_without_cloudflare_access(db_pool: Any) ->
             assert r_post.status_code == 303
             assert r_post.headers["location"].startswith("/admin/login")
 
-            # 3. /connect/google POST rejects wrong passphrase (401)
-            r_g = await client.post("/connect/google", data={"passphrase": "wrong-password"})
-            assert r_g.status_code in (401, 503)
+            # 3. Legacy /connect/google is removed (404)
+            r_g = await client.get("/connect/google")
+            assert r_g.status_code == 404
 
             # 4. /admin/login rejects wrong passphrase (401)
             r_bad = await client.post("/admin/login", data={"passphrase": "wrong-password"})

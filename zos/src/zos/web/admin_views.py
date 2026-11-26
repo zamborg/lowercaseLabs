@@ -153,20 +153,6 @@ def render_overview_page(
         )
         cur_backend = p.get("backend")
         backend_cell = f"<code>{_e(cur_backend)}</code>" if cur_backend else "—"
-        switchable = p.get("switchable_backends") or []
-        if switchable:
-            toggles = []
-            for target in switchable:
-                if target == cur_backend:
-                    continue
-                toggles.append(
-                    f'<form class="inline" method="post" action="/admin/providers/backend">'
-                    f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
-                    f'<input type="hidden" name="slug" value="{_e(p["namespace"])}">'
-                    f'<input type="hidden" name="backend" value="{_e(target)}">'
-                    f'<button type="submit" class="secondary sm">Switch to {_e(target)}</button></form>'
-                )
-            backend_cell = f'<div class="row"><span>{backend_cell}</span>{"".join(toggles)}</div>'
         prov_rows.append(
             f"<tr>"
             f"<td data-label=\"Namespace\"><code>{_e(p['namespace'])}</code></td>"
@@ -176,22 +162,6 @@ def render_overview_page(
             f"<td data-label=\"Last seen\" class=\"mono nowrap\">{_e(_fmt_ts(p['last_seen_at']))}</td>"
             f"</tr>"
         )
-
-    cred = overview["google_credential"]
-    if cred:
-        scopes_html = " ".join(f'<span class="badge badge-muted">{_e(s.rsplit("/", 1)[-1])}</span>' for s in cred["scopes"])
-        cred_html = f"""
-        <p><span class="badge badge-ok">connected</span> <strong>{_e(cred['account'])}</strong></p>
-        <p class="muted">Access token expires: <code>{_e(_fmt_ts(cred['access_expires_at']))}</code> &middot; Updated: <code>{_e(_fmt_ts(cred['updated_at']))}</code></p>
-        <p class="row">{scopes_html}</p>
-        <a class="btn secondary" href="/connect/google">Reconnect Google</a>
-        """
-    else:
-        cred_html = """
-        <p><span class="badge badge-muted">not connected</span></p>
-        <p class="muted">Connect Google once to enable both <code>gcal</code> (Calendar MCP) and <code>gmail</code> (REST).</p>
-        <a class="btn" href="/connect/google">Connect Google</a>
-        """
 
     last_backup = overview.get("last_backup")
     if last_backup:
@@ -239,10 +209,6 @@ def render_overview_page(
           <tbody>{''.join(prov_rows) or '<tr><td colspan="5" class="empty">No providers registered.</td></tr>'}</tbody>
         </table>
       </div>
-    </div>
-    <div class="card">
-      <h2>Google Credential</h2>
-      {cred_html}
     </div>
     """
     return _layout(

@@ -393,8 +393,8 @@ async def test_m9a_all_three_auth_modes_tiers_hot_reload_and_oauth_lifecycle(db_
                 )
             ).status_code == 403
 
-            # Reject reserved slug 'zos' and built-in slug 'gcal' cleanly
-            for bad_slug in ("zos", "gcal", "Bad_Slug"):
+            # Reject reserved slug 'zos' and built-in slug 'mac' cleanly
+            for bad_slug in ("zos", "mac", "Bad_Slug"):
                 r_bad = await web.post(
                     "/admin/upstreams/add",
                     data={

@@ -288,32 +288,6 @@ def actuator_add_cmd(
     typer.echo(f"token={res['token']}")
 
 
-@provider_app.command("set-backend")
-def provider_set_backend_cmd(
-    slug: Annotated[str, typer.Argument(help="Upstream provider slug (e.g. gcal)")],
-    backend: Annotated[str, typer.Argument(help="Backend: api | mcp")],
-    principal: Annotated[str | None, typer.Option("--principal", help="Principal slug")] = None,
-) -> None:
-    """Switch an upstream provider's backend (persisted & audited)."""
-
-    async def _run() -> dict:
-        s = _settings()
-        async with open_pool(s.database_url) as pool:
-            return await AdminService(pool).set_provider_backend(
-                slug=slug,
-                backend=backend,
-                principal_slug=principal,
-            )
-
-    try:
-        res = asyncio.run(_run())
-    except ValueError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=2) from exc
-    prev = res.get("previous_backend") or "default"
-    typer.echo(f"Provider backend set: slug={res['slug']} from={prev} to={res['backend']}")
-
-
 @upstream_app.command("add")
 def upstream_add_cmd(
     slug: Annotated[str, typer.Argument(help="Unique tool prefix (^[a-z][a-z0-9]{1,15}$, not 'zos')")],
