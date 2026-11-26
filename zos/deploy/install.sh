@@ -97,8 +97,8 @@ validate_digest_image "ZOS_IMAGE_GCAL" "${ZOS_IMAGE_GCAL:-}"
 # ── 1. Install prerequisites & Docker Engine (Ubuntu 24.04) ────────────────
 install_docker() {
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq
-  apt-get install -y -qq ca-certificates curl gnupg git openssl python3 >/dev/null
+  apt-get update -qq </dev/null
+  apt-get install -y -qq ca-certificates curl gnupg git openssl python3 </dev/null >/dev/null
 
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     echo "[install] Docker and Docker Compose plugin already installed."
@@ -319,13 +319,13 @@ fi
 
 # ── 5. Start Postgres, ensure zos_app role, start ZOS ──────────────────────
 echo "[install] Starting Postgres..."
-docker compose "${COMPOSE_ARGS[@]}" up -d --wait postgres
+docker compose "${COMPOSE_ARGS[@]}" up -d --wait postgres </dev/null
 PG_SUPER_USER="$(get_env_val POSTGRES_USER)"
 PG_SUPER_PW="$(get_env_val POSTGRES_PASSWORD)"
 PG_DB_NAME="$(get_env_val POSTGRES_DB)"
 for _ in $(seq 1 30); do
   if docker compose "${COMPOSE_ARGS[@]}" exec -T -e "PGPASSWORD=${PG_SUPER_PW}" postgres \
-      psql -U "${PG_SUPER_USER}" -d "${PG_DB_NAME}" -c "SELECT 1" >/dev/null 2>&1; then
+      psql -U "${PG_SUPER_USER}" -d "${PG_DB_NAME}" -c "SELECT 1" </dev/null >/dev/null 2>&1; then
     break
   fi
   sleep 1
