@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Install ZOS Mac actuator with a dedicated Python 3.12 interpreter copy
-# (~/.zos-actuator/python/bin/python3.12) and venv (~/.zos-actuator/venv),
-# plus LaunchAgents for isolated tmux and the actuator daemon.
+# Install ZOS Mac device (`zos-device` bridge + `zos-mac` stdio MCP server) with a
+# dedicated Python 3.12 interpreter copy (~/.zos-actuator/python/bin/python3.12)
+# and venv (~/.zos-actuator/venv), plus LaunchAgents for isolated tmux and com.zos.actuator.
 #
 # Pass --upgrade-python to refresh ~/.zos-actuator/python/ from uv's Python 3.12
 # (requires re-granting Full Disk Access in macOS System Settings afterward).
@@ -21,7 +21,8 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZOS_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-ACTUATOR_SRC="${ZOS_ROOT}/actuator"
+DEVICE_SRC="${ZOS_ROOT}/device"
+MAC_SRC="${ZOS_ROOT}/devices/mac"
 INSTALL_DIR="${HOME}/.zos-actuator"
 PYTHON_DIR="${INSTALL_DIR}/python"
 DEDICATED_PY="${PYTHON_DIR}/bin/python3.12"
@@ -29,7 +30,7 @@ VENV_DIR="${INSTALL_DIR}/venv"
 LAUNCH_AGENTS="${HOME}/Library/LaunchAgents"
 TMUX_BIN="$(command -v tmux || echo /opt/homebrew/bin/tmux)"
 
-echo "==> Installing zos-actuator into ${INSTALL_DIR}"
+echo "==> Installing zos-device + zos-mac into ${INSTALL_DIR}"
 mkdir -p "${INSTALL_DIR}" "${LAUNCH_AGENTS}" "${HOME}/Library/Logs"
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -56,7 +57,7 @@ if [ ! -x "${DEDICATED_PY}" ] || [ "${UPGRADE_PYTHON}" = true ]; then
 fi
 
 uv venv --python "${DEDICATED_PY}" "${VENV_DIR}" --allow-existing
-uv pip install --python "${VENV_DIR}/bin/python" --upgrade "${ACTUATOR_SRC}"
+uv pip install --python "${VENV_DIR}/bin/python" --upgrade "${DEVICE_SRC}" "${MAC_SRC}"
 
 RESOLVED_PYTHON="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${VENV_DIR}/bin/python")"
 
@@ -74,12 +75,12 @@ render_plist "${SCRIPT_DIR}/com.zos.actuator.plist" "${LAUNCH_AGENTS}/com.zos.ac
 
 if [ ! -f "${INSTALL_DIR}/config.toml" ]; then
   cat > "${INSTALL_DIR}/config.toml" <<'EOF'
-# Generate token with: zos actuator add mac
-url = "ws://127.0.0.1:8787/actuator"
-token = "REPLACE_WITH_ZOS_ACTUATOR_TOKEN"
+# Add a device in /admin/modules ("Runs on your machine") or run: zos device add mac
+url = "wss://<your-zos-host>/actuator"
+token = "REPLACE_WITH_ZOS_DEVICE_TOKEN"
 EOF
   chmod 600 "${INSTALL_DIR}/config.toml"
-  echo "==> Created template ${INSTALL_DIR}/config.toml (edit token before loading agent)"
+  echo "==> Created template ${INSTALL_DIR}/config.toml (edit url and token before loading agent)"
 fi
 
 echo ""

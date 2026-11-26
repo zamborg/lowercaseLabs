@@ -6,7 +6,13 @@
   <string>com.zos.actuator</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{{HOME}}/.zos-actuator/venv/bin/zos-actuator</string>
+    <string>{{HOME}}/.zos-actuator/venv/bin/zos-device</string>
+    <string>--config</string>
+    <string>{{HOME}}/.zos-actuator/config.toml</string>
+    <string>--</string>
+    <string>{{HOME}}/.zos-actuator/venv/bin/python</string>
+    <string>-m</string>
+    <string>zos_mac</string>
     <string>--config</string>
     <string>{{HOME}}/.zos-actuator/config.toml</string>
   </array>
