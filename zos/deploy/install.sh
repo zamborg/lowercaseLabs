@@ -8,12 +8,17 @@
 #   sudo bash deploy/install.sh --update --edge caddy --domain zos.example.com
 set -euo pipefail
 
-EDGE="caddy"
+EDGE=""
+EDGE_SET=0
 DOMAIN=""
+DOMAIN_SET=0
 INSTALL_DIR="/opt/zos"
-REPO_URL="${ZOS_REPO_URL:-https://github.com/zamborg/lowercaseLabs.git}"
-GIT_REF="${ZOS_GIT_REF:-main}"
+REPO_URL=""
+REPO_URL_SET=0
+GIT_REF=""
+GIT_REF_SET=0
 LOCAL_SOURCE=""
+LOCAL_SOURCE_SET=0
 UPDATE_MODE=0
 SKIP_PASSPHRASE=0
 
@@ -22,11 +27,11 @@ usage() {
 Usage: install.sh [options]
 
 Options:
-  --edge caddy|cloudflared|none   Edge reverse proxy / TLS mode (default: caddy)
-  --domain <hostname>             Public domain (required for --edge caddy)
+  --edge caddy|cloudflared|none   Edge reverse proxy / TLS mode (default: saved or caddy)
+  --domain <hostname>             Public domain (required for --edge caddy; default: saved)
   --dir <path>                    Install directory (default: /opt/zos)
-  --repo <git-url>                Git repository URL (default: $ZOS_REPO_URL)
-  --ref <git-ref>                 Git branch/tag/commit to checkout (default: main)
+  --repo <git-url>                Git repository URL (default: saved or $ZOS_REPO_URL)
+  --ref <git-ref>                 Git branch/tag/commit to checkout (default: saved or main)
   --local-source <path>           Copy ZOS source from a local directory instead of git clone
   --update                        Back up first, pull/rebuild, migrate, and recreate keeping data
   --skip-passphrase               Skip interactive owner passphrase prompt (set later before login)
@@ -43,12 +48,12 @@ EOF
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --edge) EDGE="$2"; shift 2 ;;
-    --domain) DOMAIN="$2"; shift 2 ;;
+    --edge) EDGE="$2"; EDGE_SET=1; shift 2 ;;
+    --domain) DOMAIN="$2"; DOMAIN_SET=1; shift 2 ;;
     --dir) INSTALL_DIR="$2"; shift 2 ;;
-    --repo) REPO_URL="$2"; shift 2 ;;
-    --ref) GIT_REF="$2"; shift 2 ;;
-    --local-source) LOCAL_SOURCE="$2"; shift 2 ;;
+    --repo) REPO_URL="$2"; REPO_URL_SET=1; shift 2 ;;
+    --ref) GIT_REF="$2"; GIT_REF_SET=1; shift 2 ;;
+    --local-source) LOCAL_SOURCE="$2"; LOCAL_SOURCE_SET=1; shift 2 ;;
     --update) UPDATE_MODE=1; shift 1 ;;
     --skip-passphrase) SKIP_PASSPHRASE=1; shift 1 ;;
     -h|--help) usage; exit 0 ;;
@@ -59,6 +64,80 @@ done
 if [ "$(id -u)" -ne 0 ]; then
   echo "Error: deploy/install.sh must be run as root (use sudo)." >&2
   exit 1
+fi
+
+read_env_file_val() {
+  local file="$1"
+  local key="$2"
+  [ -f "${file}" ] || return 0
+  python3 - "${file}" "${key}" <<'PY'
+import sys
+from pathlib import Path
+
+path, target = Path(sys.argv[1]), sys.argv[2]
+val = ""
+for raw in path.read_text(encoding="utf-8").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    if k.strip() != target:
+        continue
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+        v = v[1:-1]
+    val = v
+print(val, end="")
+PY
+}
+
+# Reuse persisted install settings from existing .env unless explicitly overridden on CLI
+# so re-runs (Step 3 passphrase, edge switch, --update) never silently move a tag-pinned
+# or --local-source install onto main.
+ZOS_DIR="${INSTALL_DIR}/zos"
+ENV_FILE="${ZOS_DIR}/.env"
+if [ -f "${ENV_FILE}" ] && command -v python3 >/dev/null 2>&1; then
+  SAVED_EDGE="$(read_env_file_val "${ENV_FILE}" ZOS_INSTALL_EDGE)"
+  SAVED_DOMAIN="$(read_env_file_val "${ENV_FILE}" ZOS_INSTALL_DOMAIN)"
+  SAVED_REF="$(read_env_file_val "${ENV_FILE}" ZOS_INSTALL_REF)"
+  SAVED_SOURCE="$(read_env_file_val "${ENV_FILE}" ZOS_INSTALL_SOURCE)"
+  SAVED_REPO="$(read_env_file_val "${ENV_FILE}" ZOS_INSTALL_REPO)"
+
+  if [ "${EDGE_SET}" -eq 0 ] && [ -n "${SAVED_EDGE}" ]; then
+    EDGE="${SAVED_EDGE}"
+  fi
+  if [ "${DOMAIN_SET}" -eq 0 ]; then
+    if [ "${EDGE_SET}" -eq 1 ] && [ "${EDGE}" = "none" ]; then
+      DOMAIN=""
+    elif [ -n "${SAVED_DOMAIN}" ]; then
+      DOMAIN="${SAVED_DOMAIN}"
+    fi
+  fi
+  if [ "${REPO_URL_SET}" -eq 0 ] && [ -n "${SAVED_REPO}" ]; then
+    REPO_URL="${SAVED_REPO}"
+  fi
+  if [ "${LOCAL_SOURCE_SET}" -eq 0 ] && [ "${GIT_REF_SET}" -eq 0 ]; then
+    if [ -n "${SAVED_SOURCE}" ]; then
+      LOCAL_SOURCE="${SAVED_SOURCE}"
+    elif [ -n "${SAVED_REF}" ]; then
+      GIT_REF="${SAVED_REF}"
+    fi
+  fi
+fi
+
+# Apply defaults for first-time installs (or when no prior value was persisted)
+EDGE="${EDGE:-caddy}"
+REPO_URL="${REPO_URL:-${ZOS_REPO_URL:-https://github.com/zamborg/lowercaseLabs.git}}"
+if [ -z "${LOCAL_SOURCE}" ]; then
+  GIT_REF="${GIT_REF:-${ZOS_GIT_REF:-main}}"
+fi
+
+if [ "${LOCAL_SOURCE_SET}" -eq 1 ]; then
+  if [ ! -d "${LOCAL_SOURCE}" ]; then
+    echo "Error: --local-source directory not found: ${LOCAL_SOURCE}" >&2
+    exit 2
+  fi
+  LOCAL_SOURCE="$(cd "${LOCAL_SOURCE}" && pwd -P)"
 fi
 
 case "${EDGE}" in
@@ -134,14 +213,15 @@ if [ "${UPDATE_MODE}" -eq 1 ] && [ -f "${ZOS_DIR}/.env" ] && [ -x "${ZOS_DIR}/de
 fi
 
 if [ -n "${LOCAL_SOURCE}" ]; then
-  echo "[install] Syncing source from local directory ${LOCAL_SOURCE}..."
-  if [ -d "${LOCAL_SOURCE}/zos" ]; then
-    SRC_ZOS="${LOCAL_SOURCE}/zos"
-  else
-    SRC_ZOS="${LOCAL_SOURCE}"
-  fi
-  mkdir -p "${ZOS_DIR}"
-  python3 - "${SRC_ZOS}" "${ZOS_DIR}" <<'PY'
+  if [ -d "${LOCAL_SOURCE}" ]; then
+    echo "[install] Syncing source from local directory ${LOCAL_SOURCE}..."
+    if [ -d "${LOCAL_SOURCE}/zos" ]; then
+      SRC_ZOS="${LOCAL_SOURCE}/zos"
+    else
+      SRC_ZOS="${LOCAL_SOURCE}"
+    fi
+    mkdir -p "${ZOS_DIR}"
+    python3 - "${SRC_ZOS}" "${ZOS_DIR}" <<'PY'
 import shutil, sys
 from pathlib import Path
 
@@ -161,13 +241,28 @@ for item in src.iterdir():
     else:
         shutil.copy2(item, target)
 PY
+  elif [ "${UPDATE_MODE}" -eq 0 ] && [ -f "${ZOS_DIR}/deploy/docker-compose.yml" ]; then
+    echo "[install] Saved local source ${LOCAL_SOURCE} not present; reusing installed files in ${ZOS_DIR}."
+  else
+    echo "Error: saved --local-source directory not found: ${LOCAL_SOURCE} (pass --local-source <path> or --ref <tag>)" >&2
+    exit 1
+  fi
 else
   if [ ! -d "${INSTALL_DIR}/.git" ]; then
-    echo "[install] Cloning ${REPO_URL} (ref=${GIT_REF}) into ${INSTALL_DIR}..."
-    git clone --depth 1 --branch "${GIT_REF}" "${REPO_URL}" "${INSTALL_DIR}"
+    if [ -z "$(ls -A "${INSTALL_DIR}" 2>/dev/null)" ]; then
+      echo "[install] Cloning ${REPO_URL} (ref=${GIT_REF}) into ${INSTALL_DIR}..."
+      git clone --depth 1 --branch "${GIT_REF}" "${REPO_URL}" "${INSTALL_DIR}" </dev/null
+    else
+      echo "[install] Initializing git checkout (${REPO_URL}, ref=${GIT_REF}) in ${INSTALL_DIR}..."
+      git -C "${INSTALL_DIR}" init -q
+      git -C "${INSTALL_DIR}" remote add origin "${REPO_URL}"
+      git -C "${INSTALL_DIR}" fetch --depth 1 origin "${GIT_REF}" </dev/null
+      git -C "${INSTALL_DIR}" checkout -f FETCH_HEAD
+    fi
   else
     echo "[install] Updating git checkout in ${INSTALL_DIR} to ref=${GIT_REF}..."
-    git -C "${INSTALL_DIR}" fetch --depth 1 origin "${GIT_REF}"
+    git -C "${INSTALL_DIR}" remote set-url origin "${REPO_URL}"
+    git -C "${INSTALL_DIR}" fetch --depth 1 origin "${GIT_REF}" </dev/null
     git -C "${INSTALL_DIR}" checkout -f FETCH_HEAD
   fi
 fi
@@ -185,26 +280,7 @@ touch "${ENV_FILE}"
 chmod 600 "${ENV_FILE}"
 
 get_env_val() {
-  local key="$1"
-  python3 - "${ENV_FILE}" "${key}" <<'PY'
-import sys
-from pathlib import Path
-
-path, target = Path(sys.argv[1]), sys.argv[2]
-val = ""
-for raw in path.read_text(encoding="utf-8").splitlines():
-    line = raw.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-    k, v = line.split("=", 1)
-    if k.strip() != target:
-        continue
-    v = v.strip()
-    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
-        v = v[1:-1]
-    val = v
-print(val, end="")
-PY
+  read_env_file_val "${ENV_FILE}" "$1"
 }
 
 set_env_val() {
@@ -255,15 +331,28 @@ ensure_env_default() {
   fi
 }
 
+ensure_env_default "ZOS_PORT" "8787"
+
 if [ -n "${DOMAIN}" ]; then
   BASE_URL="https://${DOMAIN}"
+elif [ "${EDGE}" = "none" ] && [ "${EDGE_SET}" -eq 1 ]; then
+  BASE_URL="http://localhost:$(get_env_val ZOS_PORT)"
 else
   BASE_URL="$(get_env_val ZOS_BASE_URL)"
-  BASE_URL="${BASE_URL:-http://localhost:8787}"
+  BASE_URL="${BASE_URL:-http://localhost:$(get_env_val ZOS_PORT)}"
 fi
 
-ensure_env_default "ZOS_PORT" "8787"
 set_env_val "ZOS_BASE_URL" "${BASE_URL}"
+set_env_val "ZOS_INSTALL_EDGE" "${EDGE}"
+set_env_val "ZOS_INSTALL_DOMAIN" "${DOMAIN}"
+if [ -n "${LOCAL_SOURCE}" ]; then
+  set_env_val "ZOS_INSTALL_SOURCE" "${LOCAL_SOURCE}"
+  set_env_val "ZOS_INSTALL_REF" ""
+else
+  set_env_val "ZOS_INSTALL_REF" "${GIT_REF}"
+  set_env_val "ZOS_INSTALL_SOURCE" ""
+  set_env_val "ZOS_INSTALL_REPO" "${REPO_URL}"
+fi
 ensure_env_default "ZOS_LOG_LEVEL" "INFO"
 ensure_env_default "POSTGRES_USER" "zos"
 ensure_env_default "POSTGRES_DB" "zos"
