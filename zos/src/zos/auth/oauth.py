@@ -28,7 +28,13 @@ from zos.auth.rate_limit import (
     record_auth_failure,
 )
 from zos.config import Settings
-from zos.db.queries import generate_token, get_principal_and_space, hash_secret
+from zos.db.queries import (
+    generate_token,
+    get_principal_and_space,
+    hash_secret,
+    list_allowed_redirect_hosts,
+    record_dcr_rejected_attempt,
+)
 from zos.web.pages import render_authorize_page
 
 AUTH_CODE_TTL_SECONDS = 60
@@ -83,9 +89,26 @@ def validate_redirect_uri(uri: str, allowed_hosts: tuple[str, ...] = ()) -> str 
     if host not in normalized_allowlist:
         return (
             f"Redirect host '{host}' is not allowed. "
-            "Loopback hosts are always allowed; add external hosts to ZOS_ALLOWED_REDIRECT_HOSTS."
+            "Loopback hosts are always allowed; approve external hosts in /admin/clients."
         )
     return None
+
+
+def _extract_unlisted_https_host(uri: str, allowed_hosts: set[str]) -> str | None:
+    """Return the normalized hostname if `uri` is a well-formed external HTTPS URI not in `allowed_hosts`."""
+    parsed = urlparse(uri)
+    if (
+        parsed.scheme != "https"
+        or parsed.fragment
+        or parsed.username is not None
+        or parsed.password is not None
+        or not parsed.hostname
+    ):
+        return None
+    host = parsed.hostname.lower().rstrip(".")
+    if host in LOOPBACK_REDIRECT_HOSTS or host in allowed_hosts:
+        return None
+    return host
 
 
 def _normalize_url(url: str) -> str:
@@ -222,10 +245,22 @@ def create_oauth_routes(
         if not isinstance(raw_uris, list) or not raw_uris or not all(isinstance(u, str) and u.strip() for u in raw_uris):
             return _oauth_error("invalid_redirect_uri", "redirect_uris must be a non-empty list of URIs")
 
+        raw_client_name = str(body.get("client_name") or "").strip()
+        allowed_rows = await list_allowed_redirect_hosts(pool)
+        allowed_hosts_tuple = tuple(str(r["host"]) for r in allowed_rows)
+        allowed_hosts_set = set(allowed_hosts_tuple)
+
         redirect_uris: list[str] = []
         for uri in raw_uris:
-            uri_err = validate_redirect_uri(uri, settings.allowed_redirect_hosts)
+            uri_err = validate_redirect_uri(uri, allowed_hosts_tuple)
             if uri_err is not None:
+                rejected_host = _extract_unlisted_https_host(uri, allowed_hosts_set)
+                if rejected_host is not None:
+                    await record_dcr_rejected_attempt(
+                        pool,
+                        host=rejected_host,
+                        client_name=raw_client_name or "Unknown client",
+                    )
                 return _oauth_error("invalid_redirect_uri", uri_err)
             redirect_uris.append(uri)
 
@@ -236,7 +271,7 @@ def create_oauth_routes(
                 "Only public clients with token_endpoint_auth_method='none' are supported",
             )
 
-        client_name = str(body.get("client_name") or "").strip()
+        client_name = raw_client_name
         oauth_client_id = f"zos_c_{secrets.token_urlsafe(16)}"
         if not client_name:
             client_name = oauth_client_id

@@ -33,6 +33,7 @@ from zos.auth.oauth import create_oauth_routes
 from zos.auth.rate_limit import GlobalPassphraseRateLimiter, GlobalSlidingWindowLimiter
 from zos.config import Settings
 from zos.db import InstanceAdvisoryLock, create_pool, run_migrations
+from zos.db.queries import seed_allowed_redirect_hosts
 from zos.instructions import load_mcp_instructions
 from zos.modules import ModuleHost, ModuleManager
 from zos.policy import (
@@ -288,6 +289,7 @@ def create_app(
             if run_migrations_on_startup:
                 await run_migrations(pool, cfg.migrations_dir)
 
+            await seed_allowed_redirect_hosts(pool, cfg.allowed_redirect_hosts)
             await actuator_manager.load_registered_actuators()
             await upstream_manager.load_all_on_startup()
             for provider in extra_providers or []:

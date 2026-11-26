@@ -211,18 +211,34 @@ def create_admin_routes(
             )
         )
 
-    async def clients_page(request: Request) -> Response:
-        session = _require_session(request)
-        if session is None:
-            return _redirect("/admin/login")
+    async def _render_clients(
+        session: AdminSession,
+        *,
+        notice: str | None = None,
+        error: str | None = None,
+        new_token_info: dict[str, str] | None = None,
+    ) -> Response:
         clients = await service.list_clients()
+        allowed_hosts = await service.list_allowed_redirect_hosts()
+        rejected_attempts = await service.list_dcr_rejected_attempts()
         return _html(
             render_clients_page(
                 clients=clients,
                 csrf_token=session.csrf_token,
+                notice=notice,
+                error=error,
+                new_token_info=new_token_info,
                 max_oauth_clients=settings.max_oauth_clients,
+                allowed_redirect_hosts=allowed_hosts,
+                rejected_attempts=rejected_attempts,
             )
         )
+
+    async def clients_page(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        return await _render_clients(session)
 
     async def clients_create(request: Request) -> Response:
         session = _require_session(request)
@@ -244,17 +260,7 @@ def create_admin_routes(
         except Exception as exc:
             error = str(exc)
 
-        clients = await service.list_clients()
-        return _html(
-            render_clients_page(
-                clients=clients,
-                csrf_token=session.csrf_token,
-                notice=notice,
-                error=error,
-                new_token_info=token_info,
-                max_oauth_clients=settings.max_oauth_clients,
-            )
-        )
+        return await _render_clients(session, notice=notice, error=error, new_token_info=token_info)
 
     async def clients_new_token(request: Request) -> Response:
         session = _require_session(request)
@@ -275,17 +281,7 @@ def create_admin_routes(
         except Exception as exc:
             error = str(exc)
 
-        clients = await service.list_clients()
-        return _html(
-            render_clients_page(
-                clients=clients,
-                csrf_token=session.csrf_token,
-                notice=notice,
-                error=error,
-                new_token_info=token_info,
-                max_oauth_clients=settings.max_oauth_clients,
-            )
-        )
+        return await _render_clients(session, notice=notice, error=error, new_token_info=token_info)
 
     async def clients_revoke(request: Request) -> Response:
         session = _require_session(request)
@@ -304,16 +300,7 @@ def create_admin_routes(
         except Exception as exc:
             error = str(exc)
 
-        clients = await service.list_clients()
-        return _html(
-            render_clients_page(
-                clients=clients,
-                csrf_token=session.csrf_token,
-                notice=notice,
-                error=error,
-                max_oauth_clients=settings.max_oauth_clients,
-            )
-        )
+        return await _render_clients(session, notice=notice, error=error)
 
     async def clients_delete(request: Request) -> Response:
         session = _require_session(request)
@@ -332,16 +319,7 @@ def create_admin_routes(
         except Exception as exc:
             error = str(exc)
 
-        clients = await service.list_clients()
-        return _html(
-            render_clients_page(
-                clients=clients,
-                csrf_token=session.csrf_token,
-                notice=notice,
-                error=error,
-                max_oauth_clients=settings.max_oauth_clients,
-            )
-        )
+        return await _render_clients(session, notice=notice, error=error)
 
     async def clients_disable(request: Request) -> Response:
         session = _require_session(request)
@@ -360,16 +338,61 @@ def create_admin_routes(
         except Exception as exc:
             error = str(exc)
 
-        clients = await service.list_clients()
-        return _html(
-            render_clients_page(
-                clients=clients,
-                csrf_token=session.csrf_token,
-                notice=notice,
-                error=error,
-                max_oauth_clients=settings.max_oauth_clients,
-            )
-        )
+        return await _render_clients(session, notice=notice, error=error)
+
+    async def clients_redirect_host_allow(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        host = data.get("host", "").strip()
+        error = None
+        notice = None
+        try:
+            clean = await service.allow_redirect_host(host=host)
+            notice = f"Allowed redirect host '{clean}'."
+        except Exception as exc:
+            error = str(exc)
+        return await _render_clients(session, notice=notice, error=error)
+
+    async def clients_redirect_host_dismiss(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        error = None
+        notice = None
+        try:
+            attempt_id = int(data.get("attempt_id", "").strip())
+            dismissed = await service.dismiss_dcr_rejected_attempt(attempt_id=attempt_id)
+            notice = f"Dismissed blocked attempt from '{dismissed['host']}'."
+        except Exception as exc:
+            error = str(exc)
+        return await _render_clients(session, notice=notice, error=error)
+
+    async def clients_redirect_host_remove(request: Request) -> Response:
+        session = _require_session(request)
+        if session is None:
+            return _redirect("/admin/login")
+        data = await _require_csrf(request, session)
+        if data is None:
+            return _html("<h1>Invalid CSRF token</h1>", status_code=403)
+
+        host = data.get("host", "").strip()
+        error = None
+        notice = None
+        try:
+            removed = await service.remove_redirect_host(host=host)
+            notice = f"Removed redirect host '{host}'." if removed else f"Host '{host}' was not listed."
+        except Exception as exc:
+            error = str(exc)
+        return await _render_clients(session, notice=notice, error=error)
 
     async def policy_page(request: Request) -> Response:
         session = _require_session(request)
@@ -1047,6 +1070,9 @@ def create_admin_routes(
         Route("/admin/clients/revoke", clients_revoke, methods=["POST"]),
         Route("/admin/clients/disable", clients_disable, methods=["POST"]),
         Route("/admin/clients/delete", clients_delete, methods=["POST"]),
+        Route("/admin/clients/redirect-hosts/allow", clients_redirect_host_allow, methods=["POST"]),
+        Route("/admin/clients/redirect-hosts/dismiss", clients_redirect_host_dismiss, methods=["POST"]),
+        Route("/admin/clients/redirect-hosts/remove", clients_redirect_host_remove, methods=["POST"]),
         Route("/admin/policy", policy_page, methods=["GET"]),
         Route("/admin/policy/set", policy_set, methods=["POST"]),
         Route("/admin/policy/clear", policy_clear, methods=["POST"]),

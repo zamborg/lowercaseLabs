@@ -18,19 +18,24 @@ from pydantic import AnyUrl
 from zos.audit import record_event
 from zos.catalog import get_catalog_entry
 from zos.db.queries import (
+    add_allowed_redirect_host,
     attach_upstream_credential,
     clear_client_policy,
     clear_upstream_credential,
     create_actuator_provider_and_token,
     create_bearer_client,
     create_remote_upstream,
+    delete_dcr_rejected_attempt,
     delete_oauth_client,
     delete_remote_upstream,
     find_client_by_name_or_id,
     get_principal_and_space,
     get_remote_upstream,
+    list_allowed_redirect_hosts,
+    list_dcr_rejected_attempts,
     list_remote_upstreams,
     mint_bearer_token_for_client,
+    remove_allowed_redirect_host,
     revoke_token,
     set_client_policy,
     set_tool_tier,
@@ -346,6 +351,70 @@ class AdminService:
             payload={"token_id": str(res["token_id"]), "kind": "actuator", "slug": slug},
         )
         return res
+
+    async def list_allowed_redirect_hosts(self) -> list[dict[str, Any]]:
+        return await list_allowed_redirect_hosts(self.pool)
+
+    async def list_dcr_rejected_attempts(self) -> list[dict[str, Any]]:
+        return await list_dcr_rejected_attempts(self.pool)
+
+    async def allow_redirect_host(
+        self,
+        *,
+        host: str,
+        principal_slug: str | None = None,
+    ) -> str:
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        clean = await add_allowed_redirect_host(self.pool, host=host, source="manual")
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            event_type="redirect_host.allowed",
+            outcome="ok",
+            payload={"host": clean},
+        )
+        return clean
+
+    async def remove_redirect_host(
+        self,
+        *,
+        host: str,
+        principal_slug: str | None = None,
+    ) -> bool:
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        clean = host.strip().lower().rstrip(".")
+        removed = await remove_allowed_redirect_host(self.pool, host=clean)
+        if removed:
+            await record_event(
+                self.pool,
+                principal_id=p["id"],
+                space_id=sp["id"],
+                event_type="redirect_host.removed",
+                outcome="ok",
+                payload={"host": clean},
+            )
+        return removed
+
+    async def dismiss_dcr_rejected_attempt(
+        self,
+        *,
+        attempt_id: int,
+        principal_slug: str | None = None,
+    ) -> dict[str, Any]:
+        p, sp = await get_principal_and_space(self.pool, principal_slug)
+        deleted = await delete_dcr_rejected_attempt(self.pool, attempt_id=attempt_id)
+        if deleted is None:
+            raise ValueError(f"Blocked attempt {attempt_id} not found")
+        await record_event(
+            self.pool,
+            principal_id=p["id"],
+            space_id=sp["id"],
+            event_type="redirect_host.dismissed",
+            outcome="ok",
+            payload={"host": deleted["host"], "client_name": deleted["client_name"]},
+        )
+        return deleted
 
     async def record_backup(
         self,

@@ -29,5 +29,14 @@ async def db_pool() -> AsyncIterator[AsyncConnectionPool[AsyncConnection[DictRow
         await run_migrations(pool, MIGRATIONS_DIR)
         async with pool.connection() as conn:
             await conn.execute("TRUNCATE principals RESTART IDENTITY CASCADE")
+            await conn.execute("TRUNCATE dcr_rejected_attempts RESTART IDENTITY")
+            await conn.execute("DELETE FROM allowed_redirect_hosts")
+            await conn.execute(
+                """
+                INSERT INTO allowed_redirect_hosts (host, source)
+                VALUES ('chatgpt.com', 'default'), ('claude.ai', 'default')
+                ON CONFLICT (host) DO NOTHING
+                """
+            )
             await conn.commit()
         yield pool

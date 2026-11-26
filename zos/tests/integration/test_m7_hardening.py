@@ -190,7 +190,6 @@ async def test_m7_dcr_redirect_allowlist_and_approve_page_host(db_pool) -> None:
             assert r.status_code == 201, f"expected 201 for {good_uri}, got {r.status_code}: {r.text}"
 
         for bad_uri in (
-            "https://chatgpt.com/connector_platform_oauth_redirect",
             "https://evil.example/cb",
             "http://evil.example/cb",
             "codex://oauth/callback",
@@ -204,6 +203,17 @@ async def test_m7_dcr_redirect_allowlist_and_approve_page_host(db_pool) -> None:
             )
             assert r.status_code == 400, f"expected 400 for {bad_uri}"
             assert r.json()["error"] == "invalid_redirect_uri"
+
+        # Default seed includes chatgpt.com and claude.ai
+        for seeded_uri in (
+            "https://chatgpt.com/connector_platform_oauth_redirect",
+            "https://claude.ai/api/mcp/auth_callback",
+        ):
+            r_seed = await client.post(
+                "/oauth/register",
+                json={"client_name": "Seeded", "redirect_uris": [seeded_uri], "token_endpoint_auth_method": "none"},
+            )
+            assert r_seed.status_code == 201, f"expected 201 for {seeded_uri}: {r_seed.text}"
 
     # 2. With ZOS_ALLOWED_REDIRECT_HOSTS=chatgpt.com
     cfg_cgpt = Settings(

@@ -402,6 +402,8 @@ def render_clients_page(
     error: str | None = None,
     new_token_info: dict[str, str] | None = None,
     max_oauth_clients: int = 50,
+    allowed_redirect_hosts: list[dict[str, Any]] | None = None,
+    rejected_attempts: list[dict[str, Any]] | None = None,
 ) -> str:
     banners = ""
     if error:
@@ -464,9 +466,66 @@ def render_clients_page(
             f"</tr>"
         )
 
+    blocked_card = ""
+    attempts = rejected_attempts or []
+    if attempts:
+        attempt_rows = []
+        for att in attempts:
+            att_id = int(att["id"])
+            att_host = str(att["host"])
+            att_client = str(att["client_name"])
+            attempt_rows.append(
+                f"<tr>"
+                f"<td data-label=\"Attempt\" class=\"cell-wide\">"
+                f"<strong>{_e(att_client)}</strong> tried to connect from <code>{_e(att_host)}</code>"
+                f"</td>"
+                f"<td data-label=\"When\" class=\"mono nowrap\">{_e(_fmt_ts(att['created_at']))}</td>"
+                f"<td data-label=\"Actions\" class=\"cell-wide\"><div class=\"row\">"
+                f'<form class="inline" method="post" action="/admin/clients/redirect-hosts/allow">'
+                f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+                f'<input type="hidden" name="host" value="{_e(att_host)}">'
+                f'<button type="submit" class="sm">Allow</button></form>'
+                f'<form class="inline" method="post" action="/admin/clients/redirect-hosts/dismiss">'
+                f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+                f'<input type="hidden" name="attempt_id" value="{att_id}">'
+                f'<button type="submit" class="secondary sm">Dismiss</button></form>'
+                f"</div></td>"
+                f"</tr>"
+            )
+        blocked_card = f"""
+    <div class="card">
+      <h2>Blocked OAuth Connection Attempts <span class="badge badge-warn">{len(attempts)}</span></h2>
+      <p class="muted">External OAuth clients whose redirect host is not yet on your allowlist.</p>
+      <div class="scroll-x">
+        <table class="stack">
+          <thead><tr><th>Attempt</th><th>Last Seen</th><th>Actions</th></tr></thead>
+          <tbody>{''.join(attempt_rows)}</tbody>
+        </table>
+      </div>
+    </div>
+    """
+
+    host_rows = []
+    for h in allowed_redirect_hosts or []:
+        h_name = str(h["host"])
+        host_rows.append(
+            f"<tr>"
+            f"<td data-label=\"Host\"><code>{_e(h_name)}</code></td>"
+            f"<td data-label=\"Source\"><span class=\"badge badge-muted\">{_e(h.get('source', 'manual'))}</span></td>"
+            f"<td data-label=\"Added\" class=\"mono nowrap\">{_e(_fmt_ts(h.get('created_at')))}</td>"
+            f"<td data-label=\"Actions\">"
+            f'<form class="inline" method="post" action="/admin/clients/redirect-hosts/remove">'
+            f'<input type="hidden" name="csrf_token" value="{_e(csrf_token)}">'
+            f'<input type="hidden" name="host" value="{_e(h_name)}">'
+            f'<button type="submit" class="danger sm">Remove</button></form>'
+            f"</td>"
+            f"</tr>"
+        )
+
     body = f"""
     <h1>Clients &amp; Tokens</h1>
     {banners}
+    {blocked_card}
     <div class="card">
       <h2>Create Bearer Client</h2>
       <form class="form-row" method="post" action="/admin/clients/create">
@@ -491,6 +550,24 @@ def render_clients_page(
         <table class="stack">
           <thead><tr><th>Client</th><th>Kind</th><th>Trust Ceiling</th><th>Active Tokens</th><th>Last Seen</th><th>Actions</th></tr></thead>
           <tbody>{''.join(rows) or '<tr><td colspan="6" class="empty">No clients yet.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Allowed OAuth Redirect Hosts</h2>
+      <p class="muted">Loopback hosts (<code>localhost</code>, <code>127.0.0.1</code>, <code>::1</code>) are always allowed. External HTTPS OAuth clients must match one of these hosts.</p>
+      <form class="form-row" method="post" action="/admin/clients/redirect-hosts/allow" style="margin-bottom: var(--s4);">
+        <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+        <label class="field">
+          Hostname
+          <input type="text" name="host" placeholder="e.g. chatgpt.com" required>
+        </label>
+        <button type="submit" class="secondary">Allow Host</button>
+      </form>
+      <div class="scroll-x">
+        <table class="stack">
+          <thead><tr><th>Host</th><th>Source</th><th>Added</th><th>Actions</th></tr></thead>
+          <tbody>{''.join(host_rows) or '<tr><td colspan="4" class="empty">No external redirect hosts allowed.</td></tr>'}</tbody>
         </table>
       </div>
     </div>

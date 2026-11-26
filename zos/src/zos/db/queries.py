@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -834,3 +836,147 @@ async def create_actuator_provider_and_token(
         "token_id": token_row["id"],
         "token": raw_token,
     }
+
+
+DEFAULT_ALLOWED_REDIRECT_HOSTS: tuple[str, ...] = ("chatgpt.com", "claude.ai")
+_REDIRECT_HOST_RE = re.compile(
+    r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+)
+
+
+def normalize_redirect_host(raw: str) -> str:
+    """Validate and normalize an external OAuth redirect hostname (lowercase, no scheme/path/port)."""
+    cleaned = raw.strip().lower().rstrip(".")
+    if not cleaned or len(cleaned) > 253 or not _REDIRECT_HOST_RE.fullmatch(cleaned):
+        raise ValueError(
+            f"Invalid redirect host {raw!r}: expected a domain name such as 'chatgpt.com'"
+        )
+    return cleaned
+
+
+async def seed_allowed_redirect_hosts(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    env_hosts: Sequence[str] = (),
+) -> None:
+    """Idempotently seed default + `ZOS_ALLOWED_REDIRECT_HOSTS` into Postgres."""
+    async with pool.connection() as conn, conn.transaction():
+        for host in DEFAULT_ALLOWED_REDIRECT_HOSTS:
+            await conn.execute(
+                """
+                INSERT INTO allowed_redirect_hosts (host, source)
+                VALUES (%s, 'default')
+                ON CONFLICT (host) DO NOTHING
+                """,
+                (host,),
+            )
+        for raw in env_hosts:
+            cleaned = raw.strip().lower().rstrip(".")
+            if not cleaned or not _REDIRECT_HOST_RE.fullmatch(cleaned):
+                continue
+            await conn.execute(
+                """
+                INSERT INTO allowed_redirect_hosts (host, source)
+                VALUES (%s, 'env')
+                ON CONFLICT (host) DO NOTHING
+                """,
+                (cleaned,),
+            )
+
+
+async def list_allowed_redirect_hosts(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+) -> list[dict[str, Any]]:
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            "SELECT host, source, created_at FROM allowed_redirect_hosts ORDER BY host ASC"
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def add_allowed_redirect_host(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    host: str,
+    source: str = "manual",
+) -> str:
+    clean = normalize_redirect_host(host)
+    async with pool.connection() as conn, conn.transaction():
+        await conn.execute(
+            """
+            INSERT INTO allowed_redirect_hosts (host, source)
+            VALUES (%s, %s)
+            ON CONFLICT (host) DO NOTHING
+            """,
+            (clean, source),
+        )
+        await conn.execute("DELETE FROM dcr_rejected_attempts WHERE host = %s", (clean,))
+    return clean
+
+
+async def remove_allowed_redirect_host(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    host: str,
+) -> bool:
+    clean = host.strip().lower().rstrip(".")
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute("DELETE FROM allowed_redirect_hosts WHERE host = %s", (clean,))
+        return (cur.rowcount or 0) > 0
+
+
+async def record_dcr_rejected_attempt(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    host: str,
+    client_name: str,
+) -> None:
+    clean_host = host.strip().lower().rstrip(".")
+    clean_name = (client_name.strip() or "Unknown client")[:120]
+    if not clean_host:
+        return
+    async with pool.connection() as conn, conn.transaction():
+        await conn.execute(
+            """
+            INSERT INTO dcr_rejected_attempts (host, client_name, created_at)
+            VALUES (%s, %s, now())
+            ON CONFLICT (host, client_name)
+            DO UPDATE SET created_at = now()
+            """,
+            (clean_host, clean_name),
+        )
+
+
+async def list_dcr_rejected_attempts(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            """
+            SELECT id, host, client_name, created_at
+            FROM dcr_rejected_attempts
+            ORDER BY created_at DESC, id DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def delete_dcr_rejected_attempt(
+    pool: AsyncConnectionPool[AsyncConnection[DictRow]],
+    *,
+    attempt_id: int,
+) -> dict[str, Any] | None:
+    async with pool.connection() as conn, conn.transaction():
+        cur = await conn.execute(
+            """
+            DELETE FROM dcr_rejected_attempts
+            WHERE id = %s
+            RETURNING id, host, client_name, created_at
+            """,
+            (attempt_id,),
+        )
+        row = await cur.fetchone()
+    return dict(row) if row is not None else None
