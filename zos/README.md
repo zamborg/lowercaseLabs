@@ -2,7 +2,7 @@
 
 **A personal, self-hosted context and MCP routing layer shared by every AI agent you use.**
 
-> **Status: V3** (`zos-v3.0.0`). One owner per deployment, self-hosted on any small Linux server ([HOSTING.md](HOSTING.md)). It's in daily personal use and is not a hosted product.
+> **Status: V3** (`zos-v3.2.0`). One owner per deployment, self-hosted on any small Linux server ([HOSTING.md](HOSTING.md)). It's in daily personal use and is not a hosted product.
 
 ## Why ZOS exists
 
@@ -41,7 +41,7 @@ The core holds no domain content. Everything an agent works on reaches it as one
 |---|---|---|---|
 | Connector | someone else | the ZOS core (standard MCP OAuth) | Linear, Atlassian, GitHub |
 | Module | ZOS, in a locked-down container | the module itself, if needed | memory, inbox, gmail, gcal |
-| Device | your hardware, which dials in | none (device token) | Mac actuator |
+| Device | an MCP server on your hardware that dials in | none (device token) | `zos-mac`, any local stdio MCP server |
 
 ## What you get in V3
 
@@ -49,7 +49,7 @@ The core holds no domain content. Everything an agent works on reaches it as one
 - **Inbox (module, installed by default):** async, email-like mailboxes shared between you (`owner`), `general`, and each connected agent. The owner view at `/admin/m/inbox/` shows every mailbox.
 - **Gmail & Google Calendar (optional modules):** `gmail_*` and `gcal_*`. Each module connects to Google from its own owner page with narrowly scoped, encrypted credentials.
 - **Routed remote MCP servers + connector catalog:** connect any Streamable-HTTP remote MCP server (`none`, `bearer`, or `oauth` auth), or install one of 20 verified connector manifests. See [catalog/README.md](catalog/README.md).
-- **Mac actuator (device, optional):** a macOS daemon that dials out to ZOS. See [actuator/README.md](actuator/README.md).
+- **Devices (optional):** turn any local stdio MCP server on your Mac or workstation into a ZOS device via `zos-device` (includes `zos-mac` for Messages, Contacts, and persistent tmux shell). See [DEVICES.md](DEVICES.md).
 - **Two-layer policy:** visibility (which tools a client sees) plus a per-call allowance chain (allow, escalate to you, or deny).
 - **Async approvals for phones and web clients:** Clients that support MCP elicitation prompt inline; clients that don't (like mobile Claude or ChatGPT) hold approval-gated calls briefly or return a clickable `/admin/approvals/<id>` link so you can inspect the exact arguments on your phone, tap **Approve**, and let the agent retry once.
 - **Owner admin dashboard (`/admin`):** Passphrase-gated, mobile-friendly control panel for provider health, pending approvals, remote MCP servers, clients and tokens, per-tool tiers and per-client policy overrides, and the audit log.
@@ -124,7 +124,7 @@ Point every client at `https://zos.<your-domain>/mcp` (or `http://localhost:8787
 
 - **Modules (memory, inbox, gmail, gcal):** open `/admin/modules` and click **Install**, or run `zos module install <slug>`. For Gmail and Calendar, see the Google appendix in [HOSTING.md](HOSTING.md). After installing, click **Connect** on `/admin/m/gmail/` and `/admin/m/gcal/`.
 - **Remote MCP connectors:** open `/admin/upstreams` and click **Install** on any connector, or run `zos catalog list`.
-- **Mac actuator:** run `./deploy/launchd/install.sh`. See [actuator/README.md](actuator/README.md).
+- **Devices (`zos-device` + `zos-mac`):** add a device on `/admin/modules` ("Runs on your machine") or run `./deploy/launchd/install.sh` on macOS. See [DEVICES.md](DEVICES.md).
 
 New tools appear in clients after they refresh or reconnect their ZOS connector.
 

@@ -4,6 +4,12 @@ A ZOS module is a standalone MCP server (in any language) packaged as a containe
 
 Core (`src/zos/`) never imports module code, and modules never import `zos`.
 
+| Upstream kind | Where it runs | Auth | Docs |
+|---|---|---|---|
+| Connector | Remote vendor-hosted MCP server | ZOS core (standard MCP OAuth / bearer) | [catalog/README.md](catalog/README.md) |
+| Module | ZOS-managed locked-down container | Module itself, if needed | This document |
+| Device | An MCP server on your hardware that dials in | Device token (`zos-device` bridge) | [DEVICES.md](DEVICES.md) |
+
 ---
 
 ## 1. Manifest (`manifest_version = 2`)
