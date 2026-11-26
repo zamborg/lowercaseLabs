@@ -1,0 +1,7 @@
+services:
+  zos:
+    image: ${ZOS_IMAGE_CORE}
+    build: !reset null
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./modules-catalog:/app/catalog/modules:ro

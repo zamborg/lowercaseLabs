@@ -1,0 +1,6 @@
+__DOMAIN__ {
+    encode zstd gzip
+    reverse_proxy zos:8080 {
+        flush_interval -1
+    }
+}

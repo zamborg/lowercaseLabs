@@ -1,0 +1,11 @@
+[Unit]
+Description=ZOS nightly encrypted Postgres backup
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=__ZOS_DIR__
+Environment=ZOS_BACKUP_DIR=/var/backups/zos
+EnvironmentFile=-__ZOS_DIR__/.env
+ExecStart=__ZOS_DIR__/deploy/backup/backup.sh
