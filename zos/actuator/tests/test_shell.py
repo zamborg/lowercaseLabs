@@ -39,6 +39,7 @@ def test_cap_output_bytes_head_and_tail() -> None:
     assert "truncated" in out2
 
 
+@pytest.mark.skipif(not Path("/bin/zsh").exists(), reason="actuator shell is macOS /bin/zsh")
 async def test_tmux_shell_persistence_hazards_busy_reset_exit_and_cap(tmp_path: Path) -> None:
     sock = f"zos-test-{uuid.uuid4().hex[:8]}"
     runner = TmuxShellRunner(socket_name=sock, session_name="zos", temp_root=tmp_path / "tmp")
