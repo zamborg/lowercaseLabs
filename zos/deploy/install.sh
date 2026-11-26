@@ -2,10 +2,11 @@
 # Idempotent ZOS installer and updater for fresh Ubuntu 24.04 servers (run as root, >=2GB RAM).
 #
 # Examples:
+#   sudo bash deploy/install.sh --edge exe
 #   sudo bash deploy/install.sh --domain zos.example.com --edge caddy
 #   sudo bash deploy/install.sh --domain zos.example.com --edge cloudflared
 #   sudo bash deploy/install.sh --edge none
-#   sudo bash deploy/install.sh --update --edge caddy --domain zos.example.com
+#   sudo bash deploy/install.sh --update
 set -euo pipefail
 
 EDGE=""
@@ -27,8 +28,8 @@ usage() {
 Usage: install.sh [options]
 
 Options:
-  --edge caddy|cloudflared|none   Edge reverse proxy / TLS mode (default: saved or caddy)
-  --domain <hostname>             Public domain (required for --edge caddy; default: saved)
+  --edge caddy|exe|cloudflared|none  Edge reverse proxy / TLS mode (default: saved or caddy)
+  --domain <hostname>                Public domain (required for --edge caddy; optional custom domain for exe; default: saved)
   --dir <path>                    Install directory (default: /opt/zos)
   --repo <git-url>                Git repository URL (default: saved or $ZOS_REPO_URL)
   --ref <git-ref>                 Git branch/tag/commit to checkout (default: saved or main)
@@ -107,7 +108,7 @@ if [ -f "${ENV_FILE}" ] && command -v python3 >/dev/null 2>&1; then
     EDGE="${SAVED_EDGE}"
   fi
   if [ "${DOMAIN_SET}" -eq 0 ]; then
-    if [ "${EDGE_SET}" -eq 1 ] && [ "${EDGE}" = "none" ]; then
+    if [ "${EDGE_SET}" -eq 1 ] && { [ "${EDGE}" = "none" ] || [ "${EDGE}" = "exe" ]; }; then
       DOMAIN=""
     elif [ -n "${SAVED_DOMAIN}" ]; then
       DOMAIN="${SAVED_DOMAIN}"
@@ -141,8 +142,8 @@ if [ "${LOCAL_SOURCE_SET}" -eq 1 ]; then
 fi
 
 case "${EDGE}" in
-  caddy|cloudflared|none) ;;
-  *) echo "Error: --edge must be one of: caddy, cloudflared, none" >&2; exit 2 ;;
+  caddy|exe|cloudflared|none) ;;
+  *) echo "Error: --edge must be one of: caddy, exe, cloudflared, none" >&2; exit 2 ;;
 esac
 
 if [ "${EDGE}" = "caddy" ] && [ -z "${DOMAIN}" ]; then
@@ -332,9 +333,12 @@ ensure_env_default() {
 }
 
 ensure_env_default "ZOS_PORT" "8787"
+EXE_VM_NAME="$(hostname -s 2>/dev/null || hostname)"
 
 if [ -n "${DOMAIN}" ]; then
   BASE_URL="https://${DOMAIN}"
+elif [ "${EDGE}" = "exe" ]; then
+  BASE_URL="https://${EXE_VM_NAME}.exe.xyz"
 elif [ "${EDGE}" = "none" ] && [ "${EDGE_SET}" -eq 1 ]; then
   BASE_URL="http://localhost:$(get_env_val ZOS_PORT)"
 else
@@ -398,11 +402,13 @@ fi
 if [ "${EDGE}" = "caddy" ]; then
   sed "s/__DOMAIN__/${DOMAIN}/g" "${ZOS_DIR}/deploy/caddy/Caddyfile.template" > "${ZOS_DIR}/deploy/caddy/Caddyfile"
   COMPOSE_ARGS+=(-f "${ZOS_DIR}/deploy/docker-compose.caddy.yml")
+elif [ "${EDGE}" = "exe" ]; then
+  COMPOSE_ARGS+=(-f "${ZOS_DIR}/deploy/docker-compose.filter.yml" -f "${ZOS_DIR}/deploy/docker-compose.exe.yml")
 elif [ "${EDGE}" = "cloudflared" ]; then
   if [ -n "$(get_env_val CLOUDFLARED_TOKEN)" ]; then
-    COMPOSE_ARGS+=(-f "${ZOS_DIR}/deploy/docker-compose.cloudflared.yml")
+    COMPOSE_ARGS+=(-f "${ZOS_DIR}/deploy/docker-compose.filter.yml" -f "${ZOS_DIR}/deploy/docker-compose.cloudflared.yml")
   else
-    echo "[install] Note: CLOUDFLARED_TOKEN is not set in .env; configure cloudflared to proxy to http://127.0.0.1:8787."
+    echo "[install] Note: CLOUDFLARED_TOKEN is not set in .env; configure host cloudflared using deploy/cloudflared/config.yml.example (http://127.0.0.1:8787)."
   fi
 fi
 
@@ -484,6 +490,14 @@ for _ in $(seq 1 30); do
   fi
   sleep 1
 done
+if [ "${EDGE}" = "exe" ]; then
+  for _ in $(seq 1 20); do
+    if curl -sf "http://127.0.0.1:8000/.well-known/oauth-protected-resource" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+fi
 
 # ── 7. Interactive owner passphrase prompt (when not already configured) ───
 if [ -z "$(get_env_val ZOS_OWNER_PASSWORD_HASH)" ] && [ "${SKIP_PASSPHRASE}" -eq 0 ]; then
@@ -551,6 +565,9 @@ echo "Admin UI:    ${BASE_URL}/admin"
 echo "MCP URL:     ${BASE_URL}/mcp"
 echo "Install dir: ${ZOS_DIR}"
 echo "Backups:     $(get_env_val ZOS_BACKUP_DIR) (nightly via zos-backup.timer)"
+if [ "${EDGE}" = "exe" ]; then
+  echo "Make public: ssh exe.dev share set-public ${EXE_VM_NAME}   (run from your local machine, not on this VM)"
+fi
 if [ -z "$(get_env_val ZOS_OWNER_PASSWORD_HASH)" ]; then
   echo ""
   echo "Owner passphrase NOT set — run Step 3 (sudo bash ${ZOS_DIR}/deploy/install.sh) interactively before signing into /admin."
@@ -559,10 +576,11 @@ echo ""
 echo "Next steps:"
 if [ -z "$(get_env_val ZOS_OWNER_PASSWORD_HASH)" ]; then
   echo "  1. Run Step 3 interactively to set your owner passphrase: sudo bash ${ZOS_DIR}/deploy/install.sh"
-  echo "  2. Open ${BASE_URL}/admin and sign in with your owner passphrase."
-else
-  echo "  1. Open ${BASE_URL}/admin and sign in with your owner passphrase."
 fi
+if [ "${EDGE}" = "exe" ]; then
+  echo "  - Expose your exe.dev VM publicly from your local machine: ssh exe.dev share set-public ${EXE_VM_NAME}"
+fi
+echo "  - Open ${BASE_URL}/admin and sign in with your owner passphrase."
 echo "  - Connect Claude / ChatGPT / Codex to ${BASE_URL}/mcp (or mint a bearer token in /admin/clients)."
 echo "  - Optional off-box backups: set ZOS_BACKUP_POST_HOOK in ${ENV_FILE} (see HOSTING.md)."
 echo "  - Updates: re-run this script with --update."
