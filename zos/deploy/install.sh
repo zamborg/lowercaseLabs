@@ -319,13 +319,18 @@ fi
 
 # ── 5. Start Postgres, ensure zos_app role, start ZOS ──────────────────────
 echo "[install] Starting Postgres..."
-docker compose "${COMPOSE_ARGS[@]}" up -d postgres
+docker compose "${COMPOSE_ARGS[@]}" up -d --wait postgres
+PG_SUPER_USER="$(get_env_val POSTGRES_USER)"
+PG_SUPER_PW="$(get_env_val POSTGRES_PASSWORD)"
+PG_DB_NAME="$(get_env_val POSTGRES_DB)"
 for _ in $(seq 1 30); do
-  if docker compose "${COMPOSE_ARGS[@]}" exec -T postgres pg_isready -U "$(get_env_val POSTGRES_USER)" -d "$(get_env_val POSTGRES_DB)" >/dev/null 2>&1; then
+  if docker compose "${COMPOSE_ARGS[@]}" exec -T -e "PGPASSWORD=${PG_SUPER_PW}" postgres \
+      psql -U "${PG_SUPER_USER}" -d "${PG_DB_NAME}" -c "SELECT 1" >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
+unset PG_SUPER_PW
 
 # Ensure non-superuser zos_app role & extensions schema exist (idempotent for both fresh and existing volumes)
 "${ZOS_DIR}/deploy/postgres/migrate-existing-to-app-role.sh" --env-file "${ENV_FILE}"
