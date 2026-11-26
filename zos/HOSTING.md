@@ -35,17 +35,39 @@ Self-contained deployment guide for running ZOS on a single Linux server (Ubuntu
 
 ## Step 2 — Run the Installer (Agent or Human)
 
-SSH into the server as `root` and run `deploy/install.sh` pinned to the release tag (`zos-v3.0.0`):
+SSH into the server as `root` and run `deploy/install.sh` pinned to the release tag (`zos-v3.0.0`). Choose one edge mode below (all variants install into `/opt/zos` by default):
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.0.0/zos/deploy/install.sh -o /tmp/zos-install.sh
-sudo bash /tmp/zos-install.sh \
-  --domain zos.<your-domain> \
-  --edge caddy \
-  --ref zos-v3.0.0
-```
+- **`--edge caddy` *(default — automatic Let's Encrypt HTTPS; run from any directory)*:**
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.0.0/zos/deploy/install.sh -o /tmp/zos-install.sh
+  sudo bash /tmp/zos-install.sh \
+    --domain zos.<your-domain> \
+    --edge caddy \
+    --ref zos-v3.0.0
+  ```
+- **`--edge cloudflared` *(outbound Cloudflare Tunnel; run from any directory)*:**
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.0.0/zos/deploy/install.sh -o /tmp/zos-install.sh
+  sudo bash /tmp/zos-install.sh \
+    --domain zos.<your-domain> \
+    --edge cloudflared \
+    --ref zos-v3.0.0
+  ```
+- **`--edge none` *(local `127.0.0.1:8787` only — rehearsals or SSH-tunneled access)*:**
+  From GitHub (run from any directory):
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.0.0/zos/deploy/install.sh -o /tmp/zos-install.sh
+  sudo bash /tmp/zos-install.sh \
+    --edge none \
+    --ref zos-v3.0.0
+  ```
+  Or from a local checkout on the host (run from the `zos/` directory of the repo):
+  ```bash
+  cd /path/to/lowercaseLabs/zos
+  sudo bash deploy/install.sh --edge none --local-source .
+  ```
 
-*(To track the latest development branch instead of a release tag, use `main` in the URL and `--ref main`.)*
+*(To track the latest development branch instead of a release tag, use `main` in the URL and `--ref main`. First-run install choices — `ZOS_INSTALL_REF`, `ZOS_INSTALL_SOURCE`, `ZOS_INSTALL_EDGE`, and `ZOS_INSTALL_DOMAIN` — are saved in `/opt/zos/zos/.env` and reused automatically on re-runs unless overridden.)*
 
 ### What `install.sh` does (idempotent)
 
@@ -64,15 +86,15 @@ sudo bash /tmp/zos-install.sh \
 
 > **Human step:** Never paste your owner passphrase into an AI chat.
 
-If you ran `install.sh` interactively, it prompts for the owner passphrase directly (hidden input, hashed with Argon2id into `/opt/zos/zos/.env`).
+If you ran `install.sh` interactively, it prompts for the owner passphrase directly (**asked twice, input hidden**, hashed with Argon2id into `/opt/zos/zos/.env`).
 
-If an agent ran `install.sh --skip-passphrase`, SSH into the VPS yourself and run:
+If an agent ran `install.sh --skip-passphrase`, the installer prints `Owner passphrase NOT set — run Step 3`. SSH into the VPS yourself and run:
 
 ```bash
-sudo bash /opt/zos/zos/deploy/install.sh --domain zos.<your-domain> --edge caddy
+sudo bash /opt/zos/zos/deploy/install.sh
 ```
 
-Because `install.sh` is idempotent, it skips already-completed steps, prompts only for the missing owner passphrase, hashes it into `.env`, and recreates `zos`.
+Because `install.sh` is idempotent and reuses your persisted edge, domain, and ref/source from `/opt/zos/zos/.env`, it skips already-completed steps, prompts only for the missing owner passphrase (**asked twice, input hidden**), hashes it into `.env`, and recreates `zos`.
 
 ---
 
@@ -85,7 +107,7 @@ Run from the VPS:
    curl -sf http://127.0.0.1:8787/healthz | python3 -m json.tool
    ```
    Confirm `"ok": true` and both `memory` (5 tools) and `inbox` (5 tools) report `"online": true`.
-   When using `--edge caddy`, also confirm public `/healthz` is blocked (`404`):
+   When using `--edge caddy`, **wait a few seconds for Caddy to finish issuing the Let's Encrypt TLS certificate** (you can check `cd /opt/zos/zos && docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.caddy.yml logs --tail 20 caddy`), then confirm public `/healthz` is blocked (`404`):
    ```bash
    curl -s -o /dev/null -w "%{http_code}\n" https://zos.<your-domain>/healthz
    ```
@@ -96,7 +118,23 @@ Run from the VPS:
      uv run --no-sync python -c "import os, psycopg; print(psycopg.connect(os.environ['DATABASE_URL']).execute('SELECT current_user, rolsuper FROM pg_roles WHERE rolname = current_user').fetchone())"
    ```
    Confirm `('zos_app', False)`.
-3. **Admin UI:** Open `https://zos.<your-domain>/admin`, sign in with your owner passphrase, and verify Overview, Approvals, Modules, MCP Servers, Clients, Tools & Policy, Activity, `/admin/m/memory/`, and `/admin/m/inbox/` load cleanly.
+3. **Admin UI:**
+   - With `--edge caddy` or `--edge cloudflared`, open `https://zos.<your-domain>/admin`.
+   - With `--edge none`, open an SSH tunnel from your local machine first:
+     ```bash
+     ssh -L 8787:127.0.0.1:8787 root@<VPS_IPV4_ADDRESS>
+     ```
+     Then open `http://localhost:8787/admin`.
+   - Sign in with your owner passphrase and verify all admin pages load cleanly:
+     - `/admin` (Overview)
+     - `/admin/approvals` (Approvals)
+     - `/admin/modules` (Modules)
+     - `/admin/upstreams` (MCP Servers)
+     - `/admin/clients` (Clients & OAuth Redirect Allowlist)
+     - `/admin/policy` (Tools & Policy)
+     - `/admin/audit` (Activity)
+     - `/admin/m/memory/` (Memory module UI)
+     - `/admin/m/inbox/` (Inbox module UI)
 4. **Nightly backup timer:**
    ```bash
    systemctl status zos-backup.timer
@@ -121,7 +159,13 @@ Run from the VPS:
 - **ChatGPT / Claude web & mobile:** Add a custom MCP server pointing at `https://zos.<your-domain>/mcp` and complete OAuth sign-in in your browser.
   - `chatgpt.com`, `claude.ai`, and `agent.meta.ai` are seeded on the OAuth redirect allowlist by default (loopback hosts are always allowed).
   - If a new external client is rejected during OAuth registration, open **`https://zos.<your-domain>/admin/clients`** — you will see `"<client> tried to connect from <host>"` with **Allow** and **Dismiss** buttons (both audited). Click **Allow** and retry connecting the client.
-- **Headless / bearer scripts:** Create a bearer client on `/admin/clients` (or run `zos client add <name> --bearer`) and pass `Authorization: Bearer <token>`.
+- **Headless / bearer scripts:** Create a bearer client on `/admin/clients` or from `/opt/zos/zos` on the VPS (token is printed once — **don't paste the token into chat**):
+  ```bash
+  cd /opt/zos/zos
+  docker compose --env-file .env -f deploy/docker-compose.yml exec -T zos \
+    uv run --no-sync zos client add <name> --bearer
+  ```
+  Pass the returned token as `Authorization: Bearer <token>`.
 
 ---
 
@@ -150,16 +194,12 @@ To copy every encrypted backup off-box (S3, Cloudflare R2, Backblaze B2, Google 
 
 ## Updating ZOS
 
-`install.sh --update` takes an encrypted backup first, fetches the requested ref (or pulls updated digest images), runs database migrations, upgrades installed modules (preserving all schemas, secrets, and manual tier/policy overrides), and recreates containers:
+`install.sh --update` takes an encrypted backup first, reuses your saved edge and domain from `/opt/zos/zos/.env`, fetches the requested ref (or pulls updated digest images), runs database migrations, upgrades installed modules (preserving all schemas, secrets, and manual tier/policy overrides), and recreates containers:
 
 ```bash
-sudo bash /opt/zos/zos/deploy/install.sh \
-  --update \
-  --domain zos.<your-domain> \
-  --edge caddy \
-  --ref zos-v3.0.0
+sudo bash /opt/zos/zos/deploy/install.sh --update --ref zos-v3.0.1
 ```
-*(Replace `zos-v3.0.0` with the new release tag when upgrading, or `--ref main` for the development branch.)*
+*(Omit `--ref` to re-run against your persisted ref or `--local-source`, or pass `--ref main` to track the development branch.)*
 
 ---
 
