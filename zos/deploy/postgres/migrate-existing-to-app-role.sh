@@ -127,8 +127,27 @@ WHERE n.nspname = 'public'
   )
 \gexec
 
--- Ensure pg_trgm exists and is usable by the app role
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- Ensure shared `extensions` schema is owned by the app role and hosts `pg_trgm`
+CREATE SCHEMA IF NOT EXISTS extensions;
+SELECT format('ALTER SCHEMA extensions OWNER TO %I', :'app_user') \gexec
+REVOKE ALL ON SCHEMA extensions FROM PUBLIC;
+SELECT format('GRANT ALL ON SCHEMA extensions TO %I', :'app_user') \gexec
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+    IF (
+      SELECT n.nspname
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'pg_trgm'
+    ) <> 'extensions' THEN
+      ALTER EXTENSION pg_trgm SET SCHEMA extensions;
+    END IF;
+  ELSE
+    CREATE EXTENSION pg_trgm SCHEMA extensions;
+  END IF;
+END $$;
+SELECT format('ALTER ROLE %I SET search_path TO public, extensions', :'app_user') \gexec
 SELECT format('GRANT ALL ON SCHEMA public TO %I', :'app_user') \gexec
 
 -- Grant membership + ADMIN OPTION on every existing mod_* module role so the non-superuser

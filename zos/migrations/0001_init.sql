@@ -1,6 +1,9 @@
 -- ZOS V0 initial schema (matches SCHEMA.md)
 
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE SCHEMA IF NOT EXISTS extensions;
+REVOKE ALL ON SCHEMA extensions FROM PUBLIC;
+CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA extensions;
+SET LOCAL search_path TO public, extensions;
 
 -- Identity and auth
 

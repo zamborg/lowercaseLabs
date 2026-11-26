@@ -80,28 +80,49 @@ async def test_non_superuser_core_role_migrations_and_module_isolation() -> None
         init = await init_principal_and_space(pool, principal_slug="owner")
         principal_id = init["principal"]["id"]
 
-        # 3. Provision a module Postgres role/schema as non-superuser (and re-provision on upgrade!)
+        # 3. Provision a module Postgres role/schema with pg_trgm extension as non-superuser (and re-provision on upgrade!)
         store = CredentialStore(pool, CredentialVault(cfg.zos_secret_key))
         prov = ModuleStorageProvisioner(pool, store)
         mod_dsn = await prov.provision_postgres(
             principal_id=principal_id,
             slug=mod_slug,
             base_database_url=app_url,
+            extensions=["pg_trgm"],
         )
         # Second call exercises the `exists=True` ALTER ROLE path as non-superuser!
         mod_dsn_re = await prov.provision_postgres(
             principal_id=principal_id,
             slug=mod_slug,
             base_database_url=app_url,
+            extensions=["pg_trgm"],
         )
         assert mod_dsn_re == mod_dsn
 
-        # 4. Connect AS the module role: can create/read its own schema, CANNOT read core tables
+        # Verify pg_trgm was relocated into the shared `extensions` schema
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                """
+                SELECT n.nspname AS ext_schema
+                FROM pg_extension e
+                JOIN pg_namespace n ON n.oid = e.extnamespace
+                WHERE e.extname = 'pg_trgm'
+                """
+            )
+            erow = await cur.fetchone()
+            assert erow is not None and erow["ext_schema"] == "extensions"
+
+        # 4. Connect AS the module role: can create/read its own schema and use pg_trgm, CANNOT read core tables
         async with await psycopg.AsyncConnection.connect(mod_dsn, autocommit=True) as mod_conn:
             await mod_conn.execute("CREATE TABLE notes (id INT PRIMARY KEY, body TEXT)")
-            await mod_conn.execute("INSERT INTO notes (id, body) VALUES (1, 'isolated')")
-            cur = await mod_conn.execute("SELECT body FROM notes WHERE id = 1")
-            assert await cur.fetchone() == ("isolated",)
+            await mod_conn.execute(
+                "CREATE INDEX notes_trgm_idx ON notes USING GIN (body gin_trgm_ops)"
+            )
+            await mod_conn.execute("INSERT INTO notes (id, body) VALUES (1, 'isolated memory note')")
+            cur = await mod_conn.execute(
+                "SELECT body, similarity(body, 'isolated') FROM notes WHERE id = 1"
+            )
+            row = await cur.fetchone()
+            assert row is not None and row[0] == "isolated memory note" and float(row[1]) > 0.2
 
             for core_table in ("credentials", "events", "memories", "tokens"):
                 with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -111,7 +132,7 @@ async def test_non_superuser_core_role_migrations_and_module_isolation() -> None
         async with pool.connection() as conn:
             cur = await conn.execute(f"SELECT body FROM mod_{mod_slug}.notes WHERE id = 1")
             row = await cur.fetchone()
-            assert row is not None and row["body"] == "isolated"
+            assert row is not None and row["body"] == "isolated memory note"
 
         # 6. Purge module storage cleanly as non-superuser (no pg_terminate_backend crash)
         await prov.purge_storage(principal_id=principal_id, slug=mod_slug)

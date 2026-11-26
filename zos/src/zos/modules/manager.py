@@ -163,6 +163,7 @@ class ModuleManager:
     def _module_config_meta(self, manifest: ModuleManifest) -> dict[str, Any]:
         return {
             "storage_postgres": manifest.storage.postgres,
+            "storage_extensions": list(manifest.storage.extensions),
             "egress": manifest.network.egress,
             "mcp_port": manifest.runtime.mcp_port,
             "mcp_path": manifest.runtime.mcp_path,
@@ -265,6 +266,7 @@ class ModuleManager:
                 principal_id=p["id"],
                 slug=clean_slug,
                 base_database_url=self.settings.database_url,
+                extensions=manifest.storage.extensions,
             )
             env["ZOS_MODULE_DATABASE_URL"] = mod_db_url
 
@@ -658,6 +660,7 @@ class ModuleManager:
                 principal_id=p["id"],
                 slug=clean_slug,
                 base_database_url=self.settings.database_url,
+                extensions=manifest.storage.extensions,
             )
 
         installed = await self.host.upgrade(clean_slug, manifest, saved_cfg, env=env)

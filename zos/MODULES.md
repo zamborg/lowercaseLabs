@@ -1,4 +1,4 @@
-# ZOS Module Contract v1
+# ZOS Module Contract v1.1
 
 A ZOS module is a standalone MCP server (in any language) packaged as a container with a checked-in manifest. ZOS owns authentication, policy, approvals, audit logging, Postgres schema provisioning, and reverse-proxying the module's human UI under `/admin/m/<slug>/`.
 
@@ -29,6 +29,7 @@ ui_port = 8082                     # optional: human UI HTTP port
 
 [storage]
 postgres = true                    # default false; provisions isolated role & schema mod_<slug>
+extensions = ["pg_trgm"]           # optional (Contract v1.1); allowlisted trusted extensions in shared `extensions` schema
 
 [network]
 egress = false                     # default false; true attaches zos_modules_egress
@@ -67,7 +68,7 @@ ZOS writes the container spec itself (never taken from the manifest: `Privileged
 |---|---|---|
 | `ZOS_MODULE_SLUG` | Always | Module slug (e.g. `inbox`). |
 | `ZOS_MODULE_SECRET` | Always | Per-module random secret (stored in ZOS's AEAD vault) for verifying caller signatures. Preserved across upgrades. |
-| `ZOS_MODULE_DATABASE_URL` | `storage.postgres = true` | Postgres DSN for dedicated role `mod_<slug>` whose `search_path` is locked to schema `mod_<slug>`. The role has zero access to `public` core tables (`credentials`, `events`, `memories`, `tokens`). |
+| `ZOS_MODULE_DATABASE_URL` | `storage.postgres = true` | Postgres DSN for dedicated role `mod_<slug>` whose `search_path` is locked to schema `mod_<slug>` (plus `extensions` when `storage.extensions` is declared). The role has zero access to `public` core tables (`credentials`, `events`, `memories`, `tokens`). |
 | `MCP_PORT`, `MCP_PATH` | Always | Port and path where the module serves Streamable-HTTP MCP. |
 | `UI_PORT` | `ui_port` set | Port where the module serves its human UI. |
 | `<CONFIG_FIELD>` | Configured `[[config]]` | Install-time configuration values (stored encrypted in the ZOS vault). |
@@ -146,6 +147,6 @@ Every module that stores data **must** ship an owner view under `/admin/m/<slug>
 
 ## 8. Versioning policy
 
-- **`manifest_version = 2`** is frozen for Module Contract v1. Additive optional fields may be introduced without bumping `manifest_version`; breaking changes require `manifest_version = 3`.
+- **`manifest_version = 2`** covers Module Contract v1 and additive v1.x extensions (`v1.1` adds `[storage].extensions` with a shared `extensions` schema for trusted Postgres extensions such as `pg_trgm`). Breaking changes require `manifest_version = 3`.
 - **Caller envelope (`zos/caller`, `X-ZOS-Caller`)** is frozen for Contract v1; any breaking wire change will use a new key/header version while supporting v1 during migration.
 - **Module `version`** follows SemVer (`MAJOR.MINOR.PATCH`) and is recorded in the `modules` table and `module.installed` / `module.upgraded` audit events.

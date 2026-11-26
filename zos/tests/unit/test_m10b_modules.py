@@ -157,6 +157,31 @@ mcp_port = 8081
     assert [x.slug for x in loaded] == ["demo"]
 
 
+def test_manifest_v2_storage_extensions_validation() -> None:
+    base = {
+        "manifest_version": 2,
+        "slug": "demo",
+        "name": "Demo",
+        "version": "0.1.0",
+        "description": "Demo",
+        "runtime": {"kind": "container", "build": "modules/demo", "mcp_port": 8081},
+    }
+    valid = ModuleManifest.model_validate(
+        {**base, "storage": {"postgres": True, "extensions": ["pg_trgm", "PG_TRGM"]}}
+    )
+    assert valid.storage.extensions == ["pg_trgm"]
+
+    with pytest.raises(ValueError, match="Unsupported Postgres extension"):
+        ModuleManifest.model_validate(
+            {**base, "storage": {"postgres": True, "extensions": ["pgcrypto"]}}
+        )
+
+    with pytest.raises(ValueError, match=r"requires storage\.postgres = true"):
+        ModuleManifest.model_validate(
+            {**base, "storage": {"postgres": False, "extensions": ["pg_trgm"]}}
+        )
+
+
 def test_caller_sdk_mcp_sign_and_verify() -> None:
     secret = "test-module-secret-123"
     args = {"to": ["bob"], "subject": "hi", "body": "hello"}

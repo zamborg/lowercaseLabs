@@ -18,6 +18,8 @@ from zos.policy.tiers import Tier
 from zos.providers.upstream_manager import validate_upstream_url
 from zos.router.naming import BUILTIN_PROVIDER_SLUGS, validate_upstream_slug
 
+ALLOWED_POSTGRES_EXTENSIONS = frozenset({"pg_trgm"})
+
 logger = logging.getLogger(__name__)
 
 _DIGEST_IMAGE_RE = re.compile(
@@ -224,6 +226,30 @@ class ModuleStorageConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     postgres: bool = False
+    extensions: list[str] = Field(default_factory=list)
+
+    @field_validator("extensions")
+    @classmethod
+    def _check_extensions(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            ext = item.strip().lower()
+            if ext not in ALLOWED_POSTGRES_EXTENSIONS:
+                allowed = ", ".join(sorted(ALLOWED_POSTGRES_EXTENSIONS))
+                raise ValueError(
+                    f"Unsupported Postgres extension {item!r}; allowed: {allowed}"
+                )
+            if ext not in seen:
+                seen.add(ext)
+                cleaned.append(ext)
+        return cleaned
+
+    @model_validator(mode="after")
+    def _check_extensions_require_postgres(self) -> ModuleStorageConfig:
+        if self.extensions and not self.postgres:
+            raise ValueError("storage.extensions requires storage.postgres = true")
+        return self
 
 
 class ModuleNetworkConfig(BaseModel):

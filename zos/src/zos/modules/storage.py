@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Sequence
 from urllib.parse import quote, urlparse, urlunparse
 from uuid import UUID
 
@@ -11,12 +12,14 @@ from psycopg import AsyncConnection, sql
 from psycopg.rows import DictRow
 from psycopg_pool import AsyncConnectionPool
 
+from zos.catalog import ALLOWED_POSTGRES_EXTENSIONS
 from zos.router.naming import validate_upstream_slug
 from zos.vault import CredentialStore
 
 ISSUER_MODULE_DB = "module_db"
 ISSUER_MODULE_SECRET = "module_secret"
 ISSUER_MODULE_CONFIG = "module_config"
+EXTENSIONS_SCHEMA = "extensions"
 
 
 def module_role_and_schema(slug: str) -> tuple[str, str]:
@@ -145,14 +148,26 @@ class ModuleStorageProvisioner:
         principal_id: UUID,
         slug: str,
         base_database_url: str,
+        extensions: Sequence[str] = (),
     ) -> str:
         """Create isolated Postgres role `mod_<slug>` and schema `mod_<slug>`, returning its DSN.
 
         Revokes `public` schema and core table access from `PUBLIC` and `mod_<slug>` so the
-        module role can read/write only inside its own schema.
+        module role can read/write only inside its own schema. When `extensions` is requested
+        (Contract v1.1, e.g. `["pg_trgm"]`), ensures each allowlisted extension lives in the
+        shared `extensions` schema and grants `USAGE` on `extensions` to `mod_<slug>`.
         """
         store = self._require_store()
         role_name, schema_name = module_role_and_schema(slug)
+
+        clean_extensions: list[str] = []
+        for raw_ext in extensions:
+            ext = raw_ext.strip().lower()
+            if ext not in ALLOWED_POSTGRES_EXTENSIONS:
+                allowed = ", ".join(sorted(ALLOWED_POSTGRES_EXTENSIONS))
+                raise ValueError(f"Unsupported Postgres extension {raw_ext!r}; allowed: {allowed}")
+            if ext not in clean_extensions:
+                clean_extensions.append(ext)
 
         # Reuse stored password if re-installing/upgrading with preserved schema, else generate
         password = ""
@@ -253,12 +268,75 @@ class ModuleStorageProvisioner:
                         role=role_id,
                     )
                 )
-            await conn.execute(
-                sql.SQL("ALTER ROLE {role} SET search_path TO {schema}").format(
-                    role=role_id,
-                    schema=schema_id,
+            if clean_extensions:
+                ext_schema_id = sql.Identifier(EXTENSIONS_SCHEMA)
+                await conn.execute(
+                    sql.SQL("CREATE SCHEMA IF NOT EXISTS {ext_schema}").format(
+                        ext_schema=ext_schema_id
+                    )
                 )
-            )
+                await conn.execute(
+                    sql.SQL("REVOKE ALL ON SCHEMA {ext_schema} FROM PUBLIC").format(
+                        ext_schema=ext_schema_id
+                    )
+                )
+                for ext_name in clean_extensions:
+                    ext_id = sql.Identifier(ext_name)
+                    ecur = await conn.execute(
+                        """
+                        SELECT n.nspname AS ext_schema
+                        FROM pg_extension e
+                        JOIN pg_namespace n ON n.oid = e.extnamespace
+                        WHERE e.extname = %s
+                        """,
+                        (ext_name,),
+                    )
+                    erow = await ecur.fetchone()
+                    if erow is None:
+                        await conn.execute(
+                            sql.SQL("CREATE EXTENSION IF NOT EXISTS {ext} SCHEMA {ext_schema}").format(
+                                ext=ext_id,
+                                ext_schema=ext_schema_id,
+                            )
+                        )
+                    elif str(erow["ext_schema"]) != EXTENSIONS_SCHEMA:
+                        try:
+                            async with conn.transaction():
+                                await conn.execute(
+                                    sql.SQL("ALTER EXTENSION {ext} SET SCHEMA {ext_schema}").format(
+                                        ext=ext_id,
+                                        ext_schema=ext_schema_id,
+                                    )
+                                )
+                        except psycopg.errors.InsufficientPrivilege as exc:
+                            raise RuntimeError(
+                                f"Postgres extension '{ext_name}' is installed in schema "
+                                f"'{erow['ext_schema']}' instead of '{EXTENSIONS_SCHEMA}' and "
+                                "cannot be relocated by a non-superuser role. Run "
+                                "deploy/postgres/migrate-existing-to-app-role.sh (or "
+                                f"`ALTER EXTENSION {ext_name} SET SCHEMA {EXTENSIONS_SCHEMA}` "
+                                "as a Postgres superuser)."
+                            ) from exc
+                await conn.execute(
+                    sql.SQL("GRANT USAGE ON SCHEMA {ext_schema} TO {role}").format(
+                        ext_schema=ext_schema_id,
+                        role=role_id,
+                    )
+                )
+                await conn.execute(
+                    sql.SQL("ALTER ROLE {role} SET search_path TO {schema}, {ext_schema}").format(
+                        role=role_id,
+                        schema=schema_id,
+                        ext_schema=ext_schema_id,
+                    )
+                )
+            else:
+                await conn.execute(
+                    sql.SQL("ALTER ROLE {role} SET search_path TO {schema}").format(
+                        role=role_id,
+                        schema=schema_id,
+                    )
+                )
             await conn.execute(
                 sql.SQL("GRANT CONNECT ON DATABASE {db} TO {role}").format(
                     db=db_id,
