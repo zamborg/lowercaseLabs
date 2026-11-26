@@ -113,7 +113,7 @@ Run from the VPS (replace `http://127.0.0.1:8787` with `https://zos.<your-domain
   codex mcp add zos --url https://zos.<your-domain>/mcp
   ```
 - **ChatGPT / Claude web & mobile:** Add a custom MCP server pointing at `https://zos.<your-domain>/mcp` and complete OAuth sign-in in your browser.
-  - `chatgpt.com` and `claude.ai` are seeded on the OAuth redirect allowlist by default (loopback hosts are always allowed).
+  - `chatgpt.com`, `claude.ai`, and `agent.meta.ai` are seeded on the OAuth redirect allowlist by default (loopback hosts are always allowed).
   - If a new external client is rejected during OAuth registration, open **`https://zos.<your-domain>/admin/clients`** — you will see `"<client> tried to connect from <host>"` with **Allow** and **Dismiss** buttons (both audited). Click **Allow** and retry connecting the client.
 - **Headless / bearer scripts:** Create a bearer client on `/admin/clients` (or run `zos client add <name> --bearer`) and pass `Authorization: Bearer <token>`.
 

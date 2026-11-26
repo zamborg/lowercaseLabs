@@ -41,10 +41,11 @@ async def test_m12b_redirect_allowlist_seed_reject_allow_dismiss_and_audit(db_po
             follow_redirects=False,
         ) as client,
     ):
-        # 1. Default seed (chatgpt.com, claude.ai) + env seed (seeded.example.org) work immediately
+        # 1. Default seed (chatgpt.com, claude.ai, agent.meta.ai) + env seed (seeded.example.org) work immediately
         for uri in (
             "https://chatgpt.com/connector_platform_oauth_redirect",
             "https://claude.ai/api/mcp/auth_callback",
+            "https://agent.meta.ai/oauth/callback",
             "https://seeded.example.org/oauth/cb",
         ):
             r = await client.post(

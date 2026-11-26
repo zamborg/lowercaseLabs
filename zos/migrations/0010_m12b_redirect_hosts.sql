@@ -15,5 +15,5 @@ CREATE TABLE IF NOT EXISTS dcr_rejected_attempts (
 );
 
 INSERT INTO allowed_redirect_hosts (host, source)
-VALUES ('chatgpt.com', 'default'), ('claude.ai', 'default')
+VALUES ('chatgpt.com', 'default'), ('claude.ai', 'default'), ('agent.meta.ai', 'default')
 ON CONFLICT (host) DO NOTHING;

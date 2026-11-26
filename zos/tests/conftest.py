@@ -34,7 +34,7 @@ async def db_pool() -> AsyncIterator[AsyncConnectionPool[AsyncConnection[DictRow
             await conn.execute(
                 """
                 INSERT INTO allowed_redirect_hosts (host, source)
-                VALUES ('chatgpt.com', 'default'), ('claude.ai', 'default')
+                VALUES ('chatgpt.com', 'default'), ('claude.ai', 'default'), ('agent.meta.ai', 'default')
                 ON CONFLICT (host) DO NOTHING
                 """
             )

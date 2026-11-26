@@ -838,7 +838,7 @@ async def create_actuator_provider_and_token(
     }
 
 
-DEFAULT_ALLOWED_REDIRECT_HOSTS: tuple[str, ...] = ("chatgpt.com", "claude.ai")
+DEFAULT_ALLOWED_REDIRECT_HOSTS: tuple[str, ...] = ("chatgpt.com", "claude.ai", "agent.meta.ai")
 _REDIRECT_HOST_RE = re.compile(
     r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
 )
