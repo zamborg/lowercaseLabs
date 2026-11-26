@@ -551,9 +551,18 @@ echo "Admin UI:    ${BASE_URL}/admin"
 echo "MCP URL:     ${BASE_URL}/mcp"
 echo "Install dir: ${ZOS_DIR}"
 echo "Backups:     $(get_env_val ZOS_BACKUP_DIR) (nightly via zos-backup.timer)"
+if [ -z "$(get_env_val ZOS_OWNER_PASSWORD_HASH)" ]; then
+  echo ""
+  echo "Owner passphrase NOT set — run Step 3 (sudo bash ${ZOS_DIR}/deploy/install.sh) interactively before signing into /admin."
+fi
 echo ""
 echo "Next steps:"
-echo "  1. Open ${BASE_URL}/admin and sign in with your owner passphrase."
-echo "  2. Connect Claude / ChatGPT / Codex to ${BASE_URL}/mcp (or mint a bearer token in /admin/clients)."
-echo "  3. Optional off-box backups: set ZOS_BACKUP_POST_HOOK in ${ENV_FILE} (see HOSTING.md)."
-echo "  4. Updates: re-run this script with --update."
+if [ -z "$(get_env_val ZOS_OWNER_PASSWORD_HASH)" ]; then
+  echo "  1. Run Step 3 interactively to set your owner passphrase: sudo bash ${ZOS_DIR}/deploy/install.sh"
+  echo "  2. Open ${BASE_URL}/admin and sign in with your owner passphrase."
+else
+  echo "  1. Open ${BASE_URL}/admin and sign in with your owner passphrase."
+fi
+echo "  - Connect Claude / ChatGPT / Codex to ${BASE_URL}/mcp (or mint a bearer token in /admin/clients)."
+echo "  - Optional off-box backups: set ZOS_BACKUP_POST_HOOK in ${ENV_FILE} (see HOSTING.md)."
+echo "  - Updates: re-run this script with --update."
