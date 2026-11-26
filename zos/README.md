@@ -137,7 +137,9 @@ A ZOS module is a standalone MCP server (in any language) with a manifest in `ca
 
 - [PLAN.md](PLAN.md) — V1 architecture and component design
 - [V2.md](V2.md) — Future direction (installable modules, chat, whiteboard, app hosting, skills)
-- [TESTING.md](TESTING.md) — Full operations, onboarding, backup/restore, and testing runbook
+- [INVARIANTS.md](INVARIANTS.md) — Architectural and security invariants mapped to enforcing tests
+- [MODULES.md](MODULES.md) — Module Contract v1 specification
+- [TESTING.md](TESTING.md) — Full operations, host migration, backup/restore, and testing runbook
 - [SCHEMA.md](SCHEMA.md) — Postgres schema reference
 - [DECISIONS.md](DECISIONS.md) — Append-only architectural decision log
 - [actuator/README.md](actuator/README.md) — Mac actuator daemon setup and tools

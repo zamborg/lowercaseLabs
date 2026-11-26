@@ -292,10 +292,62 @@ Attributed to the dedicated `memory-import` client and audited as `memory.import
   docker compose --env-file .env -f deploy/docker-compose.yml exec zos uv run --no-sync zos module uninstall inbox --purge
   ```
 - **Manual host mode (no Docker socket):** Set `ZOS_MODULE_HOST=manual`; `zos module install <slug>` prints container run instructions, and `zos module attach <slug> --url <mcp-url> [--ui-url <ui-url>]` finishes registration.
+- **Upgrade an installed module:** Click **Upgrade** on `/admin/modules` (hot-reloads with zero restart) or run `zos module upgrade <slug>` from the CLI (restart `zos` after a CLI upgrade so the running router reconnects). Upgrades preserve the module's Postgres schema/data, `ZOS_MODULE_SECRET`, `providers` row, and owner tier/policy overrides.
 
 ---
 
-## 11. Running Automated Tests & Linting
+## 11. Moving ZOS to a New Host
+
+Verified end-to-end portability runbook (non-superuser Postgres role + encrypted backup restore + digest-pinned module image pull):
+
+1. **Take a fresh encrypted backup on the old host:**
+   ```bash
+   ./deploy/backup/backup.sh
+   ```
+   Copy the newest `zos-backup-<ts>.dump.enc` file and your `.env` secrets (`ZOS_SECRET_KEY`, `ZOS_OWNER_PASSWORD_HASH`, `ZOS_BACKUP_KEY`, and optional `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`) securely to the new host.
+
+2. **Prepare `.env` on the new host** (`chmod 600 .env`):
+   - Set `ZOS_BASE_URL` to the new host's URL (`https://zos.<your-domain>` behind a tunnel, or `http://localhost:8787` locally).
+   - Set a restricted non-superuser Postgres app role (recommended for all fresh deployments):
+     ```env
+     POSTGRES_USER=zos_boot
+     POSTGRES_PASSWORD=<strong-bootstrap-password>
+     POSTGRES_DB=zos
+     ZOS_DB_USER=zos_app
+     ZOS_DB_PASSWORD=<strong-app-password>
+     ```
+     On an empty Postgres volume, `deploy/postgres/01-init-app-role.sh` creates `zos_app` with `LOGIN CREATEROLE NOSUPERUSER NOCREATEDB`, transfers ownership of `zos` and schema `public` to `zos_app`, and installs `pg_trgm` owned by `zos_app`.
+   - *(On hosted Postgres such as Neon, Fly, or RDS: create a database owned by a role with `CREATEROLE`, enable the trusted `pg_trgm` extension once, and set `DATABASE_URL` directly.)*
+
+3. **Start Postgres on the new host and restore the encrypted backup:**
+   ```bash
+   docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait postgres
+   ./deploy/backup/restore.sh /path/to/zos-backup-<ts>.dump.enc
+   ```
+   `restore.sh` decrypts the dump with `ZOS_BACKUP_KEY` and restores all core tables and module schemas (`mod_<slug>`) as `ZOS_DB_USER` with `--no-owner --no-privileges --no-comments`.
+
+4. **Start ZOS (runs `zos migrate` automatically):**
+   ```bash
+   docker compose --env-file .env -f deploy/docker-compose.yml up -d --build zos
+   ```
+
+5. **Bring up installed container modules on the new host:**
+   - For each installed module in `modules` (e.g. `inbox`), point its manifest in `catalog/modules/<slug>.toml` at a digest-pinned registry image (`image = "ghcr.io/<owner>/zos-<slug>@sha256:<64-hex>"`, or local `build = "modules/<slug>"`), then run **Upgrade** from `/admin/modules` (or via CLI followed by a `zos` restart):
+     ```bash
+     docker compose --env-file .env -f deploy/docker-compose.yml exec zos \
+       uv run --no-sync zos module upgrade inbox
+     docker compose --env-file .env -f deploy/docker-compose.yml restart zos
+     ```
+   - `upgrade` pulls/builds the image, provisions the `mod_<slug>` Postgres role, transfers ownership of restored tables/sequences in `mod_<slug>` to `mod_<slug>`, preserves `ZOS_MODULE_SECRET` and owner tier/policy overrides, and starts the container on `zos_modules`.
+
+6. **Verify the new host:**
+   - `curl -s http://127.0.0.1:8787/healthz | python3 -m json.tool` — confirm `ok: true` with `memory`, `inbox`, and (if `ZOS_SECRET_KEY` and Google creds match) `gcal` + `gmail` online.
+   - Sign in at `/admin` and verify Overview, Approvals, Modules, MCP Servers, Clients, Tools & Policy, Activity, and `/admin/m/inbox/` all load cleanly.
+   - *(Optional)* Point your Cloudflare Tunnel (or reverse proxy) and Google OAuth callback URL at the new host, and stop the old host (ZOS enforces single-instance startup via a Postgres advisory lock).
+
+---
+
+## 12. Running Automated Tests & Linting
 
 Integration and end-to-end tests expect an isolated Postgres 17 test container on `127.0.0.1:55432` (never touching your live `deploy_zos_pgdata` volume):
 
