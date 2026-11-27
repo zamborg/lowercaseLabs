@@ -1,0 +1,29 @@
+manifest_version = 2
+slug = "excalidraw"
+name = "Excalidraw"
+version = "0.1.0"
+description = "Shared whiteboards with a self-hosted Excalidraw editor and versioned agent edits."
+
+[runtime]
+kind = "container"
+build = "modules/excalidraw"
+mcp_port = 8081
+mcp_path = "/mcp"
+ui_port = 8082
+
+[storage]
+postgres = true
+
+[network]
+egress = false
+
+[ui]
+title = "Excalidraw"
+path = "/"
+
+[tiers]
+default = "write"
+"excalidraw_list" = "read"
+"excalidraw_get" = "read"
+"excalidraw_create" = "write"
+"excalidraw_update" = "write"

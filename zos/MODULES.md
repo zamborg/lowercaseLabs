@@ -159,3 +159,5 @@ Every module that stores data **must** ship an owner view under `/admin/m/<slug>
 - **Caller envelope (`zos/caller`, `X-ZOS-Caller`)** is frozen for Contract v1; any breaking wire change will use a new key/header version while supporting v1 during migration.
 - **First-party reference modules:** `modules/inbox/` (async mailboxes), `modules/memory/` (Postgres FTS + `pg_trgm` shared memory), `modules/google/` (`gmail` & `gcal` OAuth modules), and `modules/tasks/` (personal todo list for the human owner at `/admin/m/tasks/`).
 - **Module `version`** follows SemVer (`MAJOR.MINOR.PATCH`) and is recorded in the `modules` table and `module.installed` / `module.upgraded` audit events.
+
+The [Excalidraw module](modules/excalidraw/README.md) embeds the editor and fonts locally and stores versioned drawings in its private Postgres schema.

@@ -37,6 +37,9 @@ jobs:
           - name: zos-files
             context: zos/modules/files
             dockerfile: zos/modules/files/Dockerfile
+          - name: zos-excalidraw
+            context: zos/modules/excalidraw
+            dockerfile: zos/modules/excalidraw/Dockerfile
 
     steps:
       - name: Checkout repository

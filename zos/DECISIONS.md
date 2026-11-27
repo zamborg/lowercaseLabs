@@ -248,3 +248,7 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Prefix-inferred folders could not represent empty folders or move/copy/delete folders atomically; making folders real rows delivers intuitive POSIX-like behavior for both humans and agents while staying 100% inside Postgres with zero ZOS core (`src/zos/`) changes.
 - **Impact:** Bumped `catalog/modules/files.toml` and `modules/files` to `0.2.0` (with all 9 tool tier patterns) and release doc refs to `zos-v3.2.3`; verified transactional atomicity under injected mid-subtree failures, `0.1.0 -> 0.2.0` migration backfill, 42 module tests, and extended core catalog-install E2E tests.
 
+
+### 2026-11-27 — Excalidraw drawings share a module-owned Postgres row (v3.2.5)
+
+Use the MIT-licensed React editor from `@excalidraw/excalidraw` 0.18.1 and a Python Streamable HTTP server. The official MCP app uses file or Redis checkpoints and uploads its share exports. The ZOS module needs durable named scenes, signed callers and concurrent owner and agent writes. Both entry points lock the drawing row, check its version and cap the full scene at 5 MiB including embedded files. The image bundles local assets, replaces the editor's font CDN fallback, and serves a same-origin CSP. Deletion is owner-only. Server-side SVG export is deferred.

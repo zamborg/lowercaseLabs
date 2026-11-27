@@ -46,6 +46,7 @@ Registry images (optional, digest-pinned <repo>@sha256:<64-hex>):
   ZOS_IMAGE_GCAL                  Pin gcal module manifest to digest image
   ZOS_IMAGE_TASKS                 Pin tasks module manifest to digest image
   ZOS_IMAGE_FILES                 Pin files module manifest to digest image
+  ZOS_IMAGE_EXCALIDRAW                 Pin excalidraw module manifest to digest image
 EOF
 }
 
@@ -392,6 +393,7 @@ for slug, env_name in (
     ("gcal", "ZOS_IMAGE_GCAL"),
     ("tasks", "ZOS_IMAGE_TASKS"),
     ("files", "ZOS_IMAGE_FILES"),
+    ("excalidraw", "ZOS_IMAGE_EXCALIDRAW"),
 ):
     img = os.environ.get(env_name, "").strip()
     if not img:

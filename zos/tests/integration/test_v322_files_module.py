@@ -2,25 +2,22 @@
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import json
 import sys
 from pathlib import Path
 from typing import Any
 
 import httpx2
-import uvicorn
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from tests.conftest import get_test_database_url
 from tests.e2e.helpers import free_port, run_asgi_server
+from tests.e2e.module_host import InProcessModuleHost
 from zos.app import create_app
-from zos.catalog import ModuleManifest, get_module_catalog_entry, load_module_catalog
+from zos.catalog import get_module_catalog_entry, load_module_catalog
 from zos.config import Settings
 from zos.db.queries import create_bearer_client, init_principal_and_space
-from zos.modules.host import InstalledModule
 from zos.vault import generate_secret_key
 
 FILES_SRC_DIR = Path(__file__).resolve().parents[2] / "modules" / "files" / "src"
@@ -34,87 +31,6 @@ def _import_files_module() -> tuple[Any, Any, Any]:
     from zos_files.store import FilesStore, create_files_pool
 
     return create_files_pool, FilesStore, create_mcp_app
-
-
-class _InProcessFilesHost:
-    """Test ModuleHost that boots the real zos_files ASGI MCP server in-process."""
-
-    kind = "docker"
-
-    def __init__(self) -> None:
-        self._servers: dict[str, tuple[uvicorn.Server, asyncio.Task[None], Any]] = {}
-
-    async def install(
-        self,
-        manifest: ModuleManifest,
-        config: dict[str, str],
-        *,
-        env: dict[str, str] | None = None,
-    ) -> InstalledModule:
-        env = env or {}
-        create_files_pool, FilesStore, create_mcp_app = _import_files_module()
-        pool = create_files_pool(env["ZOS_MODULE_DATABASE_URL"])
-        await pool.open()
-        store = FilesStore(pool)
-        await store.init_schema()
-
-        mcp_app = create_mcp_app(
-            store,
-            module_secret=env["ZOS_MODULE_SECRET"],
-            mcp_path=manifest.runtime.mcp_path,
-        )
-        port = free_port()
-        srv = uvicorn.Server(uvicorn.Config(mcp_app, host="127.0.0.1", port=port, log_level="warning"))
-        task = asyncio.create_task(srv.serve())
-        self._servers[manifest.slug] = (srv, task, pool)
-
-        async with httpx2.AsyncClient() as hc:
-            for _ in range(50):
-                try:
-                    if (await hc.get(f"http://127.0.0.1:{port}/healthz")).status_code == 200:
-                        break
-                except Exception:
-                    await asyncio.sleep(0.05)
-
-        return InstalledModule(
-            mcp_url=f"http://127.0.0.1:{port}{manifest.runtime.mcp_path}",
-            ui_url=None,
-            image_pin=f"inproc:{manifest.slug}",
-            host="docker",
-        )
-
-    async def upgrade(
-        self,
-        manifest: ModuleManifest,
-        config: dict[str, str],
-        *,
-        env: dict[str, str] | None = None,
-    ) -> InstalledModule:
-        await self.remove(manifest.slug)
-        return await self.install(manifest, config, env=env)
-
-    async def stop(self, slug: str) -> None:
-        await self.remove(slug)
-
-    async def start(self, slug: str) -> None:
-        return None
-
-    async def uninstall(self, slug: str, *, purge: bool = False) -> None:
-        await self.remove(slug)
-
-    async def remove(self, slug: str) -> None:
-        entry = self._servers.pop(slug, None)
-        if entry is None:
-            return
-        srv, task, pool = entry
-        srv.should_exit = True
-        with contextlib.suppress(Exception):
-            await task
-        with contextlib.suppress(Exception):
-            await pool.close()
-
-    async def inspect(self, slug: str) -> dict[str, Any]:
-        return {"running": slug in self._servers}
 
 
 def test_checked_in_files_module_manifest_is_valid() -> None:
@@ -169,7 +85,7 @@ async def test_files_module_catalog_install_lists_tools_tiers_and_round_trips(db
         trust_ceiling="owner",
     )
 
-    host = _InProcessFilesHost()
+    host = InProcessModuleHost(_import_files_module)
     port = free_port()
     base_url = f"http://127.0.0.1:{port}"
     cfg = Settings(

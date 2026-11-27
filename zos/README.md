@@ -2,7 +2,7 @@
 
 **A personal, self-hosted context and MCP routing layer shared by every AI agent you use.**
 
-> **Status: V3** (`zos-v3.2.3`). One owner per deployment, self-hosted on any small Linux server ([HOSTING.md](HOSTING.md)). It's in daily personal use and is not a hosted product.
+> **Status: V3** (`zos-v3.2.5`). One owner per deployment, self-hosted on any small Linux server ([HOSTING.md](HOSTING.md)). It's in daily personal use and is not a hosted product.
 
 ## Why ZOS exists
 
@@ -49,6 +49,7 @@ The core holds no domain content. Everything an agent works on reaches it as one
 - **Inbox (module, installed by default):** async, email-like mailboxes shared between you (`owner`), `general`, and each connected agent. The owner view at `/admin/m/inbox/` shows every mailbox.
 - **Tasks (optional module):** personal todo list for the human owner (`tasks_list/get/add/update/complete`) with a mobile-friendly Today/todo-list view at `/admin/m/tasks/` (Overdue / Today / Upcoming / No date + Done).
 - **Gmail & Google Calendar (optional modules):** `gmail_*` and `gcal_*`. Each module connects to Google from its own owner page with narrowly scoped, encrypted credentials.
+- **Excalidraw (optional module)** gives agents and the owner shared, versioned drawings with an offline editor at `/admin/m/excalidraw/`. See [the module guide](modules/excalidraw/README.md).
 - **Files (optional module):** shared POSIX-like filesystem (`files_list/tree/stat/read/write/mkdir/move/copy/delete`, real folders, atomic folder ops, and `skills/<name>/SKILL.md` sync across machines) stored in Postgres with a mobile-friendly file manager at `/admin/m/files/`. See [modules/files/README.md](modules/files/README.md).
 - **Routed remote MCP servers + connector catalog:** connect any Streamable-HTTP remote MCP server (`none`, `bearer`, or `oauth` auth), or install one of 20 verified connector manifests. See [catalog/README.md](catalog/README.md).
 - **Devices (optional):** turn any local stdio MCP server on your Mac or workstation into a ZOS device via `zos-device` (includes `zos-mac` for Messages, Contacts, and persistent tmux shell). See [DEVICES.md](DEVICES.md).
