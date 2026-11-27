@@ -1,0 +1,36 @@
+manifest_version = 2
+slug = "files"
+name = "Files"
+version = "0.1.0"
+description = "Shared drive for you and your agents: path-based files (skills/<name>/SKILL.md and more) stored in Postgres."
+
+[runtime]
+kind = "container"
+build = "modules/files"
+mcp_port = 8081
+mcp_path = "/mcp"
+ui_port = 8082
+
+[storage]
+postgres = true
+
+[network]
+egress = false
+
+[ui]
+title = "Files"
+path = "/"
+
+[[config]]
+name = "FILES_QUOTA_BYTES"
+secret = false
+required = false
+help = "Total storage quota in bytes (default 1073741824 = 1 GiB). Per-file limit is fixed at 10 MiB."
+
+[tiers]
+default = "write"
+"files_list" = "read"
+"files_read" = "read"
+"files_write" = "write"
+"files_delete" = "write"
+"files_move" = "write"
