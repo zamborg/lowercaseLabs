@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import { build } from "esbuild";
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 
@@ -11,7 +12,8 @@ await cp("bootstrap.js", output + "/bootstrap.js");
 await cp("EXCALIDRAW-LICENSE.txt", output + "/EXCALIDRAW-LICENSE.txt");
 await cp("drawings.css", output + "/drawings.css");
 await cp("drawings.js", output + "/drawings.js");
-await build({
+const {metafile} = await build({
+  metafile: true,
   entryPoints: ["editor.jsx"], outdir: output, bundle: true, format: "esm", splitting: true,
   legalComments: "external", minify: true, conditions: ["production"], define: {"process.env.NODE_ENV": '"production"'},
   plugins: [{
@@ -37,4 +39,18 @@ for (const filename of await readdir(output)) {
   const offline = js.replace(/https?:\/\/([\w.-]+)/g, (url, host) =>
     host === "www.w3.org" ? url : "about:blank#offline-" + host);
   if (js !== offline) await writeFile(path, offline);
+}
+// Keep the licenses of bundled dependencies alongside the editor distribution.
+const packages = new Set();
+for (const input of Object.keys(metafile.inputs)) {
+  const match = input.match(/^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//);
+  if (match) packages.add(match[1]);
+}
+for (const pkg of packages) {
+  for (const file of await readdir(pkg)) {
+    if (!/^(licen[cs]e|notice)(\.[a-z]+)?$/i.test(file)) continue;
+    const target = output + "/notices/" + pkg.slice("node_modules/".length) + "/" + file;
+    await mkdir(dirname(target), {recursive: true});
+    await cp(pkg + "/" + file, target);
+  }
 }

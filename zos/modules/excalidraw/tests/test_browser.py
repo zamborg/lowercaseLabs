@@ -63,7 +63,9 @@ async def test_editor_draws_saves_and_preserves_changes_on_conflict(store, owner
                     await expect(page.locator("#status")).to_have_text("Saved")
 
                     # Allow the initial font load and autosave debounce to settle.
-                    await page.evaluate("document.fonts.ready.then(() => new Promise(r => setTimeout(r, 600)))")
+                    await page.evaluate(
+                        "document.fonts.ready.then(() => new Promise(r => setTimeout(r, 600)))"
+                    )
                     assert (await store.get(drawing["id"]))["version"] == 1
 
                     async def rectangle(x):
@@ -98,6 +100,9 @@ async def test_editor_draws_saves_and_preserves_changes_on_conflict(store, owner
                         in await page.locator("#status").inner_text()
                     )
                     assert (await store.get(drawing["id"]))["summary"]["counts"]["rectangle"] == 2
+                    await page.set_viewport_size({"width": 390, "height": 844})
+                    await expect(canvas).to_be_visible()
+                    assert (await canvas.bounding_box())["width"] <= 390
                     assert await page.evaluate("window.cspBlocks") == []
                     assert external == [] and errors == []
                 finally:

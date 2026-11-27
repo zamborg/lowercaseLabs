@@ -41,6 +41,7 @@ async function save() {
       return;
     }
     if (!res.ok) throw new Error(result.error || "Save failed");
+    retry.hidden = true;
     saved = snapshot;
     version = result.version;
     status.textContent = "Saved";
@@ -60,8 +61,13 @@ function changed(elements, state, files) {
   if (pending === next) return;
   pending = next;
   if (!paused) {
-    status.textContent = "Unsaved changes";
     clearTimeout(timer);
+    if (!busy && pending === saved) {
+      status.textContent = "Saved";
+      retry.hidden = true;
+      return;
+    }
+    status.textContent = "Unsaved changes";
     timer = setTimeout(save, 450);
   }
 }

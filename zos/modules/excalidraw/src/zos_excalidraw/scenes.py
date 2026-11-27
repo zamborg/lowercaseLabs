@@ -79,6 +79,7 @@ def native(kind, ident, x, y, width, height):
         roughness=1,
         opacity=100,
         groupIds=[],
+        index=None,
         frameId=None,
         roundness=None,
         seed=secrets.randbits(30),
