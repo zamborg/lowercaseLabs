@@ -74,6 +74,8 @@ zos/
 | `mac_contacts_search`, `mac_contacts_get`, `mac_messages_threads`, `mac_messages_read` | read | device (`zos-mac` 0.3.0, v3.2.5) |
 | `mac_messages_send` | external | device (`zos-mac` 0.3.0, v3.2.5) |
 | `mac_shell_run` | external | actuator only |
+| `web_browser_snapshot`, `web_browser_take_screenshot`, `web_browser_find`, `web_browser_console_messages`, `web_browser_network_requests`, `web_browser_network_request`, `web_browser_wait_for` | read | device (`web`, `@playwright/mcp@0.0.86`, v3.2.6) |
+| `web_browser_navigate`, `web_browser_click`, `web_browser_type`, `web_browser_fill_form`, `web_browser_file_upload`, `web_browser_evaluate`, … (18 tools) | external | device (`web`, `@playwright/mcp@0.0.86`, v3.2.6) |
 | `gcal_list_events` | read | |
 | `gcal_create_event`, `gcal_update_event`, `gcal_delete_event` | external | |
 | `gmail_search`, `gmail_read` | read | |

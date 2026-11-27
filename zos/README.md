@@ -2,7 +2,7 @@
 
 **A personal, self-hosted context and MCP routing layer shared by every AI agent you use.**
 
-> **Status: V3** (`zos-v3.2.5`). One owner per deployment, self-hosted on any small Linux server ([HOSTING.md](HOSTING.md)). It's in daily personal use and is not a hosted product.
+> **Status: V3** (`zos-v3.2.6`). One owner per deployment, self-hosted on any small Linux server ([HOSTING.md](HOSTING.md)). It's in daily personal use and is not a hosted product.
 
 ## Why ZOS exists
 
@@ -52,7 +52,7 @@ The core holds no domain content. Everything an agent works on reaches it as one
 - **Excalidraw (optional module)** gives agents and the owner shared, versioned drawings with an offline editor at `/admin/m/excalidraw/`. See [the module guide](modules/excalidraw/README.md).
 - **Files (optional module):** shared POSIX-like filesystem (`files_list/tree/stat/read/write/mkdir/move/copy/delete`, real folders, atomic folder ops, and `skills/<name>/SKILL.md` sync across machines) stored in Postgres with a mobile-friendly file manager at `/admin/m/files/`. See [modules/files/README.md](modules/files/README.md).
 - **Routed remote MCP servers + connector catalog:** connect any Streamable-HTTP remote MCP server (`none`, `bearer`, or `oauth` auth), or install one of 20 verified connector manifests. See [catalog/README.md](catalog/README.md).
-- **Devices (optional):** turn any local stdio MCP server on your Mac or workstation into a ZOS device via `zos-device` (includes `zos-mac` for Messages, Contacts, and persistent tmux shell). See [DEVICES.md](DEVICES.md).
+- **Devices (optional):** turn any local stdio MCP server on your Mac or workstation into a ZOS device via `zos-device` (includes `zos-mac` for Messages, Contacts, and persistent tmux shell, plus the isolated `web` Playwright browser device). See [DEVICES.md](DEVICES.md).
 - **Two-layer policy:** visibility (which tools a client sees) plus a per-call allowance chain (allow, escalate to you, or deny).
 - **Async approvals for phones and web clients:** Clients that support MCP elicitation prompt inline; clients that don't (like mobile Claude or ChatGPT) hold approval-gated calls briefly or return a clickable `/admin/approvals/<id>` link so you can inspect the exact arguments on your phone, tap **Approve**, and let the agent retry once.
 - **Owner admin dashboard (`/admin`):** Passphrase-gated, mobile-friendly control panel for provider health, pending approvals, remote MCP servers, clients and tokens, per-tool tiers and per-client policy overrides, and the audit log.
