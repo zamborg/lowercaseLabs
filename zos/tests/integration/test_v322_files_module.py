@@ -1,4 +1,4 @@
-"""Core integration & E2E tests for the v3.2.2 Files module (catalog manifest, install, tools, tiers)."""
+"""Core integration & E2E tests for the Files module (catalog manifest, install, 9 tools, tiers)."""
 
 from __future__ import annotations
 
@@ -121,7 +121,7 @@ def test_checked_in_files_module_manifest_is_valid() -> None:
     entry = get_module_catalog_entry("files")
     assert entry is not None
     assert entry.manifest_version == 2
-    assert entry.version == "0.1.0"
+    assert entry.version == "0.2.0"
     assert entry.runtime.kind == "container"
     assert entry.runtime.build == "modules/files"
     assert entry.runtime.mcp_port == 8081
@@ -133,10 +133,14 @@ def test_checked_in_files_module_manifest_is_valid() -> None:
     assert [c.name for c in entry.config] == ["FILES_QUOTA_BYTES"]
     assert entry.tiers.patterns == {
         "files_list": "read",
+        "files_tree": "read",
+        "files_stat": "read",
         "files_read": "read",
         "files_write": "write",
-        "files_delete": "write",
+        "files_mkdir": "write",
         "files_move": "write",
+        "files_copy": "write",
+        "files_delete": "write",
     }
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -145,7 +149,7 @@ def test_checked_in_files_module_manifest_is_valid() -> None:
 
 
 async def test_files_module_catalog_install_lists_tools_tiers_and_round_trips(db_pool) -> None:
-    """Install files from catalog into core ZOS and verify tools, tiers, descriptions, and caller attribution."""
+    """Install files 0.2.0 from catalog into core ZOS and verify all 9 tools, tiers, and fs ops."""
     init = await init_principal_and_space(db_pool, principal_slug="owner")
     p_id = init["principal"]["id"]
     s_id = init["space"]["id"]
@@ -179,11 +183,13 @@ async def test_files_module_catalog_install_lists_tools_tiers_and_round_trips(db
                         (p_id, "files_%"),
                     )
                     tiers = {r["tool_pattern"]: r["tier"] for r in await cur.fetchall()}
-                assert tiers["files_list"] == "read"
-                assert tiers["files_read"] == "read"
-                assert tiers["files_write"] == "write"
-                assert tiers["files_delete"] == "write"
-                assert tiers["files_move"] == "write"
+
+                read_tools = ("files_list", "files_tree", "files_stat", "files_read")
+                write_tools = ("files_write", "files_mkdir", "files_move", "files_copy", "files_delete")
+                for t in read_tools:
+                    assert tiers[t] == "read"
+                for t in write_tools:
+                    assert tiers[t] == "write"
 
                 http_c = httpx2.AsyncClient(headers={"Authorization": f"Bearer {client['token']}"})
                 async with (
@@ -195,63 +201,70 @@ async def test_files_module_catalog_install_lists_tools_tiers_and_round_trips(db
                     listed = await sess.list_tools()
                     by_name = {t.name: t for t in listed.tools}
 
-                    expected_tools = {
-                        "files_list",
-                        "files_read",
-                        "files_write",
-                        "files_delete",
-                        "files_move",
-                    }
+                    expected_tools = set(read_tools) | set(write_tools)
                     assert expected_tools.issubset(by_name)
 
-                    # Verify read vs write annotations derived from tiers
-                    assert by_name["files_list"].annotations.read_only_hint is True
-                    assert by_name["files_read"].annotations.read_only_hint is True
-                    for write_tool in ("files_write", "files_delete", "files_move"):
-                        assert by_name[write_tool].annotations.read_only_hint is False
-                        assert by_name[write_tool].annotations.open_world_hint is False
+                    for rt in read_tools:
+                        assert by_name[rt].annotations.read_only_hint is True
+                    for wt in write_tools:
+                        assert by_name[wt].annotations.read_only_hint is False
+                        assert by_name[wt].annotations.open_world_hint is False
 
                     for tool_name in expected_tools:
                         assert "skills/<name>/SKILL.md" in (by_name[tool_name].description or "")
 
-                    # End-to-end skills round trip with signed caller attribution & optimistic concurrency
+                    # End-to-end filesystem round trip with signed caller attribution
+                    mk_res = await sess.call_tool("files_mkdir", {"path": "skills/empty"})
+                    assert not mk_res.is_error
+                    assert json.loads(mk_res.content[0].text)["created"] is True
+
                     w_res = await sess.call_tool(
                         "files_write",
-                        {
-                            "path": "skills/demo/SKILL.md",
-                            "content": "# Demo skill\n",
-                        },
+                        {"path": "skills/demo/SKILL.md", "content": "# Demo skill\n"},
                     )
                     assert not w_res.is_error
                     written = json.loads(w_res.content[0].text)["file"]
-                    assert written["path"] == "skills/demo/SKILL.md"
                     assert written["updated_by"] == "Claude"
 
-                    l_res = await sess.call_tool("files_list", {"prefix": "skills/", "recursive": True})
+                    t_res = await sess.call_tool("files_tree", {"path": "skills", "depth": 3})
+                    assert not t_res.is_error
+                    tree_out = json.loads(t_res.content[0].text)
+                    assert "demo/" in tree_out["text"] and "empty/" in tree_out["text"]
+
+                    st_res = await sess.call_tool("files_stat", {"path": "skills/demo"})
+                    assert not st_res.is_error
+                    st_out = json.loads(st_res.content[0].text)
+                    assert st_out["type"] == "folder" and st_out["file_count"] == 1
+
+                    l_res = await sess.call_tool("files_list", {"path": "skills"})
                     assert not l_res.is_error
                     entries = json.loads(l_res.content[0].text)["entries"]
-                    assert [e["path"] for e in entries] == ["skills/demo/SKILL.md"]
-                    assert entries[0]["updated_by"] == "Claude"
+                    assert [e["path"] for e in entries] == ["skills/demo", "skills/empty"]
 
-                    r_res = await sess.call_tool("files_read", {"path": "skills/demo/SKILL.md"})
+                    cp_res = await sess.call_tool(
+                        "files_copy", {"from": "skills/demo", "to": "skills/demo-copy"}
+                    )
+                    assert not cp_res.is_error
+                    assert json.loads(cp_res.content[0].text)["folder"]["copied_files"] == 1
+
+                    mv_res = await sess.call_tool(
+                        "files_move", {"from": "skills/demo-copy", "to": "archive/demo"}
+                    )
+                    assert not mv_res.is_error
+                    assert json.loads(mv_res.content[0].text)["folder"]["path"] == "archive/demo"
+
+                    r_res = await sess.call_tool("files_read", {"path": "archive/demo/SKILL.md"})
                     assert not r_res.is_error
                     read_back = json.loads(r_res.content[0].text)
-                    assert read_back["encoding"] == "utf-8"
                     assert read_back["content"] == "# Demo skill\n"
                     assert read_back["sha256"] == written["sha256"]
 
-                    m_res = await sess.call_tool(
-                        "files_move",
-                        {"from": "skills/demo/SKILL.md", "to": "skills/demo-v2/SKILL.md"},
+                    d_res = await sess.call_tool(
+                        "files_delete", {"path": "archive/demo", "recursive": True}
                     )
-                    assert not m_res.is_error
-                    moved = json.loads(m_res.content[0].text)["file"]
-                    assert moved["path"] == "skills/demo-v2/SKILL.md"
-                    assert moved["updated_by"] == "Claude"
-
-                    d_res = await sess.call_tool("files_delete", {"path": "skills/demo-v2/SKILL.md"})
                     assert not d_res.is_error
-                    assert json.loads(d_res.content[0].text)["deleted"] is True
+                    d_out = json.loads(d_res.content[0].text)
+                    assert d_out["deleted"] is True and d_out["folder"]["deleted_files"] == 1
             finally:
                 with contextlib.suppress(Exception):
                     await runtime.module_manager.uninstall("files", purge=True)
