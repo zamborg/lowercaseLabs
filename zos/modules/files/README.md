@@ -1,6 +1,12 @@
-# ZOS Files Module (`files`)
+# ZOS Files Module (`files` v0.2.0)
 
-A shared, path-based drive for the owner and all connected agents, stored in Postgres (`mod_files.files`). One agent saves a file and another agent — or the owner via `/admin/m/files/` — picks it up.
+A shared, POSIX-like filesystem for the owner and all connected agents, backed by Postgres (`mod_files.folders` and `mod_files.files`). One agent creates folders or saves files and another agent — or the owner via `/admin/m/files/` — picks them up.
+
+## Filesystem semantics
+
+- **Real folders:** Folders live in `folders` (root `""` is implicit). Empty folders persist until deleted. Writing, moving, or copying automatically creates missing parent folders (`mkdir -p`). A path cannot be both a file and a folder.
+- **Atomic subtree ops:** Moving, copying, or recursively deleting a folder runs in a single Postgres transaction serialized by an advisory lock. Overwriting an existing destination or moving/copying a folder into its own subtree is refused.
+- **Quotas & limits:** 10 MiB per file and a configurable total quota (`FILES_QUOTA_BYTES`, default 1 GiB). Both writes and recursive copies count against the quota.
 
 ## Skills sync convention
 
@@ -16,13 +22,20 @@ skills/
 
 ### Pulling skills onto a machine
 
-1. List everything under `skills/`:
+1. **Orient quickly with `files_tree`:**
    ```json
-   files_list({"prefix": "skills/", "recursive": true})
+   files_tree({"path": "skills", "depth": 3})
    ```
-   Each entry includes `path`, `size`, `sha256`, `updated_at`, and `updated_by`.
-2. Compare each entry's `sha256` against your local file hash (skip unchanged files).
-3. Fetch changed or new files with `files_read({"path": "skills/<name>/SKILL.md"})`.
+   Returns a compact directory tree (`text` + `entries`, capped so large drives stay concise).
+2. **Inspect a folder with `files_list` (or `files_stat`):**
+   ```json
+   files_list({"path": "skills/my-skill"})
+   ```
+   Lists direct folders first, then files, with `size`, `sha256` (for files), `updated_at`, and `updated_by`. Compare `sha256` against local files and skip unchanged ones.
+3. **Fetch changed or new files with `files_read`:**
+   ```json
+   files_read({"path": "skills/my-skill/SKILL.md"})
+   ```
    - UTF-8 text files return `{"encoding": "utf-8", "content": "...", "sha256": "..."}`.
    - Binary files return `{"encoding": "base64", "content": "...", "sha256": "..."}`.
 
@@ -45,18 +58,19 @@ If another agent or the owner edited the file first, `files_write` refuses with 
 
 | Tool | Tier | Purpose |
 |---|---|---|
-| `files_list(prefix?, recursive?, limit, cursor)` | `read` | List files (or direct children + folders when `recursive=false`). |
+| `files_list(path="", limit=100, cursor?)` | `read` | `ls` of one folder: direct folders first, then files, paginated. |
+| `files_tree(path="", depth=3, max_entries=200)` | `read` | Compact depth- and entry-capped tree to orient quickly. |
+| `files_stat(path="")` | `read` | Metadata for a file, folder (with child/total counts & size), or root. |
 | `files_read(path)` | `read` | Read a file as UTF-8 text or base64 binary, with `sha256`. |
-| `files_write(path, content, encoding?, if_sha256?)` | `write` | Create or update a file (max 10 MiB per file, subject to total quota). |
-| `files_delete(path)` | `write` | Delete a single file. |
-| `files_move(from, to)` | `write` | Move or rename a file (refuses to overwrite an existing destination). |
+| `files_write(path, content, encoding?, if_sha256?)` | `write` | Create or update a file (`mkdir -p` parents, max 10 MiB, quota-checked). |
+| `files_mkdir(path)` | `write` | Create a folder and missing parents (idempotent). |
+| `files_move(from, to)` | `write` | Move or rename a file or folder atomically (no overwrite, creates parents). |
+| `files_copy(from, to)` | `write` | Copy a file or folder recursively in one transaction (quota-checked). |
+| `files_delete(path, recursive=false)` | `write` | Delete a file, empty folder, or (with `recursive=true`) subtree atomically (`destructiveHint`). |
 
-## Limits & configuration
+## Owner UI (`/admin/m/files/`)
 
-- **Per-file limit:** 10 MiB (enforced for both MCP `files_write` and UI multipart uploads).
-- **Total quota:** `FILES_QUOTA_BYTES` (optional module config, default `1073741824` = 1 GiB).
-- **Path rules:** relative, `/`-separated, no leading `/`, no `..`, no empty segments or control characters, max 512 chars. Folders are implicit path prefixes.
-- **Owner UI:** `/admin/m/files/` provides a mobile-friendly folder browser with breadcrumbs, usage vs quota bar, multipart upload, text/markdown preview, safe attachment downloads, rename/move, and two-step delete. Browsing or downloading never changes `updated_by`.
+Mobile-friendly file manager with breadcrumbs (folders listed first), usage vs quota bar, New folder, Upload into the current folder, Rename/move and Copy for files and folders, two-step Delete confirmation showing exact file/subfolder counts for folders, text/markdown preview, and safe `attachment` downloads. Viewing or downloading never mutates `updated_by`.
 
 ## Local development
 
