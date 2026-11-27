@@ -2,7 +2,7 @@
 
 **A personal, self-hosted context and MCP routing layer shared by every AI agent you use.**
 
-> **Status: V3** (`zos-v3.2.5`). One owner per deployment, self-hosted on any small Linux server ([HOSTING.md](HOSTING.md)). It's in daily personal use and is not a hosted product.
+> **Status: V3** (`zos-v3.2.4`). One owner per deployment, self-hosted on any small Linux server ([HOSTING.md](HOSTING.md)). It's in daily personal use and is not a hosted product.
 
 ## Why ZOS exists
 

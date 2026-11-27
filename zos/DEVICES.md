@@ -21,10 +21,10 @@ ZOS never needs inbound access to your machine — only an outbound WebSocket co
 
 ## 2. Bridge Any Local Stdio MCP Server
 
-Install `zos-device` from the `zos-v3.2.5` release:
+Install `zos-device` from the `zos-v3.2.4` release:
 
 ```bash
-git clone --depth 1 --branch zos-v3.2.5 https://github.com/zamborg/lowercaseLabs.git
+git clone --depth 1 --branch zos-v3.2.4 https://github.com/zamborg/lowercaseLabs.git
 cd lowercaseLabs/zos/device
 uv tool install .
 ```
@@ -104,7 +104,7 @@ Anyone running their own hosted ZOS (for example `https://my-zos.exe.xyz` on exe
 2. **Add the device in ZOS:** Open `https://my-zos.exe.xyz/admin/modules` → **Runs on your machine** → add slug `mac` → copy the one-time token (`zos_a_...`).
 3. **Install `zos-device`, `zos-mac`, and the LaunchAgents:**
    ```bash
-   git clone --depth 1 --branch zos-v3.2.5 https://github.com/zamborg/lowercaseLabs.git
+   git clone --depth 1 --branch zos-v3.2.4 https://github.com/zamborg/lowercaseLabs.git
    cd lowercaseLabs/zos
    ./deploy/launchd/install.sh
    ```
