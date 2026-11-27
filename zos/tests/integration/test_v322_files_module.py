@@ -99,6 +99,9 @@ class _InProcessFilesHost:
     async def start(self, slug: str) -> None:
         return None
 
+    async def uninstall(self, slug: str, *, purge: bool = False) -> None:
+        await self.remove(slug)
+
     async def remove(self, slug: str) -> None:
         entry = self._servers.pop(slug, None)
         if entry is None:
@@ -150,6 +153,10 @@ def test_checked_in_files_module_manifest_is_valid() -> None:
 
 async def test_files_module_catalog_install_lists_tools_tiers_and_round_trips(db_pool) -> None:
     """Install files 0.2.0 from catalog into core ZOS and verify all 9 tools, tiers, and fs ops."""
+    async with db_pool.connection() as conn:
+        await conn.execute("DROP SCHEMA IF EXISTS mod_files CASCADE")
+        await conn.commit()
+
     init = await init_principal_and_space(db_pool, principal_slug="owner")
     p_id = init["principal"]["id"]
     s_id = init["space"]["id"]
@@ -266,7 +273,6 @@ async def test_files_module_catalog_install_lists_tools_tiers_and_round_trips(db
                     d_out = json.loads(d_res.content[0].text)
                     assert d_out["deleted"] is True and d_out["folder"]["deleted_files"] == 1
             finally:
-                with contextlib.suppress(Exception):
-                    await runtime.module_manager.uninstall("files", purge=True)
+                await runtime.module_manager.uninstall("files", purge=True)
     finally:
         await host.remove("files")
