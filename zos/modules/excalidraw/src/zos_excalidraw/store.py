@@ -9,7 +9,11 @@ from .scenes import convert, edit_scene, normalize_scene, summary
 
 class Conflict(Exception):
     def __init__(self, row):
-        self.detail = {"error": "Version conflict", "current_version": row["version"], "summary": summary(row["scene"])}
+        self.detail = {
+            "error": "Version conflict",
+            "current_version": row["version"],
+            "summary": summary(row["scene"]),
+        }
         super().__init__("Version conflict")
 
 
@@ -24,8 +28,12 @@ def clean_title(title):
 
 
 def serialize(row):
-    return {**row, "id": str(row["id"]), "created_at": row["created_at"].isoformat(),
-            "updated_at": row["updated_at"].isoformat()}
+    return {
+        **row,
+        "id": str(row["id"]),
+        "created_at": row["created_at"].isoformat(),
+        "updated_at": row["updated_at"].isoformat(),
+    }
 
 
 class DrawingStore:
@@ -34,9 +42,15 @@ class DrawingStore:
 
     async def init_schema(self):
         async with self.pool.connection() as conn:
-            await conn.execute("SELECT pg_advisory_xact_lock(hashtext('mod_excalidraw.migrations'))")
-            await conn.execute("CREATE TABLE IF NOT EXISTS drawing_migrations (version integer PRIMARY KEY)")
-            exists = await (await conn.execute("SELECT version FROM drawing_migrations WHERE version=1")).fetchone()
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext('mod_excalidraw.migrations'))"
+            )
+            await conn.execute(
+                "CREATE TABLE IF NOT EXISTS drawing_migrations (version integer PRIMARY KEY)"
+            )
+            exists = await (
+                await conn.execute("SELECT version FROM drawing_migrations WHERE version=1")
+            ).fetchone()
             if not exists:
                 await conn.execute("""CREATE TABLE drawings (
                     id uuid PRIMARY KEY, title text NOT NULL, scene jsonb NOT NULL, updated_by text NOT NULL,
@@ -46,13 +60,17 @@ class DrawingStore:
 
     async def list(self):
         async with self.pool.connection() as conn:
-            rows = await (await conn.execute("""SELECT id,title,updated_by,version,updated_at,created_at
-                FROM drawings ORDER BY updated_at DESC,id""")).fetchall()
+            rows = await (
+                await conn.execute("""SELECT id,title,updated_by,version,updated_at,created_at
+                FROM drawings ORDER BY updated_at DESC,id""")
+            ).fetchall()
             return [serialize(r) for r in rows]
 
     async def get(self, id):
         async with self.pool.connection() as conn:
-            row = await (await conn.execute("SELECT * FROM drawings WHERE id=%s", (UUID(id),))).fetchone()
+            row = await (
+                await conn.execute("SELECT * FROM drawings WHERE id=%s", (UUID(id),))
+            ).fetchone()
             if not row:
                 raise KeyError("Drawing not found")
             return {**serialize(row), "summary": summary(row["scene"])}
@@ -60,15 +78,22 @@ class DrawingStore:
     async def create(self, title, actor, elements):
         scene = normalize_scene({"elements": convert(elements)})
         async with self.pool.connection() as conn:
-            row = await (await conn.execute("""INSERT INTO drawings (id,title,scene,updated_by)
-                VALUES (%s,%s,%s,%s) RETURNING *""", (uuid4(), clean_title(title), Jsonb(scene), actor))).fetchone()
+            row = await (
+                await conn.execute(
+                    """INSERT INTO drawings (id,title,scene,updated_by)
+                VALUES (%s,%s,%s,%s) RETURNING *""",
+                    (uuid4(), clean_title(title), Jsonb(scene), actor),
+                )
+            ).fetchone()
             return serialize(row)
 
     async def change(self, id, version, actor, *, action, data):
         if type(version) is not int or version < 1:
             raise ValueError("if_version must be a positive integer")
         async with self.pool.connection() as conn:
-            row = await (await conn.execute("SELECT * FROM drawings WHERE id=%s FOR UPDATE", (UUID(id),))).fetchone()
+            row = await (
+                await conn.execute("SELECT * FROM drawings WHERE id=%s FOR UPDATE", (UUID(id),))
+            ).fetchone()
             if not row:
                 raise KeyError("Drawing not found")
             if row["version"] != version:
@@ -85,7 +110,11 @@ class DrawingStore:
                 scene = edit_scene(scene, data)
             else:
                 raise ValueError("Unknown action")
-            updated = await (await conn.execute("""UPDATE drawings SET scene=%s, title=%s, updated_by=%s,
+            updated = await (
+                await conn.execute(
+                    """UPDATE drawings SET scene=%s, title=%s, updated_by=%s,
                 version=version+1, updated_at=clock_timestamp() WHERE id=%s RETURNING version""",
-                (Jsonb(scene), title, actor, row["id"]))).fetchone()
+                    (Jsonb(scene), title, actor, row["id"]),
+                )
+            ).fetchone()
             return {"id": id, **updated}

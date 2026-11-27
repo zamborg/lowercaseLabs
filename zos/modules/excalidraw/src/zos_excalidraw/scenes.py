@@ -32,15 +32,26 @@ def normalize_scene(scene):
         if not isinstance(ident, str) or not ident or ident in ids:
             raise ValueError("Element IDs must be unique non-empty strings")
         ids.add(ident)
-    scene = {"elements": elements, "appState": {k: v for k, v in state.items() if k in APP_STATE}, "files": files}
-    if len(json.dumps(scene, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()) > MAX_BYTES:
+    scene = {
+        "elements": elements,
+        "appState": {k: v for k, v in state.items() if k in APP_STATE},
+        "files": files,
+    }
+    if (
+        len(json.dumps(scene, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode())
+        > MAX_BYTES
+    ):
         raise SceneTooLarge("Scene exceeds 5 MiB including embedded files")
     return scene
 
 
 def summary(scene):
     counts = Counter(e["type"] for e in scene["elements"] if not e.get("isDeleted"))
-    labels = [e["text"][:60] for e in scene["elements"] if not e.get("isDeleted") and isinstance(e.get("text"), str)]
+    labels = [
+        e["text"][:60]
+        for e in scene["elements"]
+        if not e.get("isDeleted") and isinstance(e.get("text"), str)
+    ]
     return {"counts": dict(counts), "labels": labels[:12]}
 
 
@@ -52,12 +63,33 @@ def number(spec, key, default):
 
 
 def native(kind, ident, x, y, width, height):
-    return dict(type=kind, id=ident, x=x, y=y, width=width, height=height,
-                angle=0, strokeColor="#1b1b1f", backgroundColor="transparent", fillStyle="solid",
-                strokeWidth=2, strokeStyle="solid", roughness=1, opacity=100, groupIds=[],
-                frameId=None, roundness=None, seed=secrets.randbits(30), version=1,
-                versionNonce=secrets.randbits(30), isDeleted=False, boundElements=[],
-                updated=int(time.time()*1000), link=None, locked=False)
+    return dict(
+        type=kind,
+        id=ident,
+        x=x,
+        y=y,
+        width=width,
+        height=height,
+        angle=0,
+        strokeColor="#1b1b1f",
+        backgroundColor="transparent",
+        fillStyle="solid",
+        strokeWidth=2,
+        strokeStyle="solid",
+        roughness=1,
+        opacity=100,
+        groupIds=[],
+        frameId=None,
+        roundness=None,
+        seed=secrets.randbits(30),
+        version=1,
+        versionNonce=secrets.randbits(30),
+        isDeleted=False,
+        boundElements=[],
+        updated=int(time.time() * 1000),
+        link=None,
+        locked=False,
+    )
 
 
 def make_text(ident, label, x, y, container=None):
@@ -65,9 +97,17 @@ def make_text(ident, label, x, y, container=None):
     width = max(1, max(map(len, lines))) * 11
     height = len(lines) * 25
     e = native("text", ident, x, y, width, height)
-    e.update(text=label, originalText=label, fontSize=20, fontFamily=1,
-             textAlign="center" if container else "left", verticalAlign="middle" if container else "top",
-             containerId=container, autoResize=True, lineHeight=1.25)
+    e.update(
+        text=label,
+        originalText=label,
+        fontSize=20,
+        fontFamily=1,
+        textAlign="center" if container else "left",
+        verticalAlign="middle" if container else "top",
+        containerId=container,
+        autoResize=True,
+        lineHeight=1.25,
+    )
     return e
 
 
@@ -97,8 +137,15 @@ def convert(specs, existing=()):
             e = native(kind, ident, x, y, w, h)
         elif kind == "arrow":
             e = native(kind, ident, x, y, abs(w), abs(h))
-            e.update(points=[[0, 0], [w, h]], startBinding=None, endBinding=None,
-                     startArrowhead=None, endArrowhead="arrow", elbowed=False, lastCommittedPoint=None)
+            e.update(
+                points=[[0, 0], [w, h]],
+                startBinding=None,
+                endBinding=None,
+                startArrowhead=None,
+                endArrowhead="arrow",
+                elbowed=False,
+                lastCommittedPoint=None,
+            )
             arrows.append((e, spec))
         else:
             raise ValueError(f"Unsupported element type: {kind}")
@@ -106,7 +153,7 @@ def convert(specs, existing=()):
         by_id[ident] = e
         if label and kind != "text":
             text = make_text(str(uuid4()), label, x, y, ident)
-            text.update(x=x+(w-text["width"])/2, y=y+(h-text["height"])/2)
+            text.update(x=x + (w - text["width"]) / 2, y=y + (h - text["height"]) / 2)
             result.append(text)
             e["boundElements"].append({"type": "text", "id": text["id"]})
     for arrow, spec in arrows:
@@ -116,7 +163,12 @@ def convert(specs, existing=()):
             target = by_id.get(spec[side])
             if target is None or target["type"] not in SHAPES:
                 raise ValueError(f"{side} must reference a shape ID in the drawing")
-            arrow[side+"Binding"] = {"elementId": target["id"], "focus": 0, "gap": 1, "fixedPoint": None}
+            arrow[side + "Binding"] = {
+                "elementId": target["id"],
+                "focus": 0,
+                "gap": 1,
+                "fixedPoint": None,
+            }
             binding = {"id": arrow["id"], "type": "arrow"}
             if binding not in (target.get("boundElements") or []):
                 target["boundElements"] = [*(target.get("boundElements") or []), binding]
