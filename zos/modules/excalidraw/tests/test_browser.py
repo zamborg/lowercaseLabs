@@ -59,7 +59,7 @@ async def test_editor_draws_saves_and_preserves_changes_on_conflict(store, owner
                         await page.evaluate("window.EXCALIDRAW_ASSET_PATH")
                         == f"http://127.0.0.1:{port}{prefix}/assets/"
                     )
-                    assert not await page.locator(".default-sidebar-trigger").is_visible()
+                    await expect(page.locator(".default-sidebar-trigger")).to_be_hidden()
                     await expect(page.locator("#status")).to_have_text("Saved")
 
                     # Allow the initial font load and autosave debounce to settle.
@@ -71,6 +71,7 @@ async def test_editor_draws_saves_and_preserves_changes_on_conflict(store, owner
                     async def rectangle(x):
                         await page.keyboard.press("r")
                         box = await canvas.bounding_box()
+                        assert box is not None
                         y = box["y"] + 110
                         await page.mouse.move(x, y)
                         await page.mouse.down()
@@ -95,14 +96,23 @@ async def test_editor_draws_saves_and_preserves_changes_on_conflict(store, owner
                     )
                     await rectangle(410)
                     await expect(page.locator("#reload")).to_be_visible()
-                    assert (
+                    await expect(page.locator("#status")).to_contain_text(
                         "Your edits are still on this canvas"
-                        in await page.locator("#status").inner_text()
                     )
                     assert (await store.get(drawing["id"]))["summary"]["counts"]["rectangle"] == 2
                     await page.set_viewport_size({"width": 390, "height": 844})
                     await expect(canvas).to_be_visible()
-                    assert (await canvas.bounding_box())["width"] <= 390
+                    await page.wait_for_function(
+                        """() => {
+                            const el = document.querySelector("canvas.interactive");
+                            if (!el) return false;
+                            const rect = el.getBoundingClientRect();
+                            return rect.width > 0 && rect.width <= 390;
+                        }""",
+                        timeout=5000,
+                    )
+                    mobile_box = await canvas.bounding_box()
+                    assert mobile_box is not None and 0 < mobile_box["width"] <= 390
                     assert await page.evaluate("window.cspBlocks") == []
                     assert external == [] and errors == []
                 finally:
