@@ -2,33 +2,21 @@
 
 from __future__ import annotations
 
-import os
 import re
 import sqlite3
-import sys
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
+from zos_mac.chatdb import APPLE_EPOCH, apple_timestamp_to_iso, open_chat_db_ro
 from zos_mac.contacts import ContactsIndex
 from zos_mac.typedstream import decode_attributed_body
 
-APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=UTC)
+__all__ = ["APPLE_EPOCH", "MessagesIndex", "apple_timestamp_to_iso"]
+
 MAX_SEARCH_LIMIT = 50
 MAX_TEXT_CHARS = 2000
 
 _FTS_TOKEN_RE = re.compile(r"[^\s\"']+")
-
-
-def apple_timestamp_to_iso(raw_date: int | float | None) -> str:
-    """Convert Apple Messages date (ns or s since 2001-01-01 UTC) to ISO 8601 UTC."""
-    if raw_date is None or raw_date == 0:
-        return APPLE_EPOCH.isoformat().replace("+00:00", "Z")
-    val = float(raw_date)
-    seconds = val / 1_000_000_000.0 if abs(val) >= 1e12 else val
-    dt = APPLE_EPOCH + timedelta(seconds=seconds)
-    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _safe_fts_query(query: str) -> str:
@@ -94,23 +82,31 @@ class MessagesIndex:
         return conn
 
     def _open_chat_db_ro(self) -> sqlite3.Connection:
-        if not self.chat_db_path.exists():
-            raise FileNotFoundError(f"Messages database not found at {self.chat_db_path}")
-        uri = f"file:{quote(str(self.chat_db_path), safe='/')}?mode=ro"
+        return open_chat_db_ro(self.chat_db_path)
+
+    def _chat_ids_for_messages(self, rowids: list[int]) -> dict[int, str]:
+        """Map message ROWID -> chat id (chat.guid, the id messages_read/messages_send accept)."""
+        if not rowids:
+            return {}
+        conn = self._open_chat_db_ro()
         try:
-            conn = sqlite3.connect(uri, uri=True)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA busy_timeout = 2000")
-            # Probe readability immediately so macOS TCC/FDA errors surface clearly
-            conn.execute("SELECT 1 FROM message LIMIT 1")
-            return conn
-        except (PermissionError, sqlite3.OperationalError) as exc:
-            resolved_py = os.path.realpath(sys.executable)
-            raise PermissionError(
-                f"Cannot read {self.chat_db_path} ({exc}). "
-                f"Grant Full Disk Access in System Settings -> Privacy & Security -> Full Disk Access to: "
-                f"{resolved_py}"
-            ) from exc
+            chat_cols = {r[1] for r in conn.execute("PRAGMA table_info(chat)").fetchall()}
+            guid_expr = (
+                "COALESCE(NULLIF(c.guid, ''), c.chat_identifier)" if "guid" in chat_cols else "c.chat_identifier"
+            )
+            placeholders = ",".join("?" for _ in rowids)
+            rows = conn.execute(
+                f"""
+                SELECT cmj.message_id AS message_id, MIN({guid_expr}) AS chat_id
+                FROM chat_message_join cmj JOIN chat c ON c.ROWID = cmj.chat_id
+                WHERE cmj.message_id IN ({placeholders})
+                GROUP BY cmj.message_id
+                """,
+                rowids,
+            ).fetchall()
+        finally:
+            conn.close()
+        return {int(r["message_id"]): str(r["chat_id"]) for r in rows if r["chat_id"]}
 
     def sync(self) -> int:
         """Incrementally copy new messages (ROWID > last_rowid) into local FTS5 index."""
@@ -247,6 +243,7 @@ class MessagesIndex:
         finally:
             idx_conn.close()
 
+        chat_ids = self._chat_ids_for_messages([int(r["rowid"]) for r in rows])
         matches = []
         for r in rows:
             txt = str(r["text"])
@@ -263,6 +260,7 @@ class MessagesIndex:
                     "is_from_me": bool(r["is_from_me"]),
                     "date": r["date_iso"],
                     "chat_identifier": r["chat_identifier"],
+                    "chat_id": chat_ids.get(int(r["rowid"])) or r["chat_identifier"] or None,
                     "text": txt,
                     "truncated": truncated,
                 }
