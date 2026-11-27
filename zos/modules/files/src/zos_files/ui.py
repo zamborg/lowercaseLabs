@@ -498,7 +498,9 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
           <div class="card">
             <form class="vstack" method="post" action="{_e(pref)}/upload" enctype="multipart/form-data">
               <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
-              <input type="hidden" name="dir" value="{_e(folder)}">
+              <label class="field">Folder <span class="hint">· optional, e.g. skills/my-skill/</span>
+                <input type="text" name="dir" value="{_e(folder)}" placeholder="root (leave blank) or skills/my-skill/">
+              </label>
               <label class="field">Files <span class="hint">· up to {fmt_bytes(usage["max_file_bytes"])} each</span>
                 <input type="file" name="files" multiple required>
               </label>
@@ -588,11 +590,16 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
         <section class="section">
           <div class="section-head"><h2>Delete</h2></div>
           <div class="card">
-            <form method="post" action="{_e(pref)}/delete">
-              <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
-              <input type="hidden" name="path" value="{_e(path)}">
-              <button type="submit" class="danger">Delete this file</button>
-            </form>
+            <details class="disclose">
+              <summary class="btn danger sm">Delete this file</summary>
+              <div class="disclose-body">
+                <form class="inline" method="post" action="{_e(pref)}/delete">
+                  <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+                  <input type="hidden" name="path" value="{_e(path)}">
+                  <button type="submit" class="danger solid sm">Confirm delete</button>
+                </form>
+              </div>
+            </details>
           </div>
         </section>
         """

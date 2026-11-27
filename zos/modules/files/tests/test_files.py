@@ -92,6 +92,7 @@ def test_files_has_zero_zos_imports() -> None:
         text = py_file.read_text(encoding="utf-8")
         assert "import zos\n" not in text
         assert "from zos." not in text
+        assert "from zos " not in text
 
 
 # ── path normalization ───────────────────────────────────────────────────────
@@ -616,3 +617,25 @@ async def test_ui_upload_limits(small_store: FilesStore) -> None:
         )
         assert r.status_code == 303 and "per-file" in r.headers["location"].lower().replace("%20", " ")
         assert (await small_store.usage())["file_count"] == 0
+
+
+async def test_ui_upload_over_1mib_multipart_succeeds(store: FilesStore) -> None:
+    """Multipart uploads larger than Starlette's 1 MiB spool threshold succeed up to 10 MiB."""
+    app = create_ui_app(store, module_secret=SECRET)
+    headers = _owner_headers()
+    payload = b"A" * (2 * 1024 * 1024)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://files.local"
+    ) as client:
+        await client.get("/", headers=headers)
+        csrf = client.cookies.get("files_csrf")
+        headers = {**headers, "Cookie": f"files_csrf={csrf}"}
+        r = await client.post(
+            "/upload",
+            data={"csrf_token": csrf, "dir": "large"},
+            files=[("files", ("two-meg.bin", payload, "application/octet-stream"))],
+            headers=headers,
+        )
+        assert r.status_code == 303 and "notice=" in r.headers["location"]
+        meta, got = await store.read("large/two-meg.bin")
+        assert meta["size"] == len(payload) and got == payload
