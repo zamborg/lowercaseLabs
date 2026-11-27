@@ -34,6 +34,9 @@ jobs:
           - name: zos-tasks
             context: zos/modules/tasks
             dockerfile: zos/modules/tasks/Dockerfile
+          - name: zos-files
+            context: zos/modules/files
+            dockerfile: zos/modules/files/Dockerfile
 
     steps:
       - name: Checkout repository

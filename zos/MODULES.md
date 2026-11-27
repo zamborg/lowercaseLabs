@@ -2,7 +2,7 @@
 
 A ZOS module is a standalone MCP server (in any language) packaged as a container with a checked-in manifest. ZOS owns authentication, policy, approvals, audit logging, Postgres schema provisioning, and reverse-proxying the module's human UI under `/admin/m/<slug>/`.
 
-Core (`src/zos/`) never imports module code, and modules never import `zos`.
+Core (`src/zos/`) never imports module code, and modules never import `zos`. First-party reference modules live under `modules/` (e.g. `inbox`, `memory`, `google`, `files`).
 
 | Upstream kind | Where it runs | Auth | Docs |
 |---|---|---|---|
