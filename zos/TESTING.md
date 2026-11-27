@@ -135,7 +135,7 @@ See [actuator/README.md](actuator/README.md) for full details. Quick steps:
    ```
    This copies uv's CPython 3.12 directory into `~/.zos-actuator/python/`, builds `~/.zos-actuator/venv` against `~/.zos-actuator/python/bin/python3.12`, creates `~/.zos-actuator/config.toml` (`chmod 600`), and installs LaunchAgents (`com.zos.tmux` and `com.zos.actuator`).
 3. **Edit `~/.zos-actuator/config.toml`** and paste the token (keep `url = "ws://127.0.0.1:8787/actuator"` — `/actuator` is intentionally local-only).
-4. **Grant Full Disk Access** (for `mac_messages_search` and AddressBook contact names):
+4. **Grant Full Disk Access** (for the `mac_messages_*` / `mac_contacts_*` read tools); `mac_messages_send` additionally needs **Automation → Messages**, which macOS prompts for on first send:
    - **System Settings → Privacy & Security → Full Disk Access → `+`** (`Cmd+Shift+G`) → add:
      ```text
      ~/.zos-actuator/python/bin/python3.12

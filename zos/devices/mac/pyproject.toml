@@ -1,7 +1,7 @@
 [project]
 name = "zos-mac"
-version = "0.2.0"
-description = "Standalone macOS stdio MCP server for ZOS (Messages search, Contacts lookup, persistent tmux shell)"
+version = "0.3.0"
+description = "Standalone macOS stdio MCP server for ZOS (Contacts, iMessage/SMS read and send, persistent tmux shell)"
 requires-python = ">=3.12"
 dependencies = [
     "mcp>=1.9.0",

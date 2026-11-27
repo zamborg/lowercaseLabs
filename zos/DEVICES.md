@@ -21,10 +21,10 @@ ZOS never needs inbound access to your machine — only an outbound WebSocket co
 
 ## 2. Bridge Any Local Stdio MCP Server
 
-Install `zos-device` from the `zos-v3.2.4` release:
+Install `zos-device` from the `zos-v3.2.5` release:
 
 ```bash
-git clone --depth 1 --branch zos-v3.2.4 https://github.com/zamborg/lowercaseLabs.git
+git clone --depth 1 --branch zos-v3.2.5 https://github.com/zamborg/lowercaseLabs.git
 cd lowercaseLabs/zos/device
 uv tool install .
 ```
@@ -77,10 +77,19 @@ Explicit owner tier overrides in **`/admin/policy`** (or `zos policy set`) **alw
 
 ## 4. Reference Example: `zos-mac` (`devices/mac/`)
 
-`zos-mac` (`zos/devices/mac/`) is a standalone macOS stdio MCP server exposing two tools:
+`zos-mac` (`zos/devices/mac/`, v0.3.0) is a standalone macOS stdio MCP server for Contacts, full iMessage/SMS, and a shell. ZOS prefixes each tool with the device slug (`mac_`):
 
-- **`messages_search`** (`readOnlyHint: true` → `read` tier): read-only incremental FTS5 search over `~/Library/Messages/chat.db` with macOS AddressBook contact-name resolution.
-- **`shell_run`** (`readOnlyHint: false` → `external` tier, approval required): runs commands in a persistent isolated `tmux -L zos` shell pane.
+| Tool | Hint → ZOS tier | What it does |
+|---|---|---|
+| `contacts_search(query, limit)` | `readOnlyHint: true` → `read` | Fuzzy match (typo-tolerant) over name, nickname, organization, or an exact phone/email. Returns contact ids with labeled phones/emails. |
+| `contacts_get(id)` | `readOnlyHint: true` → `read` | One contact with all labeled phones and emails. |
+| `messages_threads(limit, since?, query?)` | `readOnlyHint: true` → `read` | Recent conversations, newest first: chat id, display/group name, participants, last message time + snippet, `is_group`, unread count. |
+| `messages_read(chat, limit, before?)` | `readOnlyHint: true` → `read` | One conversation in chronological order (`chat` = chat id, phone/email, or contact id), paginated via `next_before`. |
+| `messages_search(query, handle?, since?, limit)` | `readOnlyHint: true` → `read` | Incremental FTS5 search over `chat.db`; results include `chat_id` for `messages_read`. |
+| `messages_send(to, text)` | none → `external` (approval required) | Sends via Messages.app (`osascript`, iMessage then SMS). `to` = phone, email, chat id (group chats), or contact id; ambiguous contacts return the options instead of guessing. Confirms by polling `chat.db` and reports `sent` / `unconfirmed` plus the chat id. |
+| `shell_run` | `readOnlyHint: false` → `external` (approval required) | Runs commands in a persistent isolated `tmux -L zos` shell pane. |
+
+"Text Jared" workflow for any connected agent: `mac_contacts_search` → (optionally `mac_messages_threads` / `mac_messages_read`) → `mac_messages_send` (approved by you in ZOS). See [`devices/mac/README.md`](devices/mac/README.md).
 
 Because `zos-mac` is just a standard stdio MCP server, you can also plug it directly into **Claude Desktop** (without ZOS):
 
@@ -104,7 +113,7 @@ Anyone running their own hosted ZOS (for example `https://my-zos.exe.xyz` on exe
 2. **Add the device in ZOS:** Open `https://my-zos.exe.xyz/admin/modules` → **Runs on your machine** → add slug `mac` → copy the one-time token (`zos_a_...`).
 3. **Install `zos-device`, `zos-mac`, and the LaunchAgents:**
    ```bash
-   git clone --depth 1 --branch zos-v3.2.4 https://github.com/zamborg/lowercaseLabs.git
+   git clone --depth 1 --branch zos-v3.2.5 https://github.com/zamborg/lowercaseLabs.git
    cd lowercaseLabs/zos
    ./deploy/launchd/install.sh
    ```
@@ -115,14 +124,15 @@ Anyone running their own hosted ZOS (for example `https://my-zos.exe.xyz` on exe
    token = "zos_a_YOUR_TOKEN_HERE"
    ```
    *(The `com.zos.actuator` LaunchAgent launches `zos-device --config ~/.zos-actuator/config.toml -- ~/.zos-actuator/venv/bin/python -m zos_mac --config ~/.zos-actuator/config.toml`, keeping `zos-mac` running under the dedicated interpreter so macOS TCC attributes Full Disk Access to it.)*
-5. **Grant Full Disk Access (for Messages & Contacts):**
-   - Open **System Settings → Privacy & Security → Full Disk Access** and add `~/.zos-actuator/python/bin/python3.12` (exact resolved path printed by `install.sh`).
+5. **Grant macOS permissions (TCC) to the dedicated interpreter:**
+   - **Full Disk Access** (reading Messages & Contacts): **System Settings → Privacy & Security → Full Disk Access** → add `~/.zos-actuator/python/bin/python3.12` (exact resolved path printed by `install.sh`).
+   - **Automation → Messages** (only for `mac_messages_send`): macOS prompts the first time a send runs (*"python3.12" wants access to control "Messages"*) — click **OK**. If you dismissed it, enable it under **System Settings → Privacy & Security → Automation → python3.12 → Messages**. Without it, sends fail with an Automation hint; reads keep working. ZOS never bypasses TCC.
 6. **Start the LaunchAgents:**
    ```bash
    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.zos.tmux.plist || true
    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.zos.actuator.plist || true
    ```
-7. **Verify:** Refresh `https://my-zos.exe.xyz/admin/modules` — under **Runs on your machine**, `mac` should show **`online`** with **`2`** tools (`mac_messages_search` at `read` tier, `mac_shell_run` at `external` tier).
+7. **Verify:** Refresh `https://my-zos.exe.xyz/admin/modules` — under **Runs on your machine**, `mac` should show **`online`** with **`7`** tools (`mac_contacts_search`, `mac_contacts_get`, `mac_messages_threads`, `mac_messages_read`, `mac_messages_search` at `read` tier; `mac_messages_send` and `mac_shell_run` at `external` tier).
 
 ---
 

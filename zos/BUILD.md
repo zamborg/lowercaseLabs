@@ -71,6 +71,8 @@ zos/
 | `memory_get`, `memory_search` | read | |
 | `memory_put`, `memory_delete` | write | |
 | `mac_messages_search` | read | actuator only |
+| `mac_contacts_search`, `mac_contacts_get`, `mac_messages_threads`, `mac_messages_read` | read | device (`zos-mac` 0.3.0, v3.2.5) |
+| `mac_messages_send` | external | device (`zos-mac` 0.3.0, v3.2.5) |
 | `mac_shell_run` | external | actuator only |
 | `gcal_list_events` | read | |
 | `gcal_create_event`, `gcal_update_event`, `gcal_delete_event` | external | |
