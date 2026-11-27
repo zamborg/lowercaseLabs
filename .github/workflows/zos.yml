@@ -125,3 +125,16 @@ jobs:
           uv run playwright install --with-deps chromium
           uv run ruff check
           uv run pytest
+
+      - name: Web device — lint and test
+        working-directory: zos/devices/web
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          E2E_DIR="${RUNNER_TEMP}/zos-web-e2e"
+          mkdir -p "${E2E_DIR}"
+          npm install --prefix "${E2E_DIR}" --no-audit --no-fund --save-exact "@playwright/mcp@${VERSION}"
+          PLAYWRIGHT_BROWSERS_PATH="${E2E_DIR}/browsers" \
+            node "${E2E_DIR}/node_modules/@playwright/mcp/cli.js" install-browser chromium
+          uv sync --frozen
+          uv run ruff check
+          ZOS_WEB_E2E_MCP_DIR="${E2E_DIR}" PLAYWRIGHT_BROWSERS_PATH="${E2E_DIR}/browsers" uv run pytest
