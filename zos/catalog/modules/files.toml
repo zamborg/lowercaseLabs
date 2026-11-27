@@ -1,8 +1,8 @@
 manifest_version = 2
 slug = "files"
 name = "Files"
-version = "0.1.0"
-description = "Shared drive for you and your agents: path-based files (skills/<name>/SKILL.md and more) stored in Postgres."
+version = "0.2.0"
+description = "Shared filesystem for you and your agents: real folders, atomic move/copy/delete, and skills/<name>/SKILL.md sync stored in Postgres."
 
 [runtime]
 kind = "container"
@@ -30,7 +30,11 @@ help = "Total storage quota in bytes (default 1073741824 = 1 GiB). Per-file limi
 [tiers]
 default = "write"
 "files_list" = "read"
+"files_tree" = "read"
+"files_stat" = "read"
 "files_read" = "read"
 "files_write" = "write"
-"files_delete" = "write"
+"files_mkdir" = "write"
 "files_move" = "write"
+"files_copy" = "write"
+"files_delete" = "write"

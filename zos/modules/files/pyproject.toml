@@ -1,6 +1,6 @@
 [project]
 name = "zos-files"
-version = "0.1.0"
+version = "0.2.0"
 description = "Shared file store module for ZOS (skills and artifacts shared between agents and the owner)"
 requires-python = ">=3.12"
 dependencies = [

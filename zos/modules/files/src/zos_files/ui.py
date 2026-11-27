@@ -27,6 +27,7 @@ from zos_files.store import (
     PathError,
     QuotaExceededError,
     is_text,
+    normalize_dir_path,
     normalize_path,
     normalize_prefix,
 )
@@ -296,6 +297,10 @@ _EXTRA_CSS = """
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; min-width: 0; }
 pre.preview { margin: 0; padding: 14px 16px; overflow: auto; max-height: 28rem; white-space: pre-wrap; word-break: break-word; font: 13px/1.55 var(--mono); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+.actions-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 720px) { .actions-grid { grid-template-columns: 1fr; } }
+.confirm-note { margin: 0 0 8px; color: var(--muted); font-size: 12.5px; }
+.pager { margin-top: 12px; display: flex; justify-content: flex-end; }
 """
 _CSS = _THEME_CSS + _EXTRA_CSS
 
@@ -435,13 +440,30 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
         pref = _prefix(request)
         csrf_token, is_new = _ensure_csrf(request)
         try:
-            folder = normalize_prefix(request.query_params.get("p", ""))
+            folder = normalize_dir_path(request.query_params.get("p", ""))
         except PathError as exc:
             return HTMLResponse(
                 _page(title="Invalid path", prefix=pref, body=f'<p class="empty">{_e(exc)}</p>'),
                 status_code=400,
             )
-        listing = await store.list(prefix=folder, recursive=False, limit=500)
+        cursor = request.query_params.get("cursor") or None
+        try:
+            listing = await store.list(path=folder, limit=500, cursor=cursor)
+        except KeyError:
+            return HTMLResponse(
+                _page(title="Not found", prefix=pref, body='<p class="empty">Folder not found.</p>'),
+                status_code=404,
+            )
+        except ValueError as exc:
+            # If the user opened a file path via `/?p=...`, redirect cleanly to `/view`.
+            if "is a file" in str(exc):
+                return RedirectResponse(_link_view(pref, folder), status_code=303)
+            return HTMLResponse(
+                _page(title="Invalid request", prefix=pref, body=f'<p class="empty">{_e(exc)}</p>'),
+                status_code=400,
+            )
+
+        folder_meta = await store.stat(folder) if folder else None
         usage = await store.usage()
 
         used, quota = usage["used_bytes"], usage["quota_bytes"]
@@ -451,6 +473,7 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
             f'<div class="usage"><div class="bar {bar_cls}"><span style="width:{pct:.1f}%"></span></div>'
             f'<div class="label">{fmt_bytes(used)} of {fmt_bytes(quota)} used · '
             f'{usage["file_count"]} file{"s" if usage["file_count"] != 1 else ""} · '
+            f'{usage["folder_count"]} folder{"s" if usage["folder_count"] != 1 else ""} · '
             f'max {fmt_bytes(usage["max_file_bytes"])} per file</div></div>'
         )
 
@@ -458,16 +481,26 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
         for ent in listing["entries"]:
             if ent["type"] == "folder":
                 href = _link_browse(pref, ent["path"])
-                name = ent["path"].rstrip("/").rsplit("/", 1)[-1]
+                name = ent["name"]
+                n_files = int(ent["file_count"])
+                n_sub = int(ent["folder_count"])
+                if n_files == 0 and n_sub == 0:
+                    summary = "Empty folder"
+                else:
+                    parts = [f'{n_files} file{"s" if n_files != 1 else ""}']
+                    if n_sub:
+                        parts.append(f'{n_sub} subfolder{"s" if n_sub != 1 else ""}')
+                    parts.append(fmt_bytes(ent["size"]))
+                    summary = " · ".join(parts)
                 rows.append(
                     f'<a class="item folder" href="{_e(href)}"><div class="top">'
                     f'<span class="title">{_e(name)}/</span>'
                     f'<span class="when">{_fmt_time(ent["updated_at"])}</span></div>'
-                    f'<div class="meta"><span>{ent["file_count"]} file{"s" if ent["file_count"] != 1 else ""}'
-                    f" · {fmt_bytes(ent['size'])}</span></div></a>"
+                    f'<div class="meta"><span>{summary}</span>'
+                    f'<span>by {_e(ent["updated_by"])}</span></div></a>'
                 )
             else:
-                name = ent["path"].rsplit("/", 1)[-1]
+                name = ent["name"]
                 rows.append(
                     f'<a class="item" href="{_e(_link_view(pref, ent["path"]))}"><div class="top">'
                     f'<span class="title">{_e(name)}</span>'
@@ -481,7 +514,11 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
             else '<div class="list"><p class="empty">This folder is empty.</p></div>'
         )
         if listing["next_cursor"]:
-            list_html += '<p class="muted">Showing the first 500 entries.</p>'
+            next_href = _link_browse(pref, folder, cursor=listing["next_cursor"])
+            list_html += (
+                f'<div class="pager"><a class="btn secondary sm" href="{_e(next_href)}">'
+                f"Next page →</a></div>"
+            )
 
         notice = request.query_params.get("notice", "").strip()
         error = request.query_params.get("error", "").strip()
@@ -491,35 +528,112 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
         if error:
             flash += f'<div class="notice notice-err" role="alert"><div>{_e(error)}</div></div>'
 
-        upload_html = f"""
+        upload_dir = f"{folder}/" if folder else ""
+        create_and_upload_html = f"""
         <section class="section">
-          <div class="section-head"><h2>Upload</h2>
-            <span class="meta">into <code>{_e(folder or "/")}</code></span></div>
-          <div class="card">
-            <form class="vstack" method="post" action="{_e(pref)}/upload" enctype="multipart/form-data">
-              <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
-              <label class="field">Folder <span class="hint">· optional, e.g. skills/my-skill/</span>
-                <input type="text" name="dir" value="{_e(folder)}" placeholder="root (leave blank) or skills/my-skill/">
-              </label>
-              <label class="field">Files <span class="hint">· up to {fmt_bytes(usage["max_file_bytes"])} each</span>
-                <input type="file" name="files" multiple required>
-              </label>
-              <div class="row"><span class="spacer"></span><button type="submit">Upload</button></div>
-            </form>
+          <div class="actions-grid">
+            <div class="card">
+              <div class="section-head"><h2>New folder</h2>
+                <span class="meta">in <code>{_e(upload_dir or "/")}</code></span></div>
+              <form class="vstack" method="post" action="{_e(pref)}/mkdir">
+                <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+                <input type="hidden" name="parent" value="{_e(folder)}">
+                <label class="field">Folder name <span class="hint">· nested paths like a/b work too</span>
+                  <input type="text" name="name" placeholder="e.g. my-skill" required>
+                </label>
+                <div class="row"><span class="spacer"></span><button type="submit" class="secondary">Create folder</button></div>
+              </form>
+            </div>
+            <div class="card">
+              <div class="section-head"><h2>Upload</h2>
+                <span class="meta">into <code>{_e(upload_dir or "/")}</code></span></div>
+              <form class="vstack" method="post" action="{_e(pref)}/upload" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+                <input type="hidden" name="dir" value="{_e(upload_dir)}">
+                <label class="field">Files <span class="hint">· up to {fmt_bytes(usage["max_file_bytes"])} each</span>
+                  <input type="file" name="files" multiple required>
+                </label>
+                <div class="row"><span class="spacer"></span><button type="submit">Upload</button></div>
+              </form>
+            </div>
+          </div>
+        </section>"""
+
+        folder_actions_html = ""
+        if folder and folder_meta is not None:
+            f_files = int(folder_meta["file_count"])
+            f_subs = int(folder_meta["folder_count"])
+            f_size = int(folder_meta["total_size"])
+            is_non_empty = f_files > 0 or f_subs > 0
+            if is_non_empty:
+                del_desc = (
+                    f'Contains {f_files} file{"s" if f_files != 1 else ""}'
+                    + (f' and {f_subs} subfolder{"s" if f_subs != 1 else ""}' if f_subs else "")
+                    + f" ({fmt_bytes(f_size)}). Deleting removes everything inside."
+                )
+                del_btn = f'Confirm delete folder ({f_files} file{"s" if f_files != 1 else ""})'
+                rec_val = "true"
+            else:
+                del_desc = "This folder is empty."
+                del_btn = "Confirm delete empty folder"
+                rec_val = "false"
+
+            folder_actions_html = f"""
+        <section class="section">
+          <div class="section-head"><h2>Folder actions</h2>
+            <span class="meta"><code>{_e(folder)}/</code></span></div>
+          <div class="actions-grid">
+            <div class="card">
+              <form class="vstack" method="post" action="{_e(pref)}/move">
+                <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+                <input type="hidden" name="kind" value="folder">
+                <input type="hidden" name="from" value="{_e(folder)}">
+                <label class="field">Rename / move folder to
+                  <input type="text" name="to" value="{_e(folder)}" required>
+                </label>
+                <div class="row"><span class="spacer"></span><button type="submit" class="secondary">Move</button></div>
+              </form>
+            </div>
+            <div class="card">
+              <form class="vstack" method="post" action="{_e(pref)}/copy">
+                <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+                <input type="hidden" name="kind" value="folder">
+                <input type="hidden" name="from" value="{_e(folder)}">
+                <label class="field">Copy folder to
+                  <input type="text" name="to" value="{_e(folder)}-copy" required>
+                </label>
+                <div class="row"><span class="spacer"></span><button type="submit" class="secondary">Copy</button></div>
+              </form>
+            </div>
+          </div>
+          <div class="card" style="margin-top:14px">
+            <p class="confirm-note">{_e(del_desc)}</p>
+            <details class="disclose">
+              <summary class="btn danger sm">Delete folder</summary>
+              <div class="disclose-body">
+                <form class="inline" method="post" action="{_e(pref)}/delete">
+                  <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+                  <input type="hidden" name="path" value="{_e(folder)}">
+                  <input type="hidden" name="recursive" value="{rec_val}">
+                  <button type="submit" class="danger solid sm">{_e(del_btn)}</button>
+                </form>
+              </div>
+            </details>
           </div>
         </section>"""
 
         body = f"""
         <header class="page-head"><div>
           <h1>Files</h1>
-          <p class="lede">A shared drive for you and your agents. Skills live at
+          <p class="lede">A shared filesystem for you and your agents. Skills live at
           <code>skills/&lt;name&gt;/SKILL.md</code>.</p>
         </div></header>
         {flash}
         {usage_html}
         {_breadcrumbs(pref, folder)}
         {list_html}
-        {upload_html}
+        {create_and_upload_html}
+        {folder_actions_html}
         """
         resp = HTMLResponse(_page(title=folder or "Files", prefix=pref, body=body))
         return _attach_csrf_cookie(resp, csrf_token, prefix=pref, is_new=is_new)
@@ -539,6 +653,11 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
         path = meta["path"]
         folder = path.rsplit("/", 1)[0] if "/" in path else ""
         name = path.rsplit("/", 1)[-1]
+        if "." in name and not name.startswith("."):
+            stem, ext = name.rsplit(".", 1)
+            copy_default = f"{folder}/{stem}-copy.{ext}" if folder else f"{stem}-copy.{ext}"
+        else:
+            copy_default = f"{path}-copy"
 
         if is_text(data):
             shown = data[:PREVIEW_MAX_BYTES].decode("utf-8", errors="ignore")
@@ -575,16 +694,30 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
           {preview}
         </section>
         <section class="section">
-          <div class="section-head"><h2>Rename / move</h2></div>
-          <div class="card">
-            <form class="vstack" method="post" action="{_e(pref)}/move">
-              <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
-              <input type="hidden" name="from" value="{_e(path)}">
-              <label class="field">New path
-                <input type="text" name="to" value="{_e(path)}" required>
-              </label>
-              <div class="row"><span class="spacer"></span><button type="submit" class="secondary">Move</button></div>
-            </form>
+          <div class="section-head"><h2>Move &amp; copy</h2></div>
+          <div class="actions-grid">
+            <div class="card">
+              <form class="vstack" method="post" action="{_e(pref)}/move">
+                <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+                <input type="hidden" name="kind" value="file">
+                <input type="hidden" name="from" value="{_e(path)}">
+                <label class="field">Rename / move to
+                  <input type="text" name="to" value="{_e(path)}" required>
+                </label>
+                <div class="row"><span class="spacer"></span><button type="submit" class="secondary">Move</button></div>
+              </form>
+            </div>
+            <div class="card">
+              <form class="vstack" method="post" action="{_e(pref)}/copy">
+                <input type="hidden" name="csrf_token" value="{_e(csrf_token)}">
+                <input type="hidden" name="kind" value="file">
+                <input type="hidden" name="from" value="{_e(path)}">
+                <label class="field">Copy to
+                  <input type="text" name="to" value="{_e(copy_default)}" required>
+                </label>
+                <div class="row"><span class="spacer"></span><button type="submit" class="secondary">Copy</button></div>
+              </form>
+            </div>
           </div>
         </section>
         <section class="section">
@@ -626,6 +759,32 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
                 "Content-Security-Policy": _CSP,
             },
         )
+
+    async def mkdir_action(request: Request) -> Response:
+        if _verify_owner(request) is None:
+            return _forbidden()
+        pref = _prefix(request)
+        form = await request.form()
+        if not await _csrf_ok(request, form):
+            return HTMLResponse("<h1>Invalid CSRF token</h1>", status_code=403)
+        try:
+            parent = normalize_dir_path(str(form.get("parent", "")))
+        except PathError as exc:
+            return _redirect(pref, "", error=str(exc))
+        raw_name = str(form.get("name", "")).strip()
+        if not raw_name:
+            return _redirect(pref, parent, error="Folder name is required.")
+        target = f"{parent}/{raw_name}" if parent else raw_name
+        try:
+            meta = await store.mkdir(target, updated_by="owner")
+        except (PathError, ConflictError) as exc:
+            return _redirect(pref, parent, error=str(exc))
+        msg = (
+            f"Created folder {meta['path']}/."
+            if meta["created"]
+            else f"Folder {meta['path']}/ already exists."
+        )
+        return _redirect(pref, parent, notice=msg)
 
     async def upload_action(request: Request) -> Response:
         if _verify_owner(request) is None:
@@ -677,12 +836,22 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
         if not await _csrf_ok(request, form):
             return HTMLResponse("<h1>Invalid CSRF token</h1>", status_code=403)
         path = str(form.get("path", ""))
-        folder = path.rsplit("/", 1)[0] if "/" in path else ""
+        recursive = str(form.get("recursive", "")).strip().lower() in ("1", "true", "yes", "on")
+        clean_stripped = path.rstrip("/")
+        parent = clean_stripped.rsplit("/", 1)[0] if "/" in clean_stripped else ""
         try:
-            await store.delete(path)
-        except (PathError, KeyError) as exc:
-            return _redirect(pref, folder, error=str(exc.args[0] if exc.args else exc))
-        return _redirect(pref, folder, notice=f"Deleted {path}.")
+            res = await store.delete(path, recursive=recursive)
+        except (PathError, KeyError, ConflictError) as exc:
+            return _redirect(pref, parent, error=str(exc.args[0] if exc.args else exc))
+        if res["type"] == "folder":
+            nf = int(res["deleted_files"])
+            nd = int(res["deleted_folders"])
+            return _redirect(
+                pref,
+                parent,
+                notice=f"Deleted folder {res['path']}/ ({nf} file{'s' if nf != 1 else ''}, {nd} folder{'s' if nd != 1 else ''}).",
+            )
+        return _redirect(pref, parent, notice=f"Deleted {res['path']}.")
 
     async def move_action(request: Request) -> Response:
         if _verify_owner(request) is None:
@@ -693,15 +862,45 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
             return HTMLResponse("<h1>Invalid CSRF token</h1>", status_code=403)
         src = str(form.get("from", ""))
         dst = str(form.get("to", "")).strip()
+        kind = str(form.get("kind", "file")).strip()
         try:
             meta = await store.move(src, dst, updated_by="owner")
         except (PathError, KeyError, ValueError, ConflictError) as exc:
             msg = str(exc.args[0] if isinstance(exc, KeyError) and exc.args else exc)
-            return RedirectResponse(
-                f"{_link_view(pref, src)}&error={quote(msg)}", status_code=303
-            )
+            if kind == "folder":
+                return _redirect(pref, src.rstrip("/"), error=msg)
+            return RedirectResponse(f"{_link_view(pref, src)}&error={quote(msg)}", status_code=303)
+        if meta["type"] == "folder":
+            return _redirect(pref, meta["path"], notice=f"Moved folder to {meta['path']}/.")
         new_folder = meta["path"].rsplit("/", 1)[0] if "/" in meta["path"] else ""
         return _redirect(pref, new_folder, notice=f"Moved to {meta['path']}.")
+
+    async def copy_action(request: Request) -> Response:
+        if _verify_owner(request) is None:
+            return _forbidden()
+        pref = _prefix(request)
+        form = await request.form()
+        if not await _csrf_ok(request, form):
+            return HTMLResponse("<h1>Invalid CSRF token</h1>", status_code=403)
+        src = str(form.get("from", ""))
+        dst = str(form.get("to", "")).strip()
+        kind = str(form.get("kind", "file")).strip()
+        try:
+            meta = await store.copy(src, dst, updated_by="owner")
+        except (PathError, KeyError, ValueError, ConflictError, QuotaExceededError) as exc:
+            msg = str(exc.args[0] if isinstance(exc, KeyError) and exc.args else exc)
+            if kind == "folder":
+                return _redirect(pref, src.rstrip("/"), error=msg)
+            return RedirectResponse(f"{_link_view(pref, src)}&error={quote(msg)}", status_code=303)
+        if meta["type"] == "folder":
+            nf = int(meta["copied_files"])
+            return _redirect(
+                pref,
+                meta["path"],
+                notice=f"Copied folder to {meta['path']}/ ({nf} file{'s' if nf != 1 else ''}).",
+            )
+        new_folder = meta["path"].rsplit("/", 1)[0] if "/" in meta["path"] else ""
+        return _redirect(pref, new_folder, notice=f"Copied to {meta['path']}.")
 
     return Starlette(
         routes=[
@@ -709,8 +908,10 @@ def create_ui_app(store: FilesStore, *, module_secret: str) -> Starlette:
             Route("/", browse, methods=["GET"]),
             Route("/view", view, methods=["GET"]),
             Route("/download", download, methods=["GET"]),
+            Route("/mkdir", mkdir_action, methods=["POST"]),
             Route("/upload", upload_action, methods=["POST"]),
             Route("/delete", delete_action, methods=["POST"]),
             Route("/move", move_action, methods=["POST"]),
+            Route("/copy", copy_action, methods=["POST"]),
         ]
     )

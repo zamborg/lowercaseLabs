@@ -1,6 +1,8 @@
-"""Streamable-HTTP MCP server for the ZOS Files module (`list`, `read`, `write`, `delete`, `move`).
+"""Streamable-HTTP MCP server for the ZOS Files module.
 
-Exposed through ZOS as `files_list`, `files_read`, `files_write`, `files_delete`, `files_move`.
+Exposed through ZOS as:
+`files_list`, `files_tree`, `files_stat`, `files_read`, `files_write`,
+`files_mkdir`, `files_move`, `files_copy`, `files_delete`.
 """
 
 from __future__ import annotations
@@ -22,6 +24,9 @@ from starlette.routing import Route
 
 from zos_files.caller import CallerVerificationError, verify_mcp_caller
 from zos_files.store import (
+    DEFAULT_LIST_LIMIT,
+    DEFAULT_TREE_DEPTH,
+    DEFAULT_TREE_MAX_ENTRIES,
     ConflictError,
     FilesStore,
     FileTooLargeError,
@@ -31,16 +36,17 @@ from zos_files.store import (
     is_text,
 )
 
-# "owner" is the identity the authenticated HTTP UI uses for `updated_by`.
+# Default is 4 MiB; a 10 MiB file base64-encoded is ~14 MiB.
 MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024
 
+# "owner" is the identity the authenticated HTTP UI uses for `updated_by`.
 RESERVED_MCP_CALLERS = frozenset({"owner"})
 
 SKILLS_NOTE = (
-    "Shared drive for the owner and all agents. Convention: agent skills live at "
-    "'skills/<name>/SKILL.md' plus supporting files under 'skills/<name>/', so every agent "
-    "on every machine can sync the same skills. Paths are relative and '/'-separated "
-    "(no leading '/', no '..'); folders are just path prefixes."
+    "Shared filesystem for the owner and all agents (real folders, atomic folder move/copy/delete). "
+    "Convention: agent skills live at 'skills/<name>/SKILL.md' plus supporting files under "
+    "'skills/<name>/', so every agent on every machine can sync the same skills. Paths are relative "
+    "and '/'-separated (no leading '/', no '..')."
 )
 
 
@@ -54,26 +60,73 @@ FILES_TOOLS: list[types.Tool] = [
     types.Tool(
         name="list",
         description=(
-            f"List files in the shared drive, e.g. prefix='skills/' to enumerate skills. {SKILLS_NOTE} "
-            "Returns path, size, sha256, updated_at, updated_by. With recursive=false, returns "
-            "direct children and folders (type 'folder', path ends with '/')."
+            f"List the direct contents (`ls`) of one folder (default root ''), folders first then files, "
+            f"with type, size, updated_at, updated_by, and cursor pagination. {SKILLS_NOTE}"
         ),
         input_schema={
             "type": "object",
             "properties": {
-                "prefix": {
+                "path": {
                     "type": "string",
-                    "description": "Folder prefix such as 'skills/' or 'skills/my-skill'. Default: root.",
+                    "default": "",
+                    "description": "Folder path such as '' (root), 'skills', or 'skills/my-skill'.",
                 },
-                "recursive": {
-                    "type": "boolean",
-                    "default": True,
-                    "description": "List every file under the prefix (true) or only direct children (false).",
-                },
-                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": DEFAULT_LIST_LIMIT},
                 "cursor": {
                     "type": "string",
-                    "description": "next_cursor from a previous list response.",
+                    "description": "next_cursor from a previous files_list response.",
+                },
+            },
+            "additionalProperties": False,
+        },
+        annotations=_ann(read_only=True),
+    ),
+    types.Tool(
+        name="tree",
+        description=(
+            f"Show a compact, depth- and entry-capped directory tree to orient quickly (e.g. "
+            f"path='skills' to inspect synced skills). {SKILLS_NOTE}"
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Folder path to root the tree at (default '' = root).",
+                },
+                "depth": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": DEFAULT_TREE_DEPTH,
+                    "description": "Maximum folder depth to descend (default 3).",
+                },
+                "max_entries": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000,
+                    "default": DEFAULT_TREE_MAX_ENTRIES,
+                    "description": "Maximum total entries returned (default 200).",
+                },
+            },
+            "additionalProperties": False,
+        },
+        annotations=_ann(read_only=True),
+    ),
+    types.Tool(
+        name="stat",
+        description=(
+            f"Get metadata for a file or folder (or '' for root). For folders, includes direct child "
+            f"count, recursive file/folder counts, and total size. {SKILLS_NOTE}"
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "File or folder path ('' for root).",
                 },
             },
             "additionalProperties": False,
@@ -99,17 +152,17 @@ FILES_TOOLS: list[types.Tool] = [
     types.Tool(
         name="write",
         description=(
-            f"Create or overwrite a file in the shared drive. {SKILLS_NOTE} "
-            "Max 10 MiB per file plus a total quota. Pass if_sha256 (the sha256 you last read) "
-            "for optimistic concurrency: the write is refused with CONFLICT if the file changed "
-            "(or does not exist). Parent folders are implicit."
+            f"Create or overwrite a file in the shared drive, automatically creating missing parent "
+            f"folders (`mkdir -p`). {SKILLS_NOTE} Max 10 MiB per file plus a total quota. Pass "
+            "if_sha256 (the sha256 you last read) for optimistic concurrency: the write is refused "
+            "with CONFLICT if the file changed (or does not exist)."
         ),
         input_schema={
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Relative path, e.g. 'skills/my-skill/SKILL.md'.",
+                    "description": "Relative file path, e.g. 'skills/my-skill/SKILL.md'.",
                 },
                 "content": {"type": "string", "description": "File content."},
                 "encoding": {
@@ -129,32 +182,80 @@ FILES_TOOLS: list[types.Tool] = [
         annotations=_ann(read_only=False, destructive=True),
     ),
     types.Tool(
-        name="delete",
-        description=f"Delete a single file from the shared drive. {SKILLS_NOTE}",
-        input_schema={
-            "type": "object",
-            "properties": {"path": {"type": "string", "description": "File path."}},
-            "required": ["path"],
-            "additionalProperties": False,
-        },
-        annotations=_ann(read_only=False, destructive=True),
-    ),
-    types.Tool(
-        name="move",
+        name="mkdir",
         description=(
-            f"Move/rename a file in the shared drive. Refuses to overwrite an existing destination. "
-            f"{SKILLS_NOTE}"
+            f"Create a folder and any missing parent folders (idempotent `mkdir -p`). Empty folders "
+            f"persist until deleted. {SKILLS_NOTE}"
         ),
         input_schema={
             "type": "object",
             "properties": {
-                "from": {"type": "string", "description": "Existing file path."},
-                "to": {"type": "string", "description": "New file path."},
+                "path": {
+                    "type": "string",
+                    "description": "Relative folder path, e.g. 'skills/my-skill'.",
+                },
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+        annotations=_ann(read_only=False),
+    ),
+    types.Tool(
+        name="move",
+        description=(
+            f"Move or rename a file or folder atomically in one transaction (creates missing parent "
+            f"folders; refuses overwriting an existing destination or moving a folder into its own "
+            f"subtree). {SKILLS_NOTE}"
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "from": {"type": "string", "description": "Existing file or folder path."},
+                "to": {"type": "string", "description": "New file or folder path."},
             },
             "required": ["from", "to"],
             "additionalProperties": False,
         },
         annotations=_ann(read_only=False),
+    ),
+    types.Tool(
+        name="copy",
+        description=(
+            f"Copy a file or folder recursively in one atomic transaction (counts against total quota; "
+            f"creates missing parent folders; refuses overwriting an existing destination or copying a "
+            f"folder into its own subtree). {SKILLS_NOTE}"
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "from": {"type": "string", "description": "Existing file or folder path."},
+                "to": {"type": "string", "description": "Destination file or folder path."},
+            },
+            "required": ["from", "to"],
+            "additionalProperties": False,
+        },
+        annotations=_ann(read_only=False),
+    ),
+    types.Tool(
+        name="delete",
+        description=(
+            f"Delete a file, an empty folder, or (with recursive=true) a folder and its entire subtree "
+            f"atomically in one transaction, returning deleted counts. {SKILLS_NOTE}"
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File or folder path."},
+                "recursive": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Required to delete a non-empty folder and all of its contents.",
+                },
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+        annotations=_ann(read_only=False, destructive=True),
     ),
 ]
 
@@ -207,15 +308,28 @@ def create_mcp_app(
 
         try:
             if name == "list":
-                raw_prefix = args.get("prefix")
+                raw_path = args.get("path", "")
                 cursor = args.get("cursor")
                 res = await store.list(
-                    prefix=str(raw_prefix) if raw_prefix is not None else None,
-                    recursive=bool(args.get("recursive", True)),
-                    limit=int(args.get("limit", 100)),
+                    path=str(raw_path) if raw_path is not None else "",
+                    limit=int(args.get("limit", DEFAULT_LIST_LIMIT)),
                     cursor=str(cursor) if cursor is not None else None,
                 )
                 return _ok_json(res)
+
+            if name == "tree":
+                raw_path = args.get("path", "")
+                res = await store.tree(
+                    path=str(raw_path) if raw_path is not None else "",
+                    depth=int(args.get("depth", DEFAULT_TREE_DEPTH)),
+                    max_entries=int(args.get("max_entries", DEFAULT_TREE_MAX_ENTRIES)),
+                )
+                return _ok_json(res)
+
+            if name == "stat":
+                raw_path = args.get("path", "")
+                meta = await store.stat(str(raw_path) if raw_path is not None else "")
+                return _ok_json(meta)
 
             if name == "read":
                 meta, data = await store.read(_req_str(args, "path"))
@@ -239,15 +353,30 @@ def create_mcp_app(
                 )
                 return _ok_json({"written": True, "file": meta})
 
-            if name == "delete":
-                meta = await store.delete(_req_str(args, "path"))
-                return _ok_json({"deleted": True, "file": meta})
+            if name == "mkdir":
+                meta = await store.mkdir(_req_str(args, "path"), updated_by=who)
+                return _ok_json({"created": meta["created"], "folder": meta})
 
             if name == "move":
                 meta = await store.move(
                     _req_str(args, "from"), _req_str(args, "to"), updated_by=who
                 )
-                return _ok_json({"moved": True, "file": meta})
+                key = "folder" if meta["type"] == "folder" else "file"
+                return _ok_json({"moved": True, key: meta, "entry": meta})
+
+            if name == "copy":
+                meta = await store.copy(
+                    _req_str(args, "from"), _req_str(args, "to"), updated_by=who
+                )
+                key = "folder" if meta["type"] == "folder" else "file"
+                return _ok_json({"copied": True, key: meta, "entry": meta})
+
+            if name == "delete":
+                meta = await store.delete(
+                    _req_str(args, "path"), recursive=bool(args.get("recursive", False))
+                )
+                key = "folder" if meta["type"] == "folder" else "file"
+                return _ok_json({"deleted": True, key: meta, "entry": meta})
 
             return _err(f"Unknown tool: {name}")
         except PathError as exc:
@@ -264,12 +393,11 @@ def create_mcp_app(
         except (ValueError, TypeError) as exc:
             return _err(f"INVALID_ARGUMENT: {exc}")
 
-    server = Server("zos-files", version="0.1.0", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    server = Server("zos-files", version="0.2.0", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
     session_manager = StreamableHTTPSessionManager(
         app=server,
         json_response=True,
         stateless=True,
-        # Default is 4 MiB; a 10 MiB file base64-encoded is ~14 MiB.
         max_request_body_size=MAX_REQUEST_BODY_BYTES,
         security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
