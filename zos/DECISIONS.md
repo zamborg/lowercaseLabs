@@ -227,3 +227,8 @@ Format: `## YYYY-MM-DD — <Short title>` with **Decision**, **Why**, and **Impa
 - **Why:** Allows plugging any standard local stdio MCP server into ZOS with zero core changes, safe-by-default approval tiers, and owner self-service in `/admin`.
 - **Impact:** CI updated to test `zos/device` and `zos/devices/mac` alongside core and all modules; existing live databases and actuator tokens continue working without migration.
 
+## 2026-11-27 — v3.2.1: Tasks module (`modules/tasks`, `catalog/modules/tasks.toml`)
+- **Decision:** Added standalone `tasks` module (Contract v1, `manifest_version = 2`, `storage.postgres = true`, `network.egress = false`, UI at `/admin/m/tasks/`) for the human owner's personal todo list. Exposed 5 MCP tools (`tasks_list`, `tasks_get` at `read` tier; `tasks_add`, `tasks_update`, `tasks_complete` at `write` tier) with explicit "for the human owner / never for agent work" descriptions and zero delete over MCP (deleting is owner UI only). Owner UI embeds the synced ZOS theme (`python -m zos.web.theme`), enforces `X-ZOS-Caller` HMAC verification and CSRF, groups open tasks into Overdue / Today / Upcoming / No date alongside Done, and attributes each task (`added by <created_by>`). Wired CI, GHCR publish (`ghcr.io/zamborg/zos-tasks`), and `ZOS_IMAGE_TASKS` in `deploy/install.sh` without touching ZOS core.
+- **Why:** Gives the human owner a single personal todo list shared across all connected agents and phones while keeping agent scratchpads separate.
+- **Impact:** Additive module only; verified via standalone unit/MCP/UI tests and core catalog-install E2E test.
+

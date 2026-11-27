@@ -44,6 +44,7 @@ Registry images (optional, digest-pinned <repo>@sha256:<64-hex>):
   ZOS_IMAGE_INBOX                 Pin inbox module manifest to digest image
   ZOS_IMAGE_GMAIL                 Pin gmail module manifest to digest image
   ZOS_IMAGE_GCAL                  Pin gcal module manifest to digest image
+  ZOS_IMAGE_TASKS                 Pin tasks module manifest to digest image
 EOF
 }
 
@@ -173,6 +174,7 @@ validate_digest_image "ZOS_IMAGE_MEMORY" "${ZOS_IMAGE_MEMORY:-}"
 validate_digest_image "ZOS_IMAGE_INBOX" "${ZOS_IMAGE_INBOX:-}"
 validate_digest_image "ZOS_IMAGE_GMAIL" "${ZOS_IMAGE_GMAIL:-}"
 validate_digest_image "ZOS_IMAGE_GCAL" "${ZOS_IMAGE_GCAL:-}"
+validate_digest_image "ZOS_IMAGE_TASKS" "${ZOS_IMAGE_TASKS:-}"
 
 # ── 1. Install prerequisites & Docker Engine (Ubuntu 24.04) ────────────────
 install_docker() {
@@ -386,6 +388,7 @@ for slug, env_name in (
     ("inbox", "ZOS_IMAGE_INBOX"),
     ("gmail", "ZOS_IMAGE_GMAIL"),
     ("gcal", "ZOS_IMAGE_GCAL"),
+    ("tasks", "ZOS_IMAGE_TASKS"),
 ):
     img = os.environ.get(env_name, "").strip()
     if not img:

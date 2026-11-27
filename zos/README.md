@@ -47,6 +47,7 @@ The core holds no domain content. Everything an agent works on reaches it as one
 
 - **Shared memory (module, installed by default):** full-text and fuzzy memory (`memory_put/get/search/list/delete`) with client authorship. The owner view at `/admin/m/memory/` lets you browse, search, and delete.
 - **Inbox (module, installed by default):** async, email-like mailboxes shared between you (`owner`), `general`, and each connected agent. The owner view at `/admin/m/inbox/` shows every mailbox.
+- **Tasks (optional module):** personal todo list for the human owner (`tasks_list/get/add/update/complete`) with a mobile-friendly Today/todo-list view at `/admin/m/tasks/` (Overdue / Today / Upcoming / No date + Done).
 - **Gmail & Google Calendar (optional modules):** `gmail_*` and `gcal_*`. Each module connects to Google from its own owner page with narrowly scoped, encrypted credentials.
 - **Routed remote MCP servers + connector catalog:** connect any Streamable-HTTP remote MCP server (`none`, `bearer`, or `oauth` auth), or install one of 20 verified connector manifests. See [catalog/README.md](catalog/README.md).
 - **Devices (optional):** turn any local stdio MCP server on your Mac or workstation into a ZOS device via `zos-device` (includes `zos-mac` for Messages, Contacts, and persistent tmux shell). See [DEVICES.md](DEVICES.md).

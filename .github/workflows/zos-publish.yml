@@ -31,6 +31,9 @@ jobs:
           - name: zos-google
             context: zos/modules/google
             dockerfile: zos/modules/google/Dockerfile
+          - name: zos-tasks
+            context: zos/modules/tasks
+            dockerfile: zos/modules/tasks/Dockerfile
 
     steps:
       - name: Checkout repository
