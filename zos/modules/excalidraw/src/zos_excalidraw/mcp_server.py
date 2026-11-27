@@ -46,7 +46,8 @@ PATCH["minProperties"] = 1
 SPEC_HELP = (
     "Elements accept type (rectangle, ellipse, diamond, text or arrow), optional unique id, "
     "x/y, width/height and label (text for standalone text). Arrow x/y is its start and "
-    "width/height are signed deltas. Bind start/end to shape IDs, including later shapes."
+    "width/height are signed deltas. Bind start/end to shape IDs, including later shapes. "
+    "Omit arrow coordinates with two bindings to connect shape boundaries automatically."
 )
 DEFINITIONS = {
     "list": ("List shared drawings with titles, versions and last editors.", obj({})),

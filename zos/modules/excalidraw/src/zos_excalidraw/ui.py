@@ -321,15 +321,15 @@ def create_ui_app(store, *, module_secret):
         rows = []
         for row in await store.list():
             ident, title = row["id"], escape(row["title"])
-            rows.append(f"""<li><a href="{prefix}/d/{ident}">{title}</a>
+            rows.append(f"""<li class="item"><a class="title" href="{prefix}/d/{ident}">{title}</a>
 <small>v{row["version"]} · {escape(row["updated_by"])}</small>
 <form action="{prefix}/api/{ident}" data-version="{row["version"]}">
 <input name="title" value="{title}" aria-label="Drawing title" maxlength="500" required>
 <button value="rename">Rename</button><button value="delete" formnovalidate>Delete</button></form></li>""")
-        body = f"""<main class="wrap" data-csrf="{escape(token)}" data-prefix="{prefix}"><h1>Drawings</h1>
+        body = f"""<main class="page" data-csrf="{escape(token)}" data-prefix="{prefix}"><h1>Drawings</h1>
 <form action="{prefix}/api"><input name="title" aria-label="New drawing title" placeholder="Drawing title" maxlength="500" required>
-<button value="create">New drawing</button></form><p id="status" role="status"></p><ul>{"".join(rows)}</ul></main>"""
-        return page(req, "Drawings", body, "drawings", token)
+<button value="create">New drawing</button></form><p id="status" role="status"></p><ul class="boards">{"".join(rows)}</ul></main>"""
+        return page(req, "Drawings", body, "drawings", token, ("drawings",))
 
     async def editor(req):
         row = await store.get(str(req.path_params["id"]))

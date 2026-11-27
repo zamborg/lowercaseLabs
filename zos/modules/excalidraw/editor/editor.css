@@ -4,3 +4,4 @@ header h1 {font-size:1.15rem; margin:0; overflow-wrap:anywhere}
 #editor {flex:1; min-height:0}
 #status {margin-left:auto}
 .excalidraw .default-sidebar-trigger, .excalidraw .sidebar {display:none!important}
+header [hidden] {display:none!important}

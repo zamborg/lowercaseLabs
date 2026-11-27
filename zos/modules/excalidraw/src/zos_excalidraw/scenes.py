@@ -111,6 +111,26 @@ def make_text(ident, label, x, y, container=None):
     return e
 
 
+def edge_toward(shape, dx, dy):
+    """Intersect a ray from a shape's center with its boundary, plus one pixel."""
+    half_w, half_h = shape["width"] / 2, shape["height"] / 2
+    mid_x, mid_y = shape["x"] + half_w, shape["y"] + half_h
+    if not dx and not dy:
+        dx = 1
+    angle = shape.get("angle", 0)
+    cos, sin = math.cos(angle), math.sin(angle)
+    local_x = abs(dx * cos + dy * sin) / max(half_w, 0.01)
+    local_y = abs(dy * cos - dx * sin) / max(half_h, 0.01)
+    if shape["type"] == "ellipse":
+        distance = math.hypot(local_x, local_y)
+    elif shape["type"] == "diamond":
+        distance = local_x + local_y
+    else:
+        distance = max(local_x, local_y)
+    scale = 1 / distance + 1 / math.hypot(dx, dy)
+    return mid_x + dx * scale, mid_y + dy * scale
+
+
 def convert(specs, existing=()):
     if not isinstance(specs, list):
         raise ValueError("elements must be an array")
@@ -156,6 +176,7 @@ def convert(specs, existing=()):
             text.update(x=x + (w - text["width"]) / 2, y=y + (h - text["height"]) / 2)
             result.append(text)
             e["boundElements"].append({"type": "text", "id": text["id"]})
+    labels = {e["containerId"]: e for e in result if e.get("containerId")}
     for arrow, spec in arrows:
         for side in ("start", "end"):
             if side not in spec:
@@ -172,6 +193,25 @@ def convert(specs, existing=()):
             binding = {"id": arrow["id"], "type": "arrow"}
             if binding not in (target.get("boundElements") or []):
                 target["boundElements"] = [*(target.get("boundElements") or []), binding]
+        if "start" in spec and "end" in spec and not spec.keys() & {"x", "y", "width", "height"}:
+            start, end = by_id[spec["start"]], by_id[spec["end"]]
+            dx = end["x"] + end["width"] / 2 - start["x"] - start["width"] / 2
+            dy = end["y"] + end["height"] / 2 - start["y"] - start["height"] / 2
+            if dx == dy == 0:
+                dx = 1
+            x, y = edge_toward(start, dx, dy)
+            end_x, end_y = edge_toward(end, -dx, -dy)
+            arrow.update(
+                x=x,
+                y=y,
+                width=abs(end_x - x),
+                height=abs(end_y - y),
+                points=[[0, 0], [end_x - x, end_y - y]],
+            )
+            if label := labels.get(arrow["id"]):
+                label.update(
+                    x=(x + end_x - label["width"]) / 2, y=(y + end_y - label["height"]) / 2
+                )
     return result
 
 
