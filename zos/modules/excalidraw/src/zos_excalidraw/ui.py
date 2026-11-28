@@ -326,7 +326,13 @@ def create_ui_app(store, *, module_secret):
 <form action="{prefix}/api/{ident}" data-version="{row["version"]}">
 <input name="title" value="{title}" aria-label="Drawing title" maxlength="500" required>
 <button value="rename">Rename</button><button value="delete" formnovalidate>Delete</button></form></li>""")
-        body = f"""<main class="page" data-csrf="{escape(token)}" data-prefix="{prefix}"><h1>Drawings</h1>
+        body = f"""<a class="skip" href="#main">Skip to content</a>
+<header class="appbar"><div class="appbar-in">
+  <a class="brand" href="/admin" title="Back to zos admin">{BRAND_MARK}zos</a>
+  <span class="crumb-sep">/</span>
+  <a class="crumb" href="{prefix}/">Drawings</a>
+</div></header>
+<main class="page" id="main" data-csrf="{escape(token)}" data-prefix="{prefix}"><h1>Drawings</h1>
 <form action="{prefix}/api"><input name="title" aria-label="New drawing title" placeholder="Drawing title" maxlength="500" required>
 <button value="create">New drawing</button></form><p id="status" role="status"></p><ul class="boards">{"".join(rows)}</ul></main>"""
         return page(req, "Drawings", body, "drawings", token, ("drawings",))
@@ -335,7 +341,12 @@ def create_ui_app(store, *, module_secret):
         row = await store.get(str(req.path_params["id"]))
         prefix = escape(req.headers.get("x-forwarded-prefix", ""))
         token = req.cookies.get(COOKIE) or secrets.token_urlsafe(32)
-        body = f"""<header><a href="{prefix}/">Drawings</a><h1>{escape(row["title"])}</h1>
+        body = f"""<header class="appbar editor-bar">
+<a class="brand" href="/admin" title="Back to zos admin">{BRAND_MARK}zos</a>
+<span class="crumb-sep">/</span>
+<a class="crumb" href="{prefix}/">Drawings</a>
+<span class="crumb-sep">/</span>
+<h1>{escape(row["title"])}</h1>
 <span id="status" role="status">Opening drawing…</span><button id="retry" hidden>Retry save</button>
 <button id="reload" hidden>Reload saved version</button></header>
 <div id="editor" data-api="{prefix}/api/{row["id"]}" data-csrf="{escape(token)}"></div>"""

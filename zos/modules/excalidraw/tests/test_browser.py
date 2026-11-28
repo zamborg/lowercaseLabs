@@ -52,9 +52,24 @@ async def test_editor_draws_saves_and_preserves_changes_on_conflict(store, owner
                     await page.add_init_script("""window.cspBlocks = [];
                         document.addEventListener("securitypolicyviolation", e => window.cspBlocks.push(e.blockedURI));""")
                     await page.goto(f"http://127.0.0.1:{port}{prefix}/")
+                    admin_link = page.locator('header a[href="/admin"]')
+                    await expect(admin_link).to_be_visible()
                     await page.get_by_role("link", name="Blueprint").click()
                     canvas = page.locator("canvas.interactive")
                     await expect(canvas).to_be_visible(timeout=15000)
+
+                    async def assert_admin_link_clear_of_toolbar():
+                        await expect(admin_link).to_be_visible()
+                        link_box = await admin_link.bounding_box()
+                        editor_box = await page.locator("#editor").bounding_box()
+                        toolbar = page.locator(".App-toolbar-container, .App-toolbar").first
+                        await expect(toolbar).to_be_visible()
+                        tb_box = await toolbar.bounding_box()
+                        assert link_box is not None and editor_box is not None and tb_box is not None
+                        assert link_box["y"] + link_box["height"] <= editor_box["y"] + 1
+                        assert link_box["y"] + link_box["height"] <= tb_box["y"] + 1
+
+                    await assert_admin_link_clear_of_toolbar()
                     assert (
                         await page.evaluate("window.EXCALIDRAW_ASSET_PATH")
                         == f"http://127.0.0.1:{port}{prefix}/assets/"
@@ -113,6 +128,7 @@ async def test_editor_draws_saves_and_preserves_changes_on_conflict(store, owner
                     )
                     mobile_box = await canvas.bounding_box()
                     assert mobile_box is not None and 0 < mobile_box["width"] <= 390
+                    await assert_admin_link_clear_of_toolbar()
                     assert await page.evaluate("window.cspBlocks") == []
                     assert external == [] and errors == []
                 finally:

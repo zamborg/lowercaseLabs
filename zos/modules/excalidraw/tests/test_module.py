@@ -109,7 +109,11 @@ async def test_signed_ui_csrf_csp_and_autosave(store, owner_headers):
         for route in ["/", "/d/" + d["id"], api, "/assets/bootstrap.js"]:
             assert (await client.get(route)).status_code == 403
         client.headers.update(owner_headers)
+        home = await client.get("/")
+        assert home.status_code == 200
+        assert 'href="/admin"' in home.text
         page = await client.get("/d/" + d["id"])
+        assert 'href="/admin"' in page.text
         for directive in ["default-src 'self'", "connect-src 'self'", "img-src 'self' data: blob:"]:
             assert directive in page.headers["Content-Security-Policy"]
         assert not re.search(r"https?://", page.text)

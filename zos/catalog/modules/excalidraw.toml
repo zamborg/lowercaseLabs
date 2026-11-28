@@ -1,7 +1,7 @@
 manifest_version = 2
 slug = "excalidraw"
 name = "Excalidraw"
-version = "0.1.0"
+version = "0.1.1"
 description = "Shared whiteboards with a self-hosted Excalidraw editor and versioned agent edits."
 
 [runtime]

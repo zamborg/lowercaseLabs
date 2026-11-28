@@ -128,7 +128,7 @@ def create_mcp_app(store, *, module_secret, mcp_path="/mcp"):
         return await dispatch(store, module_secret, params)
 
     server = Server(
-        "zos-excalidraw", version="0.1.0", on_list_tools=list_tools, on_call_tool=call_tool
+        "zos-excalidraw", version="0.1.1", on_list_tools=list_tools, on_call_tool=call_tool
     )
     manager = StreamableHTTPSessionManager(
         app=server,
