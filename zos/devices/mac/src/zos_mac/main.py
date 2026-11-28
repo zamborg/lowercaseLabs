@@ -29,12 +29,12 @@ from zos_mac.chatdb import (
 )
 from zos_mac.contacts import DEFAULT_ADDRESSBOOK_ROOT, MAX_CONTACT_RESULTS, ContactsIndex
 from zos_mac.messages import MessagesIndex
-from zos_mac.send import MAX_SEND_CHARS, MessageSender
+from zos_mac.send import MAX_SEND_CHARS, VALID_SEND_BACKENDS, MessageSender, validate_send_backend
 from zos_mac.shell import DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S, TmuxShellRunner
 
 logger = logging.getLogger("zos_mac")
 
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = "0.3.1"
 DEFAULT_CHAT_DB_PATH = Path("~/Library/Messages/chat.db")
 DEFAULT_INDEX_DB_PATH = Path("~/.zos-actuator/messages.db")
 
@@ -51,6 +51,7 @@ class MacDeviceConfig:
     addressbook_root: Path = DEFAULT_ADDRESSBOOK_ROOT
     tmux_socket: str = "zos"
     tmux_session: str = "zos"
+    send_backend: str = "auto"
 
     @classmethod
     def resolve(
@@ -62,6 +63,7 @@ class MacDeviceConfig:
         addressbook_root: Path | None = None,
         tmux_socket: str | None = None,
         tmux_session: str | None = None,
+        send_backend: str | None = None,
     ) -> MacDeviceConfig:
         raw: dict[str, Any] = {}
         if config_path is not None:
@@ -72,12 +74,14 @@ class MacDeviceConfig:
         def pick(override: Path | None, key: str, default: Path) -> Path:
             return (override if override is not None else Path(str(raw.get(key, str(default))))).expanduser()
 
+        raw_backend = send_backend if send_backend is not None else str(raw.get("send_backend", "auto"))
         return cls(
             chat_db_path=pick(chat_db_path, "chat_db_path", DEFAULT_CHAT_DB_PATH),
             index_db_path=pick(index_db_path, "index_db_path", DEFAULT_INDEX_DB_PATH),
             addressbook_root=pick(addressbook_root, "addressbook_root", DEFAULT_ADDRESSBOOK_ROOT),
             tmux_socket=tmux_socket or str(raw.get("tmux_socket", "zos")),
             tmux_session=tmux_session or str(raw.get("tmux_session", "zos")),
+            send_backend=validate_send_backend(raw_backend),
         )
 
 
@@ -180,12 +184,14 @@ def _tool_definitions() -> list[types.Tool]:
         types.Tool(
             name="messages_send",
             description=(
-                "Send an iMessage (falls back to SMS) from the Mac's Messages app. `to` is a phone "
+                "Send an iMessage (or SMS) from the Mac's Messages app. Uses the macOS Shortcuts "
+                "backend ('ZOS Send Message') when installed for 1:1 handles, or AppleScript as "
+                "fallback (AppleScript is required for group chat_id targets). `to` is a phone "
                 "number, an email, a chat_id (required for group chats), or a contact id from "
                 "contacts_search. For a contact with several handles the one from the most recent "
                 "conversation is used; if that is ambiguous an error lists the options (never guesses). "
-                "Returns status `sent` (confirmed in chat.db) or `unconfirmed`, plus chat_id. "
-                f"{TEXTING_WORKFLOW}"
+                "Returns status `sent` (confirmed in chat.db) or `unconfirmed`, plus `chat_id` and "
+                f"`backend`. {TEXTING_WORKFLOW}"
             ),
             input_schema={
                 "type": "object",
@@ -356,11 +362,19 @@ async def run_stdio(config: MacDeviceConfig) -> None:
     """Serve the macOS MCP server over stdin/stdout."""
     contacts = ContactsIndex(config.addressbook_root)
     messages_index = MessagesIndex(config.chat_db_path, config.index_db_path, contacts=contacts)
+    chat_store = ChatStore(config.chat_db_path, contacts)
+    sender = MessageSender(chat_store, send_backend=config.send_backend)
     shell_runner = TmuxShellRunner(
         socket_name=config.tmux_socket,
         session_name=config.tmux_session,
     )
-    server = build_mac_mcp_server(messages_index, shell_runner, contacts=contacts)
+    server = build_mac_mcp_server(
+        messages_index,
+        shell_runner,
+        contacts=contacts,
+        chat_store=chat_store,
+        sender=sender,
+    )
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
 
@@ -376,7 +390,7 @@ def parse_args(argv: Sequence[str] | None = None) -> MacDeviceConfig:
         default=None,
         help=(
             "Optional TOML config file (reads chat_db_path, index_db_path, addressbook_root, "
-            "tmux_socket, tmux_session)"
+            "tmux_socket, tmux_session, send_backend)"
         ),
     )
     parser.add_argument("--chat-db", type=Path, default=None, help="Override Messages chat.db path")
@@ -386,6 +400,12 @@ def parse_args(argv: Sequence[str] | None = None) -> MacDeviceConfig:
     )
     parser.add_argument("--tmux-socket", type=str, default=None, help="Override tmux socket name (default: zos)")
     parser.add_argument("--tmux-session", type=str, default=None, help="Override tmux session name (default: zos)")
+    parser.add_argument(
+        "--send-backend",
+        choices=VALID_SEND_BACKENDS,
+        default=None,
+        help="Message send backend: auto (default), shortcuts, or applescript",
+    )
     ns = parser.parse_args(argv)
     return MacDeviceConfig.resolve(
         config_path=ns.config,
@@ -394,6 +414,7 @@ def parse_args(argv: Sequence[str] | None = None) -> MacDeviceConfig:
         addressbook_root=ns.addressbook_root,
         tmux_socket=ns.tmux_socket,
         tmux_session=ns.tmux_session,
+        send_backend=ns.send_backend,
     )
 
 
