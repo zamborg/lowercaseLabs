@@ -21,10 +21,10 @@ ZOS never needs inbound access to your machine — only an outbound WebSocket co
 
 ## 2. Bridge Any Local Stdio MCP Server
 
-Install `zos-device` from the `zos-v3.2.7` release:
+Install `zos-device` from the `zos-v3.2.8` release:
 
 ```bash
-git clone --depth 1 --branch zos-v3.2.7 https://github.com/zamborg/lowercaseLabs.git
+git clone --depth 1 --branch zos-v3.2.8 https://github.com/zamborg/lowercaseLabs.git
 cd lowercaseLabs/zos/device
 uv tool install .
 ```
@@ -113,7 +113,7 @@ Anyone running their own hosted ZOS (for example `https://my-zos.exe.xyz` on exe
 2. **Add the device in ZOS:** Open `https://my-zos.exe.xyz/admin/modules` → **Runs on your machine** → add slug `mac` → copy the one-time token (`zos_a_...`).
 3. **Install `zos-device`, `zos-mac`, and the LaunchAgents:**
    ```bash
-   git clone --depth 1 --branch zos-v3.2.7 https://github.com/zamborg/lowercaseLabs.git
+   git clone --depth 1 --branch zos-v3.2.8 https://github.com/zamborg/lowercaseLabs.git
    cd lowercaseLabs/zos
    ./deploy/launchd/install.sh
    ```
@@ -153,7 +153,7 @@ Give your agents a real Chromium browser running on your Mac in a **dedicated, i
 2. **Register the `web` device on your ZOS host:** Open `https://my-zos.exe.xyz/admin/modules` → **Runs on your machine** → add slug **`web`** (or run `zos device add web` on the server) and copy the one-time token.
 3. **Install on your Mac:**
    ```bash
-   git clone --depth 1 --branch zos-v3.2.7 https://github.com/zamborg/lowercaseLabs.git
+   git clone --depth 1 --branch zos-v3.2.8 https://github.com/zamborg/lowercaseLabs.git
    cd lowercaseLabs/zos
    ./deploy/launchd/install-web.sh
    ```
