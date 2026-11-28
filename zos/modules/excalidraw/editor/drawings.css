@@ -1,7 +1,0 @@
-.boards {list-style:none; padding:0; display:grid; gap:.75rem}
-.boards .item {background:var(--surface); border:1px solid var(--border); border-radius:var(--r)}
-.boards .title {display:inline-block; font-size:1rem; margin-right:.75rem}
-.boards small {color:var(--muted)}
-main form {display:flex; flex-wrap:wrap; align-items:center; gap:.5rem}
-.boards form {margin-top:.65rem}
-main input {min-width:0; max-width:100%}

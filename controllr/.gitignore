@@ -1,9 +1,0 @@
-
-shortcuts/signed/
-*.xcodeproj
-.env
-*.key
-build/
-
-ControllrCore/.build/
-.swiftpm/

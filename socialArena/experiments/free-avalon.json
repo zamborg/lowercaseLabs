@@ -1,6 +1,0 @@
-{
-  "game": "avalon", "seed": 104729, "scenarios": 50,
-  "max_usd": 0, "max_decisions": 1000, "probes": true,
-  "policies": {"random": {"kind": "random"}, "scripted": {"kind": "scripted"}},
-  "registration": {"endpoint": "alignment win", "allocation": "50 independent scenarios, two swapped games each", "exclusions": "only complete reversed pairs in primary ratings", "stopping": "fixed 100 games; no capability claims from scripted validation"}
-}

@@ -1,8 +1,0 @@
-{
-    auto_https off
-    admin off
-}
-
-:8000 {
-    import /etc/caddy/Caddyfile.allowlist
-}

@@ -1,5 +1,0 @@
-# Register the `web` device on your ZOS host first:
-#   /admin/modules -> "Runs on your machine" -> slug: web
-#   (or on the ZOS host: zos device add web)
-url = "wss://<your-zos-host>/actuator"
-token = "REPLACE_WITH_ZOS_WEB_DEVICE_TOKEN"

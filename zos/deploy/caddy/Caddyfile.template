@@ -1,4 +1,0 @@
-__DOMAIN__ {
-    encode zstd gzip
-    import /etc/caddy/Caddyfile.allowlist
-}

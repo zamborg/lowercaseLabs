@@ -1,5 +1,0 @@
-.venv
-editor/node_modules
-src/zos_excalidraw/static
-__pycache__
-.pytest_cache
