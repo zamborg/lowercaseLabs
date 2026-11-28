@@ -214,6 +214,18 @@ def _never_real_addressbook(tmp_path_factory: pytest.TempPathFactory, monkeypatc
     monkeypatch.setattr(contacts_mod, "DEFAULT_ADDRESSBOOK_ROOT", empty)
 
 
+@pytest.fixture(autouse=True)
+def _never_real_send_subprocesses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Safety guard: tests must never execute real `shortcuts` or `osascript` sends."""
+    import zos_mac.send as send_mod
+
+    async def _forbid(argv: Sequence[str]) -> tuple[int, str, str]:
+        raise AssertionError(f"Unmocked send subprocess invoked in test: {argv!r}")
+
+    monkeypatch.setattr(send_mod, "run_osascript", _forbid)
+    monkeypatch.setattr(send_mod, "run_shortcuts", _forbid)
+
+
 @dataclass
 class MacFixture:
     root: Path

@@ -64,6 +64,7 @@ async def test_zos_mac_stdio_mcp_tools_and_annotations(tmp_path: Path) -> None:
         assert send is not None
         assert send.read_only_hint is None  # unset -> ZOS defaults to `external` (approval)
         assert "contacts_search" in (by_name["messages_send"].description or "")
+        assert "Shortcuts" in (by_name["messages_send"].description or "")
 
         sr = by_name["shell_run"]
         assert sr.annotations is not None
@@ -88,7 +89,13 @@ async def test_in_process_text_jared_workflow(mac_fixture: MacFixture) -> None:
         TmuxShellRunner(socket_name="zos-unit-never-used"),
         contacts=mac_fixture.contacts,
         chat_store=store,
-        sender=MessageSender(store, runner=runner, confirm_timeout_s=0.1, poll_interval_s=0.05),
+        sender=MessageSender(
+            store,
+            send_backend="applescript",
+            runner=runner,
+            confirm_timeout_s=0.1,
+            poll_interval_s=0.05,
+        ),
     )
     async with Client(server) as client:
         found = _payload(await client.call_tool("contacts_search", {"query": "jared"}))
@@ -105,6 +112,7 @@ async def test_in_process_text_jared_workflow(mac_fixture: MacFixture) -> None:
 
         sent = _payload(await client.call_tool("messages_send", {"to": JARED_ID, "text": "hey"}))
         assert sent["to"] == "+14155550101"
+        assert sent["backend"] == "applescript"
         assert sent["status"] == "unconfirmed"  # fake runner records no chat.db row
         assert len(calls) == 1
 
