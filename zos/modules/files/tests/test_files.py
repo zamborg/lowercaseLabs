@@ -774,6 +774,7 @@ async def test_ui_file_manager_flows(store: FilesStore) -> None:
         # Root lists folders before files ('skills/' before 'a-top.txt')
         r = await client.get("/", headers=headers)
         assert r.status_code == 200
+        assert 'href="/admin"' in r.text
         assert r.text.index("skills/") < r.text.index("a-top.txt")
         assert 'name="viewport"' in r.text
         csrf = client.cookies.get("files_csrf")
@@ -810,6 +811,7 @@ async def test_ui_file_manager_flows(store: FilesStore) -> None:
         before = await store.stat("skills/demo/SKILL.md")
         r = await client.get("/view?p=skills/demo/SKILL.md", headers=headers)
         assert r.status_code == 200
+        assert 'href="/admin"' in r.text
         assert "&lt;b&gt;Demo&lt;/b&gt;" in r.text and "<b>Demo</b>" not in r.text
         r = await client.get("/download?p=skills/demo/SKILL.md", headers=headers)
         assert r.status_code == 200 and r.content == b"# <b>Demo</b>\n"

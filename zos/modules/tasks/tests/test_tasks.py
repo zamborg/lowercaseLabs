@@ -281,6 +281,7 @@ async def test_tasks_ui_caller_signature_grouping_xss_and_crud(tasks_store: Task
         # 3. Signed GET renders all 4 groups, escapes XSS, shows 'added by Claude'
         r_idx = await client.get("/", headers=auth_headers)
         assert r_idx.status_code == 200
+        assert 'href="/admin"' in r_idx.text
         for heading in ("Overdue", "Today", "Upcoming", "No date"):
             assert heading in r_idx.text
         assert "<script>alert(1)</script>" not in r_idx.text
