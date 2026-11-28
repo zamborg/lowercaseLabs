@@ -50,39 +50,39 @@ Choose **Route A** (fastest, no domain needed) or **Route B** (bring your own do
 
 ## Step 2 — Run the Installer (Agent or Human)
 
-SSH into the server and run `deploy/install.sh` pinned to the release tag (`zos-v3.2.6`). Choose the command matching your edge mode (all variants install into `/opt/zos` by default):
+SSH into the server and run `deploy/install.sh` pinned to the release tag (`zos-v3.2.7`). Choose the command matching your edge mode (all variants install into `/opt/zos` by default):
 
 - **`--edge exe` *(recommended no-domain path — run on the exe.dev VM from any directory)*:**
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.2.6/zos/deploy/install.sh -o /tmp/zos-install.sh
+  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.2.7/zos/deploy/install.sh -o /tmp/zos-install.sh
   sudo bash /tmp/zos-install.sh \
     --edge exe \
-    --ref zos-v3.2.6
+    --ref zos-v3.2.7
   ```
   *(Sets `ZOS_BASE_URL=https://$(hostname).exe.xyz` automatically. If you configured a custom domain via `ssh exe.dev domain add`, pass `--domain zos.<your-domain>`.)*
 - **`--edge caddy` *(bring-your-own-domain VPS — automatic Let's Encrypt HTTPS; run from any directory)*:**
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.2.6/zos/deploy/install.sh -o /tmp/zos-install.sh
+  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.2.7/zos/deploy/install.sh -o /tmp/zos-install.sh
   sudo bash /tmp/zos-install.sh \
     --domain zos.<your-domain> \
     --edge caddy \
-    --ref zos-v3.2.6
+    --ref zos-v3.2.7
   ```
 - **`--edge cloudflared` *(outbound Cloudflare Tunnel; run from any directory)*:**
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.2.6/zos/deploy/install.sh -o /tmp/zos-install.sh
+  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.2.7/zos/deploy/install.sh -o /tmp/zos-install.sh
   sudo bash /tmp/zos-install.sh \
     --domain zos.<your-domain> \
     --edge cloudflared \
-    --ref zos-v3.2.6
+    --ref zos-v3.2.7
   ```
 - **`--edge none` *(local `127.0.0.1:8787` only — rehearsals or SSH-tunneled access)*:**
   From GitHub (run from any directory):
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.2.6/zos/deploy/install.sh -o /tmp/zos-install.sh
+  curl -fsSL https://raw.githubusercontent.com/zamborg/lowercaseLabs/zos-v3.2.7/zos/deploy/install.sh -o /tmp/zos-install.sh
   sudo bash /tmp/zos-install.sh \
     --edge none \
-    --ref zos-v3.2.6
+    --ref zos-v3.2.7
   ```
   Or from a local checkout on the host (run from the `zos/` directory of the repo):
   ```bash
@@ -233,9 +233,9 @@ To copy every encrypted backup off-box (S3, Cloudflare R2, Backblaze B2, Google 
 `install.sh --update` takes an encrypted backup first, reuses your saved edge and domain from `/opt/zos/zos/.env`, fetches the requested ref (or pulls updated digest images), runs database migrations, upgrades installed modules (preserving all schemas, secrets, and manual tier/policy overrides), and recreates containers:
 
 ```bash
-sudo bash /opt/zos/zos/deploy/install.sh --update --ref zos-v3.2.6
+sudo bash /opt/zos/zos/deploy/install.sh --update --ref zos-v3.2.7
 ```
-*(Replace `zos-v3.2.6` with a newer release tag when upgrading, omit `--ref` to refresh your persisted ref or `--local-source`, or pass `--ref main` to track the development branch.)*
+*(Replace `zos-v3.2.7` with a newer release tag when upgrading, omit `--ref` to refresh your persisted ref or `--local-source`, or pass `--ref main` to track the development branch.)*
 
 ---
 
@@ -252,7 +252,7 @@ Follow the full migration and restore runbook in [TESTING.md § 11 (Moving ZOS t
 - **Cloudflare Named Tunnel (`--edge cloudflared`):**
   1. **Containerized token mode (recommended for Cloudflare):** Create a remotely-managed Named Tunnel in Cloudflare Zero Trust, set its Public Hostname (`zos.<your-domain>`) service URL to **`http://edge-filter:8000`**, put `CLOUDFLARED_TOKEN=<token>` in `/opt/zos/zos/.env`, and run:
      ```bash
-     sudo bash /opt/zos/zos/deploy/install.sh --domain zos.<your-domain> --edge cloudflared --ref zos-v3.2.6
+     sudo bash /opt/zos/zos/deploy/install.sh --domain zos.<your-domain> --edge cloudflared --ref zos-v3.2.7
      ```
      `edge-filter` publishes no host ports and `cloudflared` is network-isolated on `zos_edge` so traffic can only reach `edge-filter:8000` (enforcing the allowlist, blocking `/healthz`, and allowing `/actuator` WebSockets for a remote Mac actuator).
   2. **Host-side locally-managed mode:** Leave `CLOUDFLARED_TOKEN` unset and configure host `~/.cloudflared/config.yml` from `deploy/cloudflared/config.yml.example` (proxies allowlisted paths including `/actuator` to `http://127.0.0.1:8787`, catch-all `404`).

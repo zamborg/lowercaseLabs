@@ -1,9 +1,9 @@
 # zos-mac
 
-Standalone macOS stdio MCP server for ZOS: Contacts, full iMessage/SMS, and a persistent
-tmux shell. It works directly in any stdio MCP client (e.g. Claude Desktop) or behind
-[`zos-device`](../../device/), which relays it to ZOS. ZOS prefixes every tool with the
-device slug, e.g. `mac_messages_send`. Install and setup: [DEVICES.md](../../DEVICES.md).
+Standalone macOS stdio MCP server for ZOS (`v0.3.1`): Contacts, full iMessage/SMS, and a
+persistent tmux shell. It works directly in any stdio MCP client (e.g. Claude Desktop) or
+behind [`zos-device`](../../device/), which relays it to ZOS. ZOS prefixes every tool with
+the device slug, e.g. `mac_messages_send`. Install and setup: [DEVICES.md](../../DEVICES.md).
 
 ## Tools
 
@@ -33,32 +33,74 @@ device slug, e.g. `mac_messages_send`. Install and setup: [DEVICES.md](../../DEV
   - A contact with one handle uses it. With several, the handle from the most recent 1:1
     conversation wins. If none (or a tie), the tool returns an error listing the options and
     sends nothing.
-  - Sends through Messages.app with `osascript`: iMessage first, then SMS if the iMessage
-    attempt fails and an SMS account is available. Group chats send to the chat id directly.
-  - The recipient and text are passed only as AppleScript `on run argv` items, never
-    interpolated into script source.
   - Text is capped at 4000 characters; empty `to`/`text` are rejected.
   - After sending, polls `chat.db` (~5 s) for the new outgoing row: `status: "sent"` with
-    `chat_id` and `message_id`, or `"unconfirmed"` with a note (check Messages before
-    retrying to avoid duplicates).
+    `chat_id`, `message_id`, and `backend`, or `"unconfirmed"` with a note (check Messages
+    before retrying to avoid duplicates).
+
+## Send backends (`send_backend = "auto" | "shortcuts" | "applescript"`)
+
+Default is `send_backend = "auto"` (set in `~/.zos-actuator/config.toml` or via
+`--send-backend`).
+
+1. **Shortcuts (recommended for 1:1 handles):**
+   - Uses `/usr/bin/shortcuts run "ZOS Send Message" --input-path <tmp.json>` with a private
+     `0600` temp file containing `{"to": "<handle>", "text": "<message>"}` (deleted right
+     afterwards; never logged).
+   - Runs inside Apple's own Shortcuts app, avoiding macOS's Automation → Messages TCC bug on
+     bare launchd Python binaries.
+   - Under `auto`, `zos-mac` automatically uses Shortcuts whenever `shortcuts list` contains
+     `ZOS Send Message` (cached briefly), and falls back to AppleScript otherwise.
+   - On the first send, macOS shows Shortcuts' own privacy prompt — click **Always Allow**.
+2. **AppleScript (`osascript` → Messages.app):**
+   - Required for **group chats** (and any explicit `chat_id` target), because Shortcuts'
+     Send Message action cannot address a chat by id.
+   - Passes recipient and text strictly via `on run argv` (never interpolated into script
+     source); tries iMessage first, then SMS.
+   - Requires the macOS **Automation → Messages** grant for `~/.zos-actuator/python/bin/python3.12`.
+
+### Installing the `ZOS Send Message` Shortcut
+
+**Option A — Import the signed `.shortcut` file (fastest):**
+
+1. Double-click [`shortcuts/ZOS Send Message.shortcut`](shortcuts/ZOS%20Send%20Message.shortcut)
+   (signed with `shortcuts sign --mode anyone` from the committed XML source
+   [`shortcuts/ZOS Send Message.plist`](shortcuts/ZOS%20Send%20Message.plist); contains zero
+   personal data).
+2. Click **Add Shortcut** in Shortcuts.app, keeping the exact name **`ZOS Send Message`**.
+3. On your first `mac_messages_send` call, Shortcuts prompts to allow sending messages —
+   choose **Always Allow**.
+
+**Option B — Build it manually in Shortcuts.app (fallback):**
+
+1. Open **Shortcuts.app** and create a new shortcut named exactly **`ZOS Send Message`**.
+2. Add action **Get Dictionary from Input** — set input to **Shortcut Input**.
+3. Add action **Get Dictionary Value** — set *Get* **Value** for key **`to`** in **Dictionary**
+   (output of step 2).
+4. Add action **Get Dictionary Value** — set *Get* **Value** for key **`text`** in **Dictionary**
+   (output of step 2).
+5. Add action **Send Message**:
+   - Set **Message** to the Dictionary Value from step 4 (`text`).
+   - Set **Recipients** to the Dictionary Value from step 3 (`to`) (right-click Recipients →
+     *Select Magic Variable* → Dictionary Value).
+   - Expand the disclosure arrow and turn **Show When Run** **OFF**.
 
 ## macOS permissions (TCC)
 
-Both are granted to the dedicated interpreter `~/.zos-actuator/python/bin/python3.12`:
-
-1. **Full Disk Access** — reading `~/Library/Messages/chat.db` and the AddressBook SQLite
-   stores (`~/Library/Application Support/AddressBook`). Without it, read tools return an
-   error naming the exact interpreter path.
-2. **Automation → Messages** — required only by `messages_send`. macOS prompts the first time
-   a send runs; if denied, sends fail with a hint pointing to **System Settings → Privacy &
-   Security → Automation**.
+1. **Full Disk Access** (required for reading Messages & Contacts) — grant to the dedicated
+   interpreter `~/.zos-actuator/python/bin/python3.12` in **System Settings → Privacy &
+   Security → Full Disk Access**.
+2. **Shortcuts privacy prompt** (recommended for 1:1 sending) — triggered automatically on the
+   first `ZOS Send Message` send; click **Always Allow**.
+3. **Automation → Messages** (only needed for group chats or the AppleScript backend) —
+   **System Settings → Privacy & Security → Automation → python3.12 → Messages**.
 
 zos-mac never tries to bypass TCC.
 
 ## Configuration
 
 `--config` TOML (or CLI flags) keys: `chat_db_path`, `index_db_path`, `addressbook_root`,
-`tmux_socket`, `tmux_session`.
+`tmux_socket`, `tmux_session`, `send_backend` (`auto` | `shortcuts` | `applescript`).
 
 ## Development
 
@@ -67,7 +109,7 @@ uv run pytest
 uv run ruff check
 ```
 
-Tests use only synthetic fixture databases (`tests/conftest.py`) and a mocked `osascript`
-runner. An autouse guard redirects the default AddressBook path, so tests never read real
-Contacts, Messages, or send anything. The only real `osascript` call in tests runs an
-echo-only script (no app access) to check argv round-tripping.
+Tests use only synthetic fixture databases (`tests/conftest.py`) and mocked subprocess runners
+(with autouse guards preventing real AddressBook reads, `shortcuts`, or `osascript` sends).
+The only real `osascript` call in tests runs an echo-only script (no app access) to check argv
+round-tripping.

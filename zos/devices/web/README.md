@@ -26,7 +26,7 @@ Prerequisites: `uv` (`brew install uv`) and Node.js `>= 20` (Homebrew or `nvm`).
    - *(Or on the ZOS host: `zos device add web`.)*
 2. **Run the installer on your Mac:**
    ```bash
-   git clone --depth 1 --branch zos-v3.2.6 https://github.com/zamborg/lowercaseLabs.git
+   git clone --depth 1 --branch zos-v3.2.7 https://github.com/zamborg/lowercaseLabs.git
    cd lowercaseLabs/zos
    ./deploy/launchd/install-web.sh
    ```

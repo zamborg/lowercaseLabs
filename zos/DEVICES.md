@@ -21,10 +21,10 @@ ZOS never needs inbound access to your machine — only an outbound WebSocket co
 
 ## 2. Bridge Any Local Stdio MCP Server
 
-Install `zos-device` from the `zos-v3.2.6` release:
+Install `zos-device` from the `zos-v3.2.7` release:
 
 ```bash
-git clone --depth 1 --branch zos-v3.2.6 https://github.com/zamborg/lowercaseLabs.git
+git clone --depth 1 --branch zos-v3.2.7 https://github.com/zamborg/lowercaseLabs.git
 cd lowercaseLabs/zos/device
 uv tool install .
 ```
@@ -77,7 +77,7 @@ Explicit owner tier overrides in **`/admin/policy`** (or `zos policy set`) **alw
 
 ## 4. Reference Example: `zos-mac` (`devices/mac/`)
 
-`zos-mac` (`zos/devices/mac/`, v0.3.0) is a standalone macOS stdio MCP server for Contacts, full iMessage/SMS, and a shell. ZOS prefixes each tool with the device slug (`mac_`):
+`zos-mac` (`zos/devices/mac/`, v0.3.1) is a standalone macOS stdio MCP server for Contacts, full iMessage/SMS, and a shell. ZOS prefixes each tool with the device slug (`mac_`):
 
 | Tool | Hint → ZOS tier | What it does |
 |---|---|---|
@@ -86,7 +86,7 @@ Explicit owner tier overrides in **`/admin/policy`** (or `zos policy set`) **alw
 | `messages_threads(limit, since?, query?)` | `readOnlyHint: true` → `read` | Recent conversations, newest first: chat id, display/group name, participants, last message time + snippet, `is_group`, unread count. |
 | `messages_read(chat, limit, before?)` | `readOnlyHint: true` → `read` | One conversation in chronological order (`chat` = chat id, phone/email, or contact id), paginated via `next_before`. |
 | `messages_search(query, handle?, since?, limit)` | `readOnlyHint: true` → `read` | Incremental FTS5 search over `chat.db`; results include `chat_id` for `messages_read`. |
-| `messages_send(to, text)` | none → `external` (approval required) | Sends via Messages.app (`osascript`, iMessage then SMS). `to` = phone, email, chat id (group chats), or contact id; ambiguous contacts return the options instead of guessing. Confirms by polling `chat.db` and reports `sent` / `unconfirmed` plus the chat id. |
+| `messages_send(to, text)` | none → `external` (approval required) | Sends via macOS Shortcuts (`ZOS Send Message`, recommended for 1:1 handles) or Messages.app AppleScript (`osascript`, required for group `chat_id`s). `to` = phone, email, chat id, or contact id; ambiguous contacts return options instead of guessing. Confirms by polling `chat.db` and reports `sent` / `unconfirmed`, `chat_id`, and `backend`. |
 | `shell_run` | `readOnlyHint: false` → `external` (approval required) | Runs commands in a persistent isolated `tmux -L zos` shell pane. |
 
 "Text Jared" workflow for any connected agent: `mac_contacts_search` → (optionally `mac_messages_threads` / `mac_messages_read`) → `mac_messages_send` (approved by you in ZOS). See [`devices/mac/README.md`](devices/mac/README.md).
@@ -113,7 +113,7 @@ Anyone running their own hosted ZOS (for example `https://my-zos.exe.xyz` on exe
 2. **Add the device in ZOS:** Open `https://my-zos.exe.xyz/admin/modules` → **Runs on your machine** → add slug `mac` → copy the one-time token (`zos_a_...`).
 3. **Install `zos-device`, `zos-mac`, and the LaunchAgents:**
    ```bash
-   git clone --depth 1 --branch zos-v3.2.6 https://github.com/zamborg/lowercaseLabs.git
+   git clone --depth 1 --branch zos-v3.2.7 https://github.com/zamborg/lowercaseLabs.git
    cd lowercaseLabs/zos
    ./deploy/launchd/install.sh
    ```
@@ -124,9 +124,10 @@ Anyone running their own hosted ZOS (for example `https://my-zos.exe.xyz` on exe
    token = "zos_a_YOUR_TOKEN_HERE"
    ```
    *(The `com.zos.actuator` LaunchAgent launches `zos-device --config ~/.zos-actuator/config.toml -- ~/.zos-actuator/venv/bin/python -m zos_mac --config ~/.zos-actuator/config.toml`, keeping `zos-mac` running under the dedicated interpreter so macOS TCC attributes Full Disk Access to it.)*
-5. **Grant macOS permissions (TCC) to the dedicated interpreter:**
+5. **Grant macOS permissions (TCC) and set up sending:**
    - **Full Disk Access** (reading Messages & Contacts): **System Settings → Privacy & Security → Full Disk Access** → add `~/.zos-actuator/python/bin/python3.12` (exact resolved path printed by `install.sh`).
-   - **Automation → Messages** (only for `mac_messages_send`): macOS prompts the first time a send runs (*"python3.12" wants access to control "Messages"*) — click **OK**. If you dismissed it, enable it under **System Settings → Privacy & Security → Automation → python3.12 → Messages**. Without it, sends fail with an Automation hint; reads keep working. ZOS never bypasses TCC.
+   - **Shortcuts backend (recommended for `mac_messages_send` 1:1 sends):** Import [`devices/mac/shortcuts/ZOS Send Message.shortcut`](devices/mac/shortcuts/ZOS%20Send%20Message.shortcut) (or build it manually — see [`devices/mac/README.md`](devices/mac/README.md)) keeping the exact name `ZOS Send Message`. Under the default `send_backend = "auto"`, `zos-mac` uses it automatically for 1:1 handles; on the first send, click **Always Allow** on Shortcuts' own privacy prompt.
+   - **AppleScript backend (needed for group chats / `chat_id` sends):** Requires **Automation → Messages** (**System Settings → Privacy & Security → Automation → python3.12 → Messages**). Set `send_backend = "shortcuts"` in `~/.zos-actuator/config.toml` to disable AppleScript fallback, or `"applescript"` to force it. Without it, 1:1 Shortcut sends and all reads keep working. ZOS never bypasses TCC.
 6. **Start the LaunchAgents:**
    ```bash
    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.zos.tmux.plist || true
@@ -152,7 +153,7 @@ Give your agents a real Chromium browser running on your Mac in a **dedicated, i
 2. **Register the `web` device on your ZOS host:** Open `https://my-zos.exe.xyz/admin/modules` → **Runs on your machine** → add slug **`web`** (or run `zos device add web` on the server) and copy the one-time token.
 3. **Install on your Mac:**
    ```bash
-   git clone --depth 1 --branch zos-v3.2.6 https://github.com/zamborg/lowercaseLabs.git
+   git clone --depth 1 --branch zos-v3.2.7 https://github.com/zamborg/lowercaseLabs.git
    cd lowercaseLabs/zos
    ./deploy/launchd/install-web.sh
    ```
